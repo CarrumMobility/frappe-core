@@ -64,6 +64,11 @@ app_license = "mit"
 # 	"Role": "home_page"
 # }
 
+# Website route for SSO (cookie-based login). Served at /sso.
+website_route_rules = [
+	{"from_route": "/sso", "to_route": "sso"},
+]
+
 # Generators
 # ----------
 

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signing in...</title>
+  <style>
+    body { font-family: system-ui, sans-serif; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; color: #4b5563; }
+  </style>
+</head>
+<body>
+  <p id="status">Signing in...</p>
+  <script>
+    (function() {
+      var SSO_USER = 'crm_sso_usr';
+      var SSO_PWD = 'crm_sso_pwd';
+      console.log('SSO_USER', SSO_USER);
+      console.log('SSO_PWD', SSO_PWD);
+      var redirectTo = {{ redirect_to | tojson }};
+      console.log('redirectTo', redirectTo);
+      if (!redirectTo || (typeof redirectTo === 'string' && !redirectTo.trim())) {
+        document.getElementById('status').textContent = 'redirect-to is required';
+        document.getElementById('status').style.color = '#b91c1c';
+        return;
+      }
+      function getCookies() {
+        var cookies = {};
+        document.cookie.split('; ').forEach(function(part) {
+          var eq = part.indexOf('=');
+          if (eq !== -1) cookies[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1).trim());
+        });
+        return cookies;
+      }
+      function clearCookies() {
+        var past = 'Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = SSO_USER + '=; expires=' + past + '; path=/';
+        document.cookie = SSO_PWD + '=; expires=' + past + '; path=/';
+      }
+      var c = getCookies();
+      var usr = c[SSO_USER];
+      var pwd = c[SSO_PWD];
+      if (!usr || !pwd) {
+        window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo);
+        return;
+      }
+      var body = new URLSearchParams({ usr: usr, pwd: pwd });
+      fetch('/api/method/login', { method: 'POST', body: body, credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.message === 'Logged In' || data.message === 'No App') {
+            clearCookies();
+            window.location.replace(redirectTo);
+          } else {
+            document.getElementById('status').textContent = 'Invalid credentials. Redirecting...';
+            setTimeout(function() { window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo); }, 1500);
+          }
+        })
+        .catch(function() {
+          document.getElementById('status').textContent = 'Invalid credentials. Redirecting...';
+          setTimeout(function() { window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo); }, 1500);
+        });
+    })();
+  </script>
+</body>
+</html>

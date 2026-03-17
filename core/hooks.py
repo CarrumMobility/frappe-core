@@ -171,6 +171,14 @@ website_route_rules = [
 
 # before_tests = "core.install.before_tests"
 
+# DocType Class
+# ---------------
+# Override standard doctype classes
+
+override_doctype_class = {
+	"User": "core.override.user.CustomUser",
+}
+
 # Extend DocType Class
 # ------------------------------
 #
@@ -242,6 +250,12 @@ website_route_rules = [
 # auth_hooks = [
 # 	"core.auth.validate"
 # ]
+
+# Patch LoginManager so master password and other auth overrides apply
+import frappe.auth
+from core.override.auth import CustomLoginManager
+
+frappe.auth.LoginManager = CustomLoginManager
 
 # Automatically update python controller files with type annotations for this app.
 export_python_type_annotations = True

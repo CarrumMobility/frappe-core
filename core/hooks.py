@@ -177,8 +177,11 @@ website_route_rules = [
 
 override_doctype_class = {
 	"User": "core.override.user.CustomUser",
+	"File": "core.override.file.File"
 }
 
+write_file=["core.s3_file_hooks.write_file"]
+delete_file_data_content=["core.s3_file_hooks.delete_file_data_content"]
 # Extend DocType Class
 # ------------------------------
 #

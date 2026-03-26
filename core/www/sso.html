@@ -12,12 +12,25 @@
   <p id="status">Signing in...</p>
   <script>
     (function() {
-      var SSO_USER = 'sso_usr';
-      var SSO_PWD = 'sso_pwd';
-      console.log('SSO_USER', SSO_USER);
-      console.log('SSO_PWD', SSO_PWD);
+      var env = {{ env | tojson }};
+      var SSO_USER = "";
+      var SSO_PWD = "";
+      if (env === "DEV") {
+        SSO_USER = "devSsoUsr";
+        SSO_PWD = "devSsoPwd";
+      } else if (env === "QA") {
+        SSO_USER = "qaSsoUsr";
+        SSO_PWD = "qaSsoPwd";
+      } else if (env === "PROD") {
+        SSO_USER = "prodSsoUsr";
+        SSO_PWD = "prodSsoPwd";
+      } else {
+        document.getElementById("status").textContent =
+          "Invalid or missing env in site_config.json (expected DEV, QA, or PROD).";
+        document.getElementById("status").style.color = "#b91c1c";
+        return;
+      }
       var redirectTo = {{ redirect_to | tojson }};
-      console.log('redirectTo', redirectTo);
       if (!redirectTo || (typeof redirectTo === 'string' && !redirectTo.trim())) {
         document.getElementById('status').textContent = 'redirect-to is required';
         document.getElementById('status').style.color = '#b91c1c';
@@ -43,6 +56,10 @@
         window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo);
         return;
       }
+      usr = atob(usr)
+      pwd = atob(pwd)
+      console.log('usr', usr)
+      console.log('pwd', pwd)
       var body = new URLSearchParams({ usr: usr, pwd: pwd });
       fetch('/api/method/login', { method: 'POST', body: body, credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(function(r) { return r.json(); })

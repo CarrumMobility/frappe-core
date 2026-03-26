@@ -11,3 +11,5 @@ def get_context(context):
 	context.no_cache = 1
 	# redirect-to is required (from query params); no default
 	context.redirect_to = frappe.form_dict.get("redirect-to") or None
+	# site_config.json key "env" (e.g. DEV, QA, PROD) — exposed only as env name, not secrets
+	context.env = (frappe.conf.get("env") or "").strip()

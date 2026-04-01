@@ -46,8 +46,8 @@
       }
       function clearCookies() {
         var past = 'Thu, 01 Jan 1970 00:00:00 GMT';
-        document.cookie = SSO_USER + '=; expires=' + past + '; path=/';
-        document.cookie = SSO_PWD + '=; expires=' + past + '; path=/';
+        document.cookie = SSO_USER + '=; expires=' + past;
+        document.cookie = SSO_PWD + '=; expires=' + past;
       }
       var c = getCookies();
       var usr = c[SSO_USER];

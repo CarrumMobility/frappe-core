@@ -39,10 +39,10 @@ def get_chatwoot_config_by_frappe_user(username: str):
 
 
 def get_smartflo_account_by_frappe_user(username: str):
-    # creds = {
-    #     "email": "kapil.rohilla@carrum.co.in",
-    #     "password": "TechTeam@12"
-    # }
+    creds = {
+        "email": "kapil.rohilla@carrum.co.in",
+        "password": "TechTeam@12"
+    }
     return creds
     # carrum_user = _fetch_carrum_user_data(username)
     # smartflo_cred = carrum_user.get("smartfloCred")

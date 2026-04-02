@@ -16,7 +16,6 @@ bench install-app core
 db_name: str,
 db_password:str,
 db_type: str,
-db_user: str
 developer_mode: bool,
 encryption_key: str
 master_password: str
@@ -24,4 +23,10 @@ chatwoot_account_id: int
 chatwoot_base_url: str
 carrum_base_url: str
 carrum_token: str
+aws_access_key_id: str
+aws_secret_access_key: str
+s3_bucket: str
+s3_bucket_prefix: str
+s3_file_storage_enabled: 0|1
+s3_region: str
 ```

@@ -177,7 +177,8 @@ website_route_rules = [
 
 override_doctype_class = {
 	"User": "core.override.user.CustomUser",
-	"File": "core.override.file.File"
+	"File": "core.override.file.File",
+	"Event": "core.override.event.CustomEvent",
 }
 
 write_file=["core.s3_file_hooks.write_file"]

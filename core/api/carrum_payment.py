@@ -191,25 +191,10 @@ def webhook_capture():
     """
     Payment webhook. The HTTP body must be **valid JSON** (Frappe parses it before this runs).
 
-    Send `Content-Type: application/json` and a body like:
-    {
-      "status": "paid",
-      "lead_id": "CRM-LEAD-00001",
-      "amount": 100.5,
-      "utr": "ABC123",
-      "payment_type": "SD",
-      "dt": "2025-03-25T12:00:00"
-    }
 
-    CamelCase keys from providers are also accepted: leadId, paymentType.
-    `dt` must be a string (ISO 8601), not a bare datetime token (invalid JSON).
     """
 
-    return {
-        "status": 'success'
-        # "lead_id": lead_id,
-        # "parsed_dt": str(parsed_dt) if parsed_dt else None,
-    }
+   
     d = frappe.form_dict
 
     status = d.get("status")
@@ -250,6 +235,7 @@ def webhook_failed():
     print("======webhook_failed")
     body = frappe.request.get_json()
     print(body)
+
     return {
         "status": "success",
     }

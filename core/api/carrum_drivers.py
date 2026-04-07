@@ -15,20 +15,17 @@ def get_driver_agreements(account_id: str) -> dict:
 
     :param account_id: Carrum driver account identifier (query param account_id).
     """
-    aid = (account_id or "").strip()
-    if not aid:
-        frappe.throw(_("Account ID is required"))
 
-    base = frappe.conf.get("carrum_base_url")
+    base = frappe.conf.get("old_carrum_base_url")
     if not base:
-        frappe.throw(_("Carrum base URL is not configured (carrum_base_url)"))
+        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
 
-    token = frappe.conf.get("carrum_token")
+    token = frappe.conf.get("old_carrum_token")
     if not token:
-        frappe.throw(_("Carrum token is not configured (carrum_token)"))
+        frappe.throw(_("Old carrum token is not configured (carrum_token)"))
 
     url = f"{base}/v1/driver/aggrementHistory/bydriverWise"
-    params = {"account_id": aid}
+    params = {"account_id": account_id}
     headers = {"Authorization": token}
 
     try:

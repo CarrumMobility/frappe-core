@@ -7,6 +7,8 @@ from frappe import _
 
 logger = frappe.logger("core::carrum_drivers")
 
+old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+old_carrum_token = frappe.conf.get("old_carrum_token")
 
 @frappe.whitelist()
 def get_driver_agreements(account_id: str) -> dict:
@@ -71,7 +73,40 @@ def download_agreement():
     return "success"
 
 @frappe.whitelist()
-def send_agreement():
+def send_agreement(lead_id: str):
+    url = f"{old_carrum_base_url}/api/v1/driver/sendAgreementForDriver"
+
+    payload = json.dumps({
+    "accountId": "b1925efc-5404-48bf-af3f-8c477dd41c32",
+    "driver_phone": "8287842425",
+    "driver_name": "Kapil Rohilla",
+    "driver_current_address": "House No 45, Sector 12, Hisar, Haryana",
+    "aadhar_number": "926931798689",
+    "pan_card": "ABCPK1234Q",
+    "dl_number": "HR20 20210012345",
+    "dl_issue_date": "2018-06-15",
+    "dl_expiry_date": "2038-06-14",
+    "driver_email": "ravi.kumar92@example.com",
+    "driver_bank_account_number": "345678901234",
+    "driver_small_id": "DRV10234",
+    "schemeId": "9735ca8e-840f-4433-8fb6-8547daacd4fc",
+    "bank_ifsc_code": "SBIN0001234",
+    "Witness1": "Suresh Kumar",
+    "Witness2": "Mahesh Transport Co.",
+    "Witness3": "Ram Prasad",
+    "Witness4": "Raghubir Singh",
+    "hubId": "779db382-859d-48ee-ba17-d90ffa91cf24"
+    })
+    headers = {
+    'Authorization': 'carrum eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZGVudGl0eUlkIjoiOThkMDU0YzgtNWY1Zi00ZDBkLTg4ZmMtZjNkNzQ2ZmM1MzRmIiwidG9rZW5UeXBlIjoiYWNjZXNzIiwidG9rZW5WZXJzaW9uIjo1NCwiaWQiOiJhM2VjYzgzYy1hMDBhLTRjMmUtYTY2Mi1mZmE5NzZhZDE3NDYiLCJyb2xlSWQiOiJjZjcwY2QxMS0wZDU1LTRiNWYtYjFmMC0yYzQ2ZGVmNGVjZjYiLCJodWJJZCI6Ijc3OWRiMzgyLTg1OWQtNDhlZS1iYTE3LWQ5MGZmYTkxY2YyNCIsImlhdCI6MTc3NTU0NjUwNCwiZXhwIjoxNzc1NjMyOTA0fQ.ZKbjXV8OQf0jKUQbU9Ou33pARca_gPsx1-VcYS6h1fQ',
+    'Content-Type': 'application/json',
+    'Cookie': 'full_name=Guest; sid=Guest; system_user=no; user_id=Guest; user_image='
+    }
+
+    response = re.post(url=url, headers=headers, json=payload)
+
+    print(response.text)
+
     pass
 
 @frappe.whitelist()
@@ -206,11 +241,85 @@ def update_driver(account_id: str, data: str | None = None):
 
     return {"success": True, "data": resp_body}
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def lead_creation_webhook():
-    print("======lead_creation_webhook")
-    print(frappe.request.get_json())
+    """
+    Carrum webhook: JSON body ``mobile_no``, ``displayId`` (CRM Lead ``name``, AAAA0001–ZZZZ9999),
+    and optional ``source``.
 
-    return {
-        "message": "ok",
-    }
+    Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
+    required because Frappe otherwise clears ``name`` for naming_series autoname).
+
+    If a CRM Lead with that ``name`` already exists, raises **DuplicateEntryError**.
+    """
+    from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
+    from crm.utils import parse_phone_number
+
+    data = frappe.request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+
+    raw_display = data.get("displayId")
+    displayId = str(raw_display).strip().upper() if raw_display is not None else ""
+    phone_raw = data.get("mobile_no") or data.get("phoneNo") or data.get("phone")
+    phoneNo = str(phone_raw).strip() if phone_raw is not None else ""
+
+    source = data.get("source")
+    if source is not None and isinstance(source, str):
+        source = source.strip()
+
+    if not displayId:
+        frappe.throw(_("displayId is required"), frappe.ValidationError)
+    if not LEAD_ID_PATTERN.match(displayId):
+        frappe.throw(
+            _("displayId must be a lead ID like AAAA0001, got {0}").format(displayId),
+            frappe.ValidationError,
+        )
+    if not phoneNo:
+        frappe.throw(_("phone is required"), frappe.ValidationError)
+
+    parsed = parse_phone_number(phoneNo)
+    if parsed.get("success"):
+        mobile_no = parsed.get("national_number") or phoneNo
+    else:
+        mobile_no = phoneNo
+        logger.warning(
+            "lead_creation_webhook: phone parse failed for %r: %s",
+            phoneNo,
+            parsed.get("error"),
+        )
+
+    if frappe.db.exists("CRM Lead", displayId):
+        frappe.throw(
+            _("CRM Lead {0} already exists").format(frappe.bold(displayId)),
+            frappe.DuplicateEntryError,
+        )
+
+    status_rows = frappe.get_all(
+        "CRM Lead Status",
+        pluck="name",
+        order_by="position asc, creation asc",
+        limit=1,
+    )
+    default_status = status_rows[0] if status_rows else None
+    if not default_status:
+        frappe.throw(
+            _("No CRM Lead Status is configured. Add one in CRM Lead Status."),
+            frappe.ValidationError,
+        )
+
+    lead = frappe.new_doc("CRM Lead")
+    lead.flags.skip_crm_lead_auto_id = True
+    lead.mobile_no = mobile_no
+    lead.status = default_status
+    lead.lead_type = "DRIVER"
+    lead.lead_name = None
+
+    meta = frappe.get_meta("CRM Lead")
+    if source and meta.get_field("source"):
+        lead.set("source", source)
+
+    lead.insert(set_name=displayId, ignore_permissions=True)
+
+    logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
+    return {"message": "ok", "name": lead.name, "created": True}

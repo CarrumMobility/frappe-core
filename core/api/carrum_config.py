@@ -87,6 +87,9 @@ def getConfigByKey(key: str | None = None):
 def getHubFeeConfig() -> dict:
     user = frappe.session.user
     carrum_user = fetch_carrum_user_data_using_frappe_username(user)
+    print("==========carrum_user==========")
+    print(carrum_user)
+    print("==========carrum_user==========")
     default_hub = carrum_user.get("defaultHub")
     default_hub_id = default_hub.get("id") if default_hub is not None else None
 

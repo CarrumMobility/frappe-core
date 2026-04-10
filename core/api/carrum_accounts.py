@@ -49,13 +49,24 @@ def get_chatwoot_config_by_frappe_user(username: str):
 
 
 def _normalize_smartflo_cred_dict(cred) -> dict | None:
-    """Return {'email': login_id, 'password': str} for Smartflo token API, or None."""
+    """Return Smartflo login + dialer fields for token API and click-to-call, or None."""
     if not isinstance(cred, dict):
         return None
-    print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred)) 
+    print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred))
     username = cred.get("username")
     password = cred.get("password") or "TechTeam@12"
-    return {"email": username, "password": str(password)}
+    defaultCampaignId = cred.get("defaultCampaignId") or "442227"
+
+    if not username:
+        return None
+    out = {"email": username, "password": str(password), "defaultCampaignId": defaultCampaignId}
+    calling = cred.get("callingNumber") or cred.get("calling_number")
+    if calling is not None and str(calling).strip():
+        out["callingNumber"] = str(calling).strip()
+    ext = cred.get("extensionId") or cred.get("extension_id")
+    if ext is not None and str(ext).strip():
+        out["extensionId"] = str(ext).strip()
+    return out
 
 
 def get_smartflo_credentials_for_frappe_user(frappe_username: str):

@@ -18,7 +18,7 @@ def execute():
 	_ensure_custom_field(
 		"call_at",
 		{
-			"fieldtype": "Date",
+			"fieldtype": "Datetime",
 			"label": "Call At",
 			"insert_after": "reference_call_log",
 			"in_list_view": 1,

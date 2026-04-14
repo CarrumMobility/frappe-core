@@ -6,21 +6,12 @@ import frappe
 def execute():
 	_ensure_event_category_callback_option()
 	_ensure_custom_field(
-		"reference_call_log",
+		"reference_call_session",
 		{
 			"fieldtype": "Link",
-			"label": "Reference Call Log",
-			"options": "CRM Call Log",
+			"label": "Reference Call Session",
+			"options": "Call Session",
 			"insert_after": "location",
-			"in_list_view": 1,
-		},
-	)
-	_ensure_custom_field(
-		"call_at",
-		{
-			"fieldtype": "Datetime",
-			"label": "Call At",
-			"insert_after": "reference_call_log",
 			"in_list_view": 1,
 		},
 	)

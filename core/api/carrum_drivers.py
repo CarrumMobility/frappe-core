@@ -1,6 +1,7 @@
 import base64
 import json
-
+from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
+from crm.utils import parse_phone_number
 import requests as re
 
 import frappe
@@ -233,8 +234,6 @@ def send_agreement(leadId: str):
     if current_pincode:
         current_address += ", " + current_pincode
 
-    # driver_detail = get_portal_driver_detail(account_id=account_id)
-    # scheme_id = driver_detail.get("data").get("scheme_id")
     base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
     if not base:
         frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
@@ -514,16 +513,16 @@ def lead_creation_webhook():
     Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
     required because Frappe otherwise clears ``name`` for naming_series autoname).
     """
-    from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
-    from crm.utils import parse_phone_number
-
+    
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
-
+    #  {'leadId': '0b98f046-4d53-4991-980f-630f965f817b', 'displayId': 'AAAA1433', 'phone': '6900000002', 'source': 'crm_payment_link', 'firstName': 'Lead', 'lastName': None, 'createdBy': 'bb774554-fecb-48c3-9532-d51abcb79706', 'hubId': None}
     raw_display = data.get("displayId")
+    print("LEAD CREATION WEBHOOK")
+
     displayId = str(raw_display).strip().upper() if raw_display is not None else ""
-    phone_raw = data.get("mobile_no") or data.get("phoneNo") or data.get("phone")
+    phone_raw =  data.get("phone")
     phoneNo = str(phone_raw).strip() if phone_raw is not None else ""
 
     source = data.get("source")
@@ -552,10 +551,7 @@ def lead_creation_webhook():
         )
 
     if frappe.db.exists("CRM Lead", displayId):
-        frappe.throw(
-            _("CRM Lead {0} already exists").format(frappe.bold(displayId)),
-            frappe.DuplicateEntryError,
-        )
+        return "Lead already exists"
 
     status_rows = frappe.get_all(
         "CRM Lead Status",

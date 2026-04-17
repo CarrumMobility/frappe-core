@@ -49,13 +49,24 @@ def get_chatwoot_config_by_frappe_user(username: str):
 
 
 def _normalize_smartflo_cred_dict(cred) -> dict | None:
-    """Return {'email': login_id, 'password': str} for Smartflo token API, or None."""
+    """Return Smartflo login + dialer fields for token API and click-to-call, or None."""
     if not isinstance(cred, dict):
         return None
-    print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred)) 
+    print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred))
     username = cred.get("username")
     password = cred.get("password") or "TechTeam@12"
-    return {"email": username, "password": str(password)}
+    defaultCampaignId = cred.get("defaultCampaignId") or "442227"
+
+    if not username:
+        return None
+    out = {"email": username, "password": str(password), "defaultCampaignId": defaultCampaignId}
+    calling = cred.get("callingNumber") or cred.get("calling_number")
+    if calling is not None and str(calling).strip():
+        out["callingNumber"] = str(calling).strip()
+    ext = cred.get("extensionId") or cred.get("extension_id")
+    if ext is not None and str(ext).strip():
+        out["extensionId"] = str(ext).strip()
+    return out
 
 
 def get_smartflo_credentials_for_frappe_user(frappe_username: str):
@@ -119,3 +130,18 @@ def get_frappe_user_by_smartflo_account(smartflow_external_username: str):
         return None
     return {"frappe_user": frappe_user}
 
+@frappe.whitelist()
+def get_dms():
+    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
+    hubId = carrum_user.get("defaultHub").get("id")
+    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+    url = f"{old_carrum_base_url}/api/v1/account/all?role_name=driver_manager&hub_id={hubId}"
+    response = requests.get(url, headers={"Authorization": old_carrum_token})
+    data = response.json()
+    # data = data.get("results") or []
+
+    return {
+        "success": True,
+        "data": data
+    }

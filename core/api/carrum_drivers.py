@@ -1,6 +1,8 @@
 import base64
 import json
-
+from crm.api.lead import unAssignSecondaryLeadFromLead
+from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
+from crm.utils import parse_phone_number
 import requests as re
 
 import frappe
@@ -16,13 +18,27 @@ class UpdateDriverDtoSchema(BaseModel):
 
     scheme_id: Optional[str | int] = None
     scheme_type: Optional[str] = None
+    old_scheme_name: Optional[str] = None
+    tenure: Optional[int] = None
+    emi_id: Optional[str] = None
+    remove_emi: Optional[bool] = None
 
-    @field_validator("scheme_type", mode="before")
+    @field_validator("scheme_type", "old_scheme_name", mode="before")
     @classmethod
-    def _strip_scheme_type(cls, v):
+    def _strip_str_field(cls, v):
         if v is None or v == "":
             return None
         return str(v).strip() or None
+
+    @field_validator("tenure", mode="before")
+    @classmethod
+    def _validate_tenure(cls, v):
+        if v is None or v == "":
+            return None
+        val = int(v)
+        if val < 1 or val > 10:
+            raise ValueError("Tenure must be between 1 and 10")
+        return val
 
 logger = frappe.logger("core::carrum_drivers")
 
@@ -233,8 +249,6 @@ def send_agreement(leadId: str):
     if current_pincode:
         current_address += ", " + current_pincode
 
-    # driver_detail = get_portal_driver_detail(account_id=account_id)
-    # scheme_id = driver_detail.get("data").get("scheme_id")
     base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
     if not base:
         frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
@@ -244,7 +258,7 @@ def send_agreement(leadId: str):
         frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
 
     url = f"{base}/api/v1/driver/sendAgreementForDriver"
-
+    
     payload = {
         "accountId": account_id,
         "driver_phone": phoneNo,
@@ -265,7 +279,9 @@ def send_agreement(leadId: str):
         "Witness4": "sarpanch", # sarpanch
         "hubId": lead_hub_id
     }
-
+    print("====================payload============================")
+    print(payload)
+    print("====================payload============================")
     headers = {
         "Authorization": token,
         "Content-Type": "application/json",
@@ -465,9 +481,22 @@ def update_driver(account_id: str, data: str | None = None):
     if payload.scheme_type:
         body["scheme_type"] = payload.scheme_type
 
-    print("====================body============================")
-    print(body)
-    print("================================================")
+    if payload.tenure is not None and payload.emi_id is not None:
+        body['tenure'] = payload.tenure
+        body['emi_id'] = payload.emi_id
+
+
+    if payload.remove_emi is not None:
+        body['remove_emi'] = payload.remove_emi
+
+    if "vendor" in payload.old_scheme_name or "double driver" in payload.old_scheme_name:
+        lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
+        if lead:
+            unAssignSecondaryLeadFromLead(lead.name)
+        else:
+            frappe.throw(_("Lead not found with account ID: {0}").format(aid))
+
+
     if not body:
         return {"success": True}
 
@@ -476,6 +505,9 @@ def update_driver(account_id: str, data: str | None = None):
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
     try:
+        print("====================body============================")
+        print(body)
+        print("====================body============================")
         response = re.put(url, headers=headers, json=body, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception("update_driver request failed: %s", e)
@@ -514,16 +546,16 @@ def lead_creation_webhook():
     Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
     required because Frappe otherwise clears ``name`` for naming_series autoname).
     """
-    from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
-    from crm.utils import parse_phone_number
-
+    
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
-
+    #  {'leadId': '0b98f046-4d53-4991-980f-630f965f817b', 'displayId': 'AAAA1433', 'phone': '6900000002', 'source': 'crm_payment_link', 'firstName': 'Lead', 'lastName': None, 'createdBy': 'bb774554-fecb-48c3-9532-d51abcb79706', 'hubId': None}
     raw_display = data.get("displayId")
+    print("LEAD CREATION WEBHOOK")
+
     displayId = str(raw_display).strip().upper() if raw_display is not None else ""
-    phone_raw = data.get("mobile_no") or data.get("phoneNo") or data.get("phone")
+    phone_raw =  data.get("phone")
     phoneNo = str(phone_raw).strip() if phone_raw is not None else ""
 
     source = data.get("source")
@@ -552,10 +584,7 @@ def lead_creation_webhook():
         )
 
     if frappe.db.exists("CRM Lead", displayId):
-        frappe.throw(
-            _("CRM Lead {0} already exists").format(frappe.bold(displayId)),
-            frappe.DuplicateEntryError,
-        )
+        return "Lead already exists"
 
     status_rows = frappe.get_all(
         "CRM Lead Status",

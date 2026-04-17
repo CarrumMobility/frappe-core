@@ -137,34 +137,29 @@ website_route_rules = [
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Call Session": {
+		"on_update": "core.services.call_service.update_lead_last_call_date_time",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"core.tasks.all"
-# 	],
-# 	"daily": [
-# 		"core.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"core.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"core.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"core.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"all": ["core.services.call_service.reconcile_active_calls"],
+	"hourly": [],
+	"daily": [],
+	"weekly": [],
+	"daily_long": [],
+	"hourly_long": [],
+	"monthly_long": [],
+	"cron": {
+		# "*/1 * * * *": [],
+	},
+}
+
+
 
 # Testing
 # -------

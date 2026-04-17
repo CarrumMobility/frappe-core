@@ -145,13 +145,19 @@ class CallSession(Document):
 			return rows
 		lead_ids = {r.get("lead") for r in rows if r.get("lead")}
 		lead_names = {}
+		lead_hubs = {}
 		if lead_ids:
+			lead_fields = ["name", "lead_name"]
+			if frappe.db.has_column("CRM Lead", "custom_hub_name"):
+				lead_fields.append("custom_hub_name")
 			for d in frappe.get_all(
 				"CRM Lead",
 				filters={"name": ("in", list(lead_ids))},
-				fields=["name", "lead_name"],
+				fields=lead_fields,
 			):
 				lead_names[d.name] = d.lead_name or d.name
+				if "custom_hub_name" in d:
+					lead_hubs[d.name] = d.custom_hub_name or ""
 		user_ids = {r.get("agent") for r in rows if r.get("agent")}
 		user_names = {}
 		if user_ids:
@@ -164,6 +170,7 @@ class CallSession(Document):
 		for r in rows:
 			lid = r.get("lead")
 			r["_lead_name"] = lead_names.get(lid) or lid
+			r["_hub_name"] = lead_hubs.get(lid) or ""
 			r["_direction_label"] = r.get("direction") or ""
 			aid = r.get("agent")
 			if aid:

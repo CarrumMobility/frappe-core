@@ -1,14 +1,50 @@
+from datetime import datetime, timedelta, timezone
 import json
 
+from frappe.utils.data import flt
 import requests
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, flt
 
-def _log_payload(label, payload):
-    frappe.logger().info("%s payload: %s", label, json.dumps(payload, default=str))
+UTC = timezone.utc
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _parse_transaction_timestamp_utc_to_naive_ist(dt_raw):
+    """
+    Carrum webhooks send transaction time in UTC (ISO ending in Z, or naive UTC string).
+    Normalize to a naive datetime in IST for ``payment_logs.transaction_date``.
+    """
+    from frappe.utils import now_datetime
+
+    if dt_raw is None:
+        return now_datetime()
+    s = str(dt_raw).strip()
+    if not s:
+        return now_datetime()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        frappe.logger().warning(
+            "payment_webhook: could not parse transactionDate=%r", dt_raw
+        )
+        return now_datetime()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(IST).replace(tzinfo=None)
+
+
+def _resolve_lead_for_carrum_user_id(user_id):
+    """Return CRM Lead name for ``custom_account_id`` / Carrum ``userId``, or None."""
+    if not user_id:
+        return None
+    return frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": user_id}, "name"
+    )
 
 
 def _resolve_payment_doc(doctype=None, name=None, lead_id=None):
@@ -46,6 +82,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         or frappe.form_dict.get("tag_type")
         or frappe.form_dict.get("type")
     )
+
     if tag_type is None or str(tag_type).strip() == "":
         frappe.throw(_("Payment type (tag_type) is required"))
     tag_norm = str(tag_type).strip()
@@ -65,12 +102,14 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     lead_val = frappe.db.get_value(
         "CRM Lead",
         lead_id,
-        ["mobile_no", "lead_name", "hub_fee",'custom_account_id'],
+        ["mobile_no", "lead_name", "hub_fee",'custom_account_id', 'source'],
     )
     if not lead_val:
         frappe.throw(_("CRM Lead not found"))
 
-    phone_number, lead_name, hub_fee ,custom_account_id= lead_val
+    phone_number, lead_name, hub_fee, custom_account_id, source = lead_val
+    if not lead_name or not str(lead_name).strip():
+        frappe.throw(_("Lead name is required before sending a payment link"))
     if not phone_number or not str(phone_number).strip():
         frappe.throw(_("Set mobile number on the lead before sending a payment link"))
 
@@ -80,7 +119,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
 
     account_id = frappe.conf.get("carrum_account_id")
-    
+    source = source or "crm_payment_link"
     if not hub_fee:
         frappe.throw(_("Hub fee is required"))
 
@@ -92,6 +131,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         "hubId": default_hub_id,
         "amount": amount,
         "tag_type": tag_type,
+        "source": source,
         "accountCreatorId": carrum_user_id,
     }
     if account_id is not None:
@@ -137,34 +177,6 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         "paymentQrCodeLink": payment_qr or "",
     }
 
-def _normalize_payment_image_urls(image_url=None, image_urls=None):
-    """Merge single URL and/or list into a deduped ordered list (primary first)."""
-    out = []
-    if image_urls is not None:
-        raw = image_urls
-        if isinstance(raw, str):
-            s = raw.strip()
-            if s:
-                try:
-                    parsed = json.loads(s)
-                    if isinstance(parsed, list):
-                        raw = parsed
-                    else:
-                        raw = [s]
-                except (ValueError, TypeError):
-                    raw = [s]
-        if isinstance(raw, (list, tuple)):
-            for u in raw:
-                t = str(u).strip()
-                if t and t not in out:
-                    out.append(t)
-    if image_url and str(image_url).strip():
-        u = str(image_url).strip()
-        if u not in out:
-            out.insert(0, u)
-    return out
-
-
 def _tag_type_for_carrum_api(payment_type) -> str:
     """Normalize UI label or key to security_deposit | settlement for Carrum payment APIs."""
     s = str(payment_type or "").strip()
@@ -202,11 +214,6 @@ def add_other_payment(
     name=None,
 ):
     """Record non-online payment (bank transfer / UTR, optional receipt images)."""
-    dt, nm = _resolve_payment_doc(
-        doctype=doctype,
-        name=name,
-        lead_id=lead_id,
-    )
 
     body = _merge_request_body()
     if image_url is None:
@@ -217,7 +224,7 @@ def add_other_payment(
         amount = body.get("amount")
     if utr is None:
         utr = body.get("utr")
-    # if payment_type is None:
+    
     payment_type = body.get("payment_type")
     payment_type_str = str(payment_type).strip().lower()
     if "security" in payment_type_str and "deposit" in payment_type_str:
@@ -227,7 +234,6 @@ def add_other_payment(
     else:
         frappe.throw(_("Invalid payment type"))
 
-    print("===",payment_type)
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
     lead = frappe.get_doc("CRM Lead", lead_id)
@@ -237,6 +243,10 @@ def add_other_payment(
     hub_fee = lead.hub_fee
     hub_id = lead.hub_id
     lead_account_id = lead.custom_account_id
+    source = lead.source or "crm_other_payment"
+
+    if not hub_fee:
+        frappe.throw(_("Hub fee is required payment"))
 
     if not str(amount or "").strip() and not str(utr or "").strip():
         frappe.throw(_("Enter amount or UTR"))
@@ -251,6 +261,7 @@ def add_other_payment(
         "tag_type": str(payment_type).lower(),
         "s3Links": image_urls,
         "utr_number": utr,
+        "source": source,
         "accountCreatorId": carrum_user_id,
     }
     if lead_account_id is not None:
@@ -314,18 +325,16 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
     tag_type = _tag_type_for_carrum_api(pt)
 
     imgs = imageUrls if imageUrls is not None else body.get("imageUrls") or body.get("image_urls")
-    if not imgs:
-        frappe.throw(_("Attach at least one receipt image"))
-    if isinstance(imgs, str):
-        try:
-            imgs = json.loads(imgs)
-        except (ValueError, TypeError):
+    s3_links = []
+    if imgs:
+        if isinstance(imgs, str):
+            try:
+                imgs = json.loads(imgs)
+            except (ValueError, TypeError):
+                imgs = [imgs]
+        if not isinstance(imgs, (list, tuple)):
             imgs = [imgs]
-    if not isinstance(imgs, (list, tuple)):
-        imgs = [imgs]
-    s3_links = [str(u).strip() for u in imgs if str(u).strip()]
-    if not s3_links:
-        frappe.throw(_("Attach at least one receipt image"))
+        s3_links = [str(u).strip() for u in imgs if str(u).strip()]
 
     lead = frappe.get_doc("CRM Lead", lead_id)
 
@@ -334,11 +343,14 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
     hub_fee = lead.hub_fee
     custom_account_id = lead.custom_account_id
 
+    if not hub_fee:
+        frappe.throw(_("Hub fee is required payment"))
+
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     default_hub = carrum_user.get("defaultHub")
     default_hub_id = default_hub.get("id") if default_hub is not None else None
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
-
+    source = lead.source or "crm_cash_payment"
     out = {
         "phoneNumber": phone_number,
         "displayId": lead_id,
@@ -350,6 +362,7 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
         "weekType": "currentWeek",
         "s3Links": s3_links,
         "accountCreatorId": carrum_user_id,
+        "source":source 
     }
 
     if custom_account_id is not None:
@@ -382,48 +395,157 @@ def webhook_capture():
     Payment webhook. The HTTP body must be **valid JSON** (Frappe parses it before this runs).
     """
 
-   
-    d = frappe.form_dict
+    d = frappe.request.get_json()
+    print("====================payment_capture============================")
+    print(d)
+    print("====================payment_capture============================")
+    if not d or not isinstance(d, dict):
+        frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
-    status = d.get("status")
-    lead_id = d.get("leadId")
     amount = d.get("amount")
-    utr = d.get("utr")
-    payment_type =d.get("paymentType")
-    dt_raw = d.get("dt")
-    user_id = d.get("user_id")
+    utr = d.get("utrNumber")
+    transactionDt = d.get("transactionDate")
+    user_id = d.get("userId")
+    _raw_tid = d.get("transactionId")
+    transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
+    imageUrls = d.get("imageUrls")
 
-    payload = {
-        "status": status,
-        "lead_id": lead_id,
-        "amount": amount,
-        "utr": utr,
-        "payment_type": payment_type,
-        "dt": dt_raw,
-        "user_id": user_id
-    }
-    print(payload)
-    _log_payload("payment_webhook", payload)
+    if not user_id:
+        frappe.throw(_("userId is required"), title=_("Payment webhook"))
+    if not transactionId:
+        frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
 
-    parsed_dt = None
-    if dt_raw:
-        try:
-            parsed_dt = get_datetime(dt_raw)
-        except Exception:
-            frappe.logger().warning("payment_webhook: could not parse dt=%r", dt_raw)
+    transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
+
+    existing_log = frappe.db.get_value(
+        "payment_logs", {"carrum_id": transactionId}, "name"
+    )
+    if existing_log:
+        return {
+            "message": "already captured",
+            "payment_log_id": existing_log,
+        }
+
+    lead_name = _resolve_lead_for_carrum_user_id(user_id)
+    if not lead_name:
+        frappe.throw(
+            _("Lead not found for user_id: {0}").format(user_id),
+            title=_("Payment webhook"),
+        )
+    lead = frappe.get_doc("CRM Lead", lead_name)
+    lead_id = lead.name
+    lead.db_set(
+        "total_paid_amount",
+        flt(lead.total_paid_amount) + flt(amount),
+    )
+
+    paymentTag = d.get("paymentTag") or {}
+    hubFeeTag = flt(paymentTag.get("hubFeeTag"))
+    sdTag = flt(paymentTag.get("sdTag"))
+    settlementTag = flt(paymentTag.get("settlementTag"))
+    interestTag = flt(paymentTag.get("interestTag"))
+
+    sdBreakupAmount = hubFeeTag + sdTag
+    settlementBreakupAmount = settlementTag + interestTag
+
+    raw_plain = json.loads(frappe.as_json(d))
+
+    image_url = None
+    if isinstance(imageUrls, list) and imageUrls:
+        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
+    elif isinstance(imageUrls, str) and imageUrls.strip():
+        image_url = imageUrls.strip()
+
+    paymentLog = frappe.new_doc("payment_logs")
+    paymentLog.set("amount", amount)
+    paymentLog.set("carrum_id", transactionId)
+    if image_url:
+        paymentLog.set("image", image_url)
+    paymentLog.set("lead", lead_id)
+    paymentLog.set("raw", raw_plain)
+    paymentLog.set("utr", utr)
+    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
+    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
+    paymentLog.set("transaction_date", transaction_date)
+    paymentLog.set("status", "Captured")
+    paymentLog.save()
 
     return {
         "message": "ok",
         "lead_id": lead_id,
-        "parsed_dt": str(parsed_dt) if parsed_dt else None,
     }
 
 @frappe.whitelist()
 def webhook_failed():
-    print("======webhook_failed")
-    body = frappe.request.get_json()
-    print(body)
+    """Failed payment webhook; ``transactionDate`` is UTC (naive or ISO-Z). Stored as IST."""
+    d = frappe.request.get_json()
+    if not d or not isinstance(d, dict):
+        frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
+
+    amount = d.get("amount")
+    utr = d.get("utrNumber")
+    transactionDt = d.get("transactionDate")
+    user_id = d.get("userId")
+    _raw_tid = d.get("transactionId")
+    transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
+    imageUrls = d.get("imageUrls")
+
+    if not user_id:
+        frappe.throw(_("userId is required"), title=_("Payment webhook"))
+    if not transactionId:
+        frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
+
+    transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
+
+    existing_log = frappe.db.get_value(
+        "payment_logs", {"carrum_id": transactionId}, "name"
+    )
+
+    if existing_log:
+        return {
+            "message": "already saved",
+            "payment_log_id": existing_log,
+        }
+
+    lead_id = _resolve_lead_for_carrum_user_id(user_id)
+    if not lead_id:
+        frappe.throw(
+            _("Lead not found for user_id: {0}").format(user_id),
+            title=_("Payment webhook"),
+        )
+
+    paymentTag = d.get("paymentTag") or {}
+    hubFeeTag = flt(paymentTag.get("hubFeeTag"))
+    sdTag = flt(paymentTag.get("sdTag"))
+    settlementTag = flt(paymentTag.get("settlementTag"))
+    interestTag = flt(paymentTag.get("interestTag"))
+
+    sdBreakupAmount = hubFeeTag + sdTag
+    settlementBreakupAmount = settlementTag + interestTag
+
+    raw_plain = json.loads(frappe.as_json(d))
+
+    image_url = None
+    if isinstance(imageUrls, list) and imageUrls:
+        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
+    elif isinstance(imageUrls, str) and imageUrls.strip():
+        image_url = imageUrls.strip()
+
+    paymentLog = frappe.new_doc("payment_logs")
+    paymentLog.set("amount", amount)
+    paymentLog.set("carrum_id", transactionId)
+    if image_url:
+        paymentLog.set("image", image_url)
+    paymentLog.set("lead", lead_id)
+    paymentLog.set("raw", raw_plain)
+    paymentLog.set("utr", utr)
+    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
+    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
+    paymentLog.set("transaction_date", transaction_date)
+    paymentLog.set("status", "Failed")
+    paymentLog.save()
 
     return {
-        "status": "success",
+        "message": "ok",
+        "lead_id": lead_id,
     }

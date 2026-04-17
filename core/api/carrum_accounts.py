@@ -130,3 +130,18 @@ def get_frappe_user_by_smartflo_account(smartflow_external_username: str):
         return None
     return {"frappe_user": frappe_user}
 
+@frappe.whitelist()
+def get_dms():
+    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
+    hubId = carrum_user.get("defaultHub").get("id")
+    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+    url = f"{old_carrum_base_url}/api/v1/account/all?role_name=driver_manager&hub_id={hubId}"
+    response = requests.get(url, headers={"Authorization": old_carrum_token})
+    data = response.json()
+    # data = data.get("results") or []
+
+    return {
+        "success": True,
+        "data": data
+    }

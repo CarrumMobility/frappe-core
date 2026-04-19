@@ -109,3 +109,22 @@ def getHubFeeConfig() -> dict:
         return {"fee": [value]}
 
     return {"fee": value}
+
+
+@frappe.whitelist(allow_guest=True)
+def getCarrumUserData() -> dict:
+	user = frappe.session.user
+	# carrum_user = fetch_carrum_user_data_using_frappe_username("admin")
+	print(
+		"----------user1--------------",
+		user,
+		"----------user1--------------",
+	)
+	print(
+		"----------user2--------------",
+		frappe.session,
+		"----------user2--------------",
+	)
+	carrum_user = fetch_carrum_user_data_using_frappe_username(user)
+	print("carrum_user", carrum_user, "frappeUser", frappe.session)
+	return {"success": True, "data": carrum_user}

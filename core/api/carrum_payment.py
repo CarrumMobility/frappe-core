@@ -82,7 +82,6 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         or frappe.form_dict.get("tag_type")
         or frappe.form_dict.get("type")
     )
-
     if tag_type is None or str(tag_type).strip() == "":
         frappe.throw(_("Payment type (tag_type) is required"))
     tag_norm = str(tag_type).strip()

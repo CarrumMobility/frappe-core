@@ -13,6 +13,28 @@ from frappe.utils import flt, get_datetime, get_time, getdate
 default_telephony_vendor = "Smartflo"
 
 
+def _assign_chatwoot_agent_for_lead(lead_id: str | None) -> None:
+    """Best-effort: assign the disposing agent's Chatwoot account to the lead's WhatsApp conversation.
+
+    Uses ``frappe.session.user`` (current agent) via ``_get_chatwoot_ctx``; never raises so a
+    Chatwoot/network failure cannot break the dispose flow. No-op for system/webhook contexts.
+    """
+    if not lead_id:
+        return
+    user = (frappe.session.user or "").strip()
+    if not user or user in ("Guest", "Administrator"):
+        return
+    try:
+        mobile_no = (frappe.db.get_value("CRM Lead", lead_id, "mobile_no") or "").strip()
+        if not mobile_no:
+            return
+        from frappe_chatwoot.api import whatsapp as _chatwoot_whatsapp
+
+        _chatwoot_whatsapp.assignSelfToContactOnChatwootIfHaveAccount(mobile_no)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "assign_chatwoot_agent_on_dispose")
+
+
 def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
     """Best-effort distributed lock; returns True if caller should proceed."""
     try:
@@ -896,9 +918,7 @@ class CallService:
         expected_call_duration_minutes = data.get("expected_call_duration_minutes")
         scheduled_visit_date = data.get("scheduled_visit_date")
         is_visit_scheduled = data.get("is_visit_scheduled")
-        disposition_timing_raw = data.get("disposition_timing") or data.get(
-            "disposition_source"
-        )
+        disposition_timing_raw = data.get("disposition_timing") or data.get("disposition_source")
         disposition_timing = (
             str(disposition_timing_raw).strip().upper()
             if disposition_timing_raw
@@ -952,6 +972,7 @@ class CallService:
                     disposition_code=did,
                     remarks=remarks,
                     sub_disposition=sub,
+                    disposition_timing=disposition_timing,
                     callback_datetime=callback_datetime,
                     callback_comments=callback_comments,
                     remind_before_minutes=remind_before_minutes,
@@ -1016,7 +1037,6 @@ class CallService:
         doc.set("sub_disposition_status", sub_disposition or None)
         doc.set("status", "DISPOSED")
         doc.set("disposed_at", frappe.utils.now())
-        doc.set("disposition_code", disposition_code or None)
         doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
         svd = (
             str(scheduled_visit_date).strip()
@@ -1043,6 +1063,7 @@ class CallService:
                     frappe.get_traceback(),
                     "update_lead_from_call_disposition_click2call",
                 )
+            _assign_chatwoot_agent_for_lead(lead_id)
         if callback_datetime:
             self._create_event_for_callback(
                 lead_id=lead_id,
@@ -1115,6 +1136,7 @@ class CallService:
         disposition_status: str,
         disposition_code: str,
         remarks: str,
+        disposition_timing: str,
         sub_disposition: str | None,
         callback_datetime,
         callback_comments,
@@ -1131,6 +1153,7 @@ class CallService:
                     disposition_code,
                     remarks,
                     sub_disposition,
+                    disposition_timing,
                     callback_datetime,
                     callback_comments,
                     remind_before_minutes,
@@ -1151,6 +1174,7 @@ class CallService:
         disposition_code: str,
         remarks: str,
         sub_disposition_status: str | None,
+        disposition_timing: str,
         callback_datetime,
         callback_comments,
         remind_before_minutes,
@@ -1159,28 +1183,70 @@ class CallService:
         is_visit_scheduled=None,
     ):
         try:
-            from crm.integrations.smartflo.disposeCall import disposeCall
-        except ImportError:
-            return {
-                "is_valid": False,
-                "reason": "CRM app is required for dialer disposition",
-            }
+            call_session_doc = frappe.get_doc("Call Session", call_session_id)
+            if not call_session_doc:
+                raise ValueError("Invalid Call Session id: Call session record not found")
 
-        try:
-            # I'll re-implement this logic
-            pass
-            # disposeCall(
-            #     call_id=call_session_id,
-            #     disposition=disposition_code or disposition_status,
-            #     sub_disposition=sub_disposition_status,
-            #     comments=remarks or None,
-            #     callback_datetime=callback_datetime,
-            #     callback_comments=callback_comments,
-            #     remind_before_minutes=remind_before_minutes,
-            #     expected_call_duration_minutes=expected_call_duration_minutes,
-            #     scheduled_visit_date=scheduled_visit_date,
-            #     is_visit_scheduled=is_visit_scheduled,
-            # )
+            if (call_session_doc.get("calling_method") or "").strip() != "Dialer":
+                raise ValueError("Invalid Call Session: expected Dialer calling method")
+
+            call_id = call_session_doc.get("agent_call_id")
+            if not call_id:
+                raise ValueError("Invalid Call Session id: No agent is connected to this call session")
+            lead_id = call_session_doc.get("lead")
+
+            call_session_doc.set("disposition_status", disposition_status)
+            call_session_doc.set("sub_disposition_status", sub_disposition_status or None)
+            call_session_doc.set("disposition_remarks", remarks)
+            call_session_doc.set("disposition_timing", disposition_timing)
+
+            smartflo_client.handle_store_disposition_api(
+                user=frappe.session.user,
+                call_id=call_id,
+                disposition_code=disposition_code,
+            )
+
+            svd = (
+                str(scheduled_visit_date).strip()
+                if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
+                else ""
+            )
+            want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
+            if svd and want_visit:
+                call_session_doc.set("is_visit_scheduled", 1)
+                call_session_doc.set("scheduled_visit_date", svd)
+            else:
+                call_session_doc.set("is_visit_scheduled", 0)
+                call_session_doc.set("scheduled_visit_date", None)
+            if lead_id:
+                try:
+                    update_lead_from_call_disposition(
+                        lead_id,
+                        disposition_status,
+                        sub_disposition_status,
+                    )
+                except Exception:
+                    frappe.log_error(
+                        frappe.get_traceback(),
+                        "update_lead_from_call_disposition_dialer",
+                    )
+                _assign_chatwoot_agent_for_lead(lead_id)
+
+            if callback_datetime:
+                self._create_event_for_callback(
+                    lead_id=lead_id,
+                    call_session_id=call_session_id,
+                    callback_datetime=callback_datetime,
+                    callback_comments=callback_comments,
+                    remind_before_minutes=remind_before_minutes,
+                    expected_call_duration_minutes=expected_call_duration_minutes
+                )
+
+            now = frappe.utils.now()
+            call_session_doc.set("disposed_at", now)
+            call_session_doc.set("status", "DISPOSED")
+
+            call_session_doc.save(ignore_permissions=True)
             return {"is_valid": True, "reason": None}
         except Exception as e:
             return {
@@ -1576,23 +1642,66 @@ class CallService:
             frappe.db.commit()
         return {"message": "outbound connected"}
 
-    def dialer_call_disposed(self, user: str, payload: dict):
-        print("=====================dialer_call_disposed=====================")
-        print(payload)
-        print("=====================dialer_call_disposed=====================")
-        return {"message": "call disposed"}
+    def dialer_call_disposed_webhook(self, user: str, payload: dict):
+        result = {}
+        match default_telephony_vendor:
+            case "Smartflo":
+                result = self._handle_smartflo_dialer_call_disposed_webhook(payload)
+                if not result.get("is_valid"):
+                    raise ValueError(result.get("reason"))
+            case _:
+                raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
+        return {
+            "message": (
+                "call disposed (duplicate or in-flight event skipped)"
+                if result.get("skipped")
+                else "call disposed"
+            ),
+        }
 
+    def _handle_smartflo_dialer_call_disposed_webhook(self, payload: dict):
+        """
+        Smartflo dialer call disposed webhook. Idempotent on payload uuid (event_id).
+        Enriches vendor payload when the agent already submitted disposition (DISPOSED) first.
+        """
+        call_id = payload.get("call_id")
+        if not call_id:
+            return {"is_valid": False, "reason": "missing call_id"}
 
+        event_id = (payload.get("uuid") or "").strip() or None
+
+        row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
+        if not row_name:
+            return {"is_valid": False, "reason": "call session not found"}
+
+        row = frappe.get_doc("Call Session", row_name)
+        if event_id and (row.get("disposition_event_id") or "").strip() == event_id:
+            return {"is_valid": True, "skipped": True}
+
+        if event_id:
+            if not _webhook_acquire_lock(f"dialer_disposed:{event_id}", ttl=120):
+                return {"is_valid": True, "skipped": True}
+            row.reload()
+            if (row.get("disposition_event_id") or "").strip() == event_id:
+                return {"is_valid": True, "skipped": True}
+
+        row.set("disposition_event_id", event_id)
+        row.set("disposition_raw", payload)
+        if not row.get("disposed_at"):
+            row.set("disposed_at", frappe.utils.now())
+        row.set("status", "DISPOSED")
+        row.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"is_valid": True}
     def dialer_call_disconnected(self, user: str, payload: dict):
-
         match default_telephony_vendor:
             case "Smartflo":
                 result = self._handle_smartflo_dialer_call_disconnected(payload)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
+                return {"message": "call disconnected"}
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
-
 
     def _handle_smartflo_dialer_call_disconnected(self, payload: dict):
         """
@@ -1607,13 +1716,7 @@ class CallService:
 
         event_id = payload.get("uuid")
 
-        
-
         row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
-        print("============row_name=============")
-        print(row_name)
-        print("============row_name=============")
-        self._create_lead_if_not_exists(payload.get("call_to_number"))
         lead = self._create_lead_if_not_exists(payload.get("call_to_number"))
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
@@ -1624,24 +1727,24 @@ class CallService:
         if not row_name:
             call_status = frappe.new_doc("Call Session")
             call_status.agent_call_id = call_id
-            call_status.vendor_name = "Smartflo",
+            call_status.vendor_name = "Smartflo"
             call_status.calling_method = "Dialer"
-            call_status.lead = lead.get("lead.name")
-            call_status.lead_phone = lead.get('mobile_no')
-            call_status.lead_name = lead.get('lead_name'),
-            call_status.direction = "OUTBOUND" if payload.get("direction") == "Dialer (outbound)" else "INBOUND"
+            call_status.lead = lead.name
+            call_status.lead_phone = lead.get("mobile_no") or ""
+            call_status.direction = (
+                "OUTBOUND" if payload.get("direction") == "Dialer (outbound)" else "INBOUND"
+            )
             call_status.status = "MISSED"
             call_status.insert(ignore_permissions=True)
             row_name = call_status.name
-            # return {"is_valid": False, "reason": "call session not found"}
 
         row = frappe.get_doc("Call Session", row_name)
         row.hangup_event_id = event_id
         row.hangup_event_log = payload
         row.hangup_at = frappe.utils.now()
-        row.hangup_by = "LEAD"
-        row.hangup_reason = "CALL_DISCONNECTED"
-
+        # row.hangup_by = "LEAD"
+        # row.hangup_reason = "CALL_DISCONNECTED"
+        row.set("status", "DISCONNECTED")
         row.save(ignore_permissions=True)
         frappe.db.commit()
 
@@ -1833,7 +1936,7 @@ def dialer_call_disconnected(user: str, payload: dict):
     return _service.dialer_call_disconnected(user, payload)
 
 def dialer_call_disposed(user: str, payload: dict):
-    return _service.dialer_call_disposed(user, payload)
+    return _service.dialer_call_disposed_webhook(user, payload)
 
 def get_last_call(user: str):
     return _service.get_last_call(user)

@@ -184,3 +184,18 @@ def handle_dialer_hangup_api(user: str, call_session_id: str):
 	method = constants.dialer_hangup_config["method"]
 	payload = {"call_id": call_session_id}
 	return _smartflo_api_client(url, None, method, payload, user)
+
+def handle_store_disposition_api(user: str, call_id: str, disposition_code: str):
+	url = constants.store_disposition_config['url']
+	method = constants.store_disposition_config['method']
+	payload = {
+		"unique_id": call_id,
+		"disposition_status": disposition_code,
+
+	}
+	data = _smartflo_api_client(url, None, method,payload , user)
+	
+	if not data.get("ok"):
+		raise ValueError(data.get("reason"))
+
+	return {"is_valid": True, "reason": None}

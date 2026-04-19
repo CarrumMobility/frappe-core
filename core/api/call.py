@@ -16,10 +16,10 @@ def end_call(calling_method: str, call_id: str):
 @frappe.whitelist(methods=['POST'])
 def submit_disposition():
     """
-    Store disposition for Call Session (Click2Call) or CRM Call Log (Dialer).
+    Store disposition on Call Session (Click2Call and Dialer both use Call Session name).
 
     Body/JSON:
-      call_session_id — Call Session name (Click2Call) or CRM Call Log name (Dialer)
+      call_session_id — Call Session name (Click2Call and Dialer)
       calling_method — \"Click2Call\" | \"Dialer\"
       disposition_status — selected ``custom_primary_status`` string (stored on session; not doc name)
       disposition_code — vendor code from CRM Lead Status ``custom_disposition_code`` (Smartflo body)
@@ -87,9 +87,6 @@ def dialer_call_connected_webhook():
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disconnected_webhook():
     payload = frappe.request.get_json() or {}
-    print("============dialer_call_disconnected_webhook controller============")
-    print(payload)
-    print("============dialer_call_disconnected_webhook controller============")
     user = frappe.session.user
     return call_service.dialer_call_disconnected(user=user, payload=payload)
 
@@ -97,9 +94,6 @@ def dialer_call_disconnected_webhook():
 def dialer_call_disposed_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
-    print("============dialer_call_disposed_webhook controller============")
-    print(payload)
-    print("============dialer_call_disposed_webhook============")
     return call_service.dialer_call_disposed(user=user, payload=payload)
 
 @frappe.whitelist()

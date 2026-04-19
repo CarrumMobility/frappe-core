@@ -24,14 +24,15 @@ class CallSession(Document):
 		calling_method: DF.Literal["", "Dialer", "Click2Call"]
 		direction: DF.Literal["", "INBOUND", "OUTBOUND"]
 		disposed_at: DF.Datetime | None
+		disposition_event_id: DF.Data | None
 		disposition_raw: DF.JSON | None
 		disposition_remarks: DF.SmallText | None
 		disposition_status: DF.Data | None
-		disposition_timing: DF.Literal["IMMEDIATE", "LATE"]
+		disposition_timing: DF.Literal["","IMMEDIATE", "LATE"]
 		duration: DF.Duration | None
 		failure_reason: DF.Text | None
 		hangup_at: DF.Datetime | None
-		hangup_by: DF.Literal["LEAD", "AGENT", "SYSTEM"]
+		hangup_by: DF.Literal["","LEAD", "AGENT", "SYSTEM"]
 		hangup_event_id: DF.Data | None
 		hangup_event_log: DF.JSON | None
 		hangup_reason: DF.Data | None

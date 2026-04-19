@@ -2,6 +2,7 @@ import re
 from datetime import datetime, timedelta
 from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
+from crm.api.lead import update_lead_from_call_disposition
 from crm.utils import parse_phone_number
 import frappe
 import core.integrations.smartflo.client as smartflo_client
@@ -324,37 +325,37 @@ class CallService:
     def _handle_smartflo_click2call_start_logic(
         self, user: str, call_session_id: str, mobile_no, calling_config: dict
     ):
-        campaign_id = calling_config["default_campaign_id"]
+        # campaign_id = calling_config["default_campaign_id"]
 
-        max_login_retry_count = 2
-        is_logged_in = False
-        last_login_error_message = None
+        # max_login_retry_count = 2
+        # is_logged_in = False
+        # last_login_error_message = None
 
-        for attempt in range(max_login_retry_count):
-            try:
-                result = smartflo_client.handle_login_session_api(
-                    user=user, campaign_id=campaign_id
-                )
-                if result.get("is_valid"):
-                    is_logged_in = True
-                    break
-                last_login_error_message = result.get("reason") or "Session login failed"
+        # for attempt in range(max_login_retry_count):
+        #     try:
+        #         result = smartflo_client.handle_login_session_api(
+        #             user=user, campaign_id=campaign_id
+        #         )
+        #         if result.get("is_valid"):
+        #             is_logged_in = True
+        #             break
+        #         last_login_error_message = result.get("reason") or "Session login failed"
 
-            except Exception as e:
-                err = str(e)
-                if "already logged in" in err.lower():
-                    is_logged_in = True
-                    break
-                last_login_error_message = err
+        #     except Exception as e:
+        #         err = str(e)
+        #         if "already logged in" in err.lower():
+        #             is_logged_in = True
+        #             break
+        #         last_login_error_message = err
 
-            sleep(2)
+        #     sleep(2)
 
-        if not is_logged_in:
-            return {
-                "is_valid": False,
-                "step": "login",
-                "reason": last_login_error_message,
-            }
+        # if not is_logged_in:
+        #     return {
+        #         "is_valid": False,
+        #         "step": "login",
+        #         "reason": last_login_error_message,
+        #     }
 
         max_dial_retry_count = 2
         max_offline_retry = 1
@@ -386,21 +387,21 @@ class CallService:
 
                     offline_retry_count += 1
 
-                    try:
-                        smartflo_client.handle_logout(
-                            user=user, campaign_id=campaign_id
-                        )
-                    except Exception:
-                        pass
+                    # try:
+                    #     smartflo_client.handle_logout(
+                    #         user=user, campaign_id=campaign_id
+                    #     )
+                    # except Exception:
+                    #     pass
 
-                    sleep(0.5)
+                    # sleep(0.5)
 
-                    try:
-                        smartflo_client.handle_login_session_api(
-                            user=user, campaign_id=campaign_id
-                        )
-                    except Exception:
-                        pass
+                    # try:
+                    #     smartflo_client.handle_login_session_api(
+                    #         user=user, campaign_id=campaign_id
+                    #     )
+                    # except Exception:
+                    #     pass
 
                     sleep(0.5)
                     continue
@@ -884,9 +885,11 @@ class CallService:
         call_session_id = str(data.get("call_session_id") or "").strip()
         calling_method = str(data.get("calling_method") or "").strip()
         disposition_status = data.get("disposition_status")
-        disposition_id = data.get("disposition_id")
+        disposition_code = data.get("disposition_code")
         disposition_remarks = data.get("disposition_remarks")
-        sub_disposition = data.get("sub_disposition")
+        sub_disposition = data.get("sub_disposition_status") or data.get(
+            "sub_disposition"
+        )
         callback_datetime = data.get("callback_datetime")
         callback_comments = data.get("callback_comments")
         remind_before_minutes = data.get("remind_before_minutes")
@@ -908,7 +911,7 @@ class CallService:
             return {"is_valid": False, "reason": "missing required fields"}
 
         ds = str(disposition_status).strip() if disposition_status is not None else ""
-        did = str(disposition_id).strip() if disposition_id is not None else ""
+        did = str(disposition_code).strip() if disposition_code is not None else ""
         remarks = (
             str(disposition_remarks).strip()
             if disposition_remarks is not None
@@ -923,38 +926,38 @@ class CallService:
         if not ds and not did:
             return {
                 "is_valid": False,
-                "reason": "disposition_status or disposition_id is required",
+                "reason": "disposition_status or disposition_code is required",
             }
 
         match calling_method:
             case "Click2Call":
                 return self._handle_click2call_submit_disposition(
-                    call_session_id,
-                    ds,
-                    did,
-                    remarks,
-                    sub,
-                    callback_datetime,
-                    callback_comments,
-                    remind_before_minutes,
-                    expected_call_duration_minutes,
-                    disposition_timing,
-                    scheduled_visit_date,
-                    is_visit_scheduled,
+                    call_session_id=call_session_id,
+                    disposition_status=ds,
+                    disposition_code=did,
+                    remarks=remarks,
+                    sub_disposition=sub,
+                    callback_datetime=callback_datetime,
+                    callback_comments=callback_comments,
+                    remind_before_minutes=remind_before_minutes,
+                    expected_call_duration_minutes=expected_call_duration_minutes,
+                    disposition_timing=disposition_timing,
+                    scheduled_visit_date=scheduled_visit_date,
+                    is_visit_scheduled=is_visit_scheduled,
                 )
             case "Dialer":
                 return self._handle_dialer_submit_disposition(
-                    call_session_id,
-                    ds,
-                    did,
-                    remarks,
-                    sub,
-                    callback_datetime,
-                    callback_comments,
-                    remind_before_minutes,
-                    expected_call_duration_minutes,
-                    scheduled_visit_date,
-                    is_visit_scheduled,
+                    call_session_id=call_session_id,
+                    disposition_status=ds,
+                    disposition_code=did,
+                    remarks=remarks,
+                    sub_disposition=sub,
+                    callback_datetime=callback_datetime,
+                    callback_comments=callback_comments,
+                    remind_before_minutes=remind_before_minutes,
+                    expected_call_duration_minutes=expected_call_duration_minutes,
+                    scheduled_visit_date=scheduled_visit_date,
+                    is_visit_scheduled=is_visit_scheduled,
                 )
             case _:
                 return {
@@ -966,7 +969,7 @@ class CallService:
         self,
         call_session_id: str,
         disposition_status: str,
-        disposition_id: str,
+        disposition_code: str,
         remarks: str,
         sub_disposition: str | None,
         callback_datetime,
@@ -990,28 +993,30 @@ class CallService:
                 "reason": "Call session has no agent call id; cannot store disposition.",
             }
 
-        if not disposition_id:
-            return {"is_valid": False, "reason": "disposition id is required"}
+        if not disposition_code and not disposition_status:
+            return {
+                "is_valid": False,
+                "reason": "disposition_code or disposition_status is required",
+            }
 
         user = frappe.session.user
-        cfg = smartflo_constants.store_disposition_config
-        body = {"disposition_status": str(disposition_status), "unique_id": unique_id}
-        if sub_disposition:
-            body["sub_disposition_status"] = sub_disposition
-
-        # try:
-        #     method = cfg["method"]
-        #     url = cfg["url"]
-        #     smartflo_client._smartflo_api_client(url, None, method, body, user)
-        # except Exception as e:
-        #     return {"is_valid": False, "reason": str(e)}
+        # body = {
+        #     "disposition_status": str(disposition_status),
+        #     "unique_id": unique_id,
+        # }
+        # if disposition_code is not None:
+        #     body["disposition_code"] = str(disposition_code)
+        # if sub_disposition is not None:
+        #     body["sub_disposition_status"] = sub_disposition
 
         lead_id = doc.get("lead")
 
         doc.set("disposition_status", disposition_status or None)
         doc.set("disposition_remarks", remarks or None)
+        doc.set("sub_disposition_status", sub_disposition or None)
         doc.set("status", "DISPOSED")
         doc.set("disposed_at", frappe.utils.now())
+        doc.set("disposition_code", disposition_code or None)
         doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
         svd = (
             str(scheduled_visit_date).strip()
@@ -1026,6 +1031,18 @@ class CallService:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
         doc.save(ignore_permissions=True)
+        if lead_id:
+            try:
+                update_lead_from_call_disposition(
+                    lead_id,
+                    disposition_status,
+                    sub_disposition,
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "update_lead_from_call_disposition_click2call",
+                )
         if callback_datetime:
             self._create_event_for_callback(
                 lead_id=lead_id,
@@ -1094,9 +1111,9 @@ class CallService:
         return event_doc.name
     def _handle_dialer_submit_disposition(
         self,
-        call_log_name: str,
+        call_session_id: str,
         disposition_status: str,
-        disposition_id: str,
+        disposition_code: str,
         remarks: str,
         sub_disposition: str | None,
         callback_datetime,
@@ -1109,9 +1126,9 @@ class CallService:
         match default_telephony_vendor:
             case "Smartflo":
                 return self._handle_smartflo_dialer_submit_disposition(
-                    call_log_name,
+                    call_session_id,
                     disposition_status,
-                    disposition_id,
+                    disposition_code,
                     remarks,
                     sub_disposition,
                     callback_datetime,
@@ -1129,11 +1146,11 @@ class CallService:
 
     def _handle_smartflo_dialer_submit_disposition(
         self,
-        call_log_name: str,
+        call_session_id: str,
         disposition_status: str,
-        disposition_id: str,
+        disposition_code: str,
         remarks: str,
-        sub_disposition: str | None,
+        sub_disposition_status: str | None,
         callback_datetime,
         callback_comments,
         remind_before_minutes,
@@ -1150,18 +1167,20 @@ class CallService:
             }
 
         try:
-            disposeCall(
-                call_id=call_log_name,
-                disposition=disposition_id or disposition_status,
-                sub_disposition=sub_disposition,
-                comments=remarks or None,
-                callback_datetime=callback_datetime,
-                callback_comments=callback_comments,
-                remind_before_minutes=remind_before_minutes,
-                expected_call_duration_minutes=expected_call_duration_minutes,
-                scheduled_visit_date=scheduled_visit_date,
-                is_visit_scheduled=is_visit_scheduled,
-            )
+            # I'll re-implement this logic
+            pass
+            # disposeCall(
+            #     call_id=call_session_id,
+            #     disposition=disposition_code or disposition_status,
+            #     sub_disposition=sub_disposition_status,
+            #     comments=remarks or None,
+            #     callback_datetime=callback_datetime,
+            #     callback_comments=callback_comments,
+            #     remind_before_minutes=remind_before_minutes,
+            #     expected_call_duration_minutes=expected_call_duration_minutes,
+            #     scheduled_visit_date=scheduled_visit_date,
+            #     is_visit_scheduled=is_visit_scheduled,
+            # )
             return {"is_valid": True, "reason": None}
         except Exception as e:
             return {

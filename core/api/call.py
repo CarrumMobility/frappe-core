@@ -21,11 +21,12 @@ def submit_disposition():
     Body/JSON:
       call_session_id — Call Session name (Click2Call) or CRM Call Log name (Dialer)
       calling_method — \"Click2Call\" | \"Dialer\"
-      disposition_status — label/code (stored on session or log)
-      disposition_id — Smartflo disposition id (API only; not stored on Call Session)
+      disposition_status — selected ``custom_primary_status`` string (stored on session; not doc name)
+      disposition_code — vendor code from CRM Lead Status ``custom_disposition_code`` (Smartflo body)
       disposition_remarks — optional string
       disposition_timing — optional \"IMMEDIATE\" | \"LATE\" (Call Session; default IMMEDIATE)
-      sub_disposition, callback_datetime, callback_comments, remind_before_minutes,
+      sub_disposition_status (or sub_disposition) — selected row's ``lead_status`` string (not doc name)
+      callback_datetime, callback_comments, remind_before_minutes,
       expected_call_duration_minutes — optional (Dialer / callbacks)
       is_visit_scheduled, scheduled_visit_date — optional (visit disposition)
     """

@@ -9,7 +9,7 @@ from core.integrations.smartflo.constants import generate_token_config
 from core.api.carrum_accounts import get_smartflo_credentials_for_frappe_user
 
 _CACHE_KEY_PREFIX = "smartflo_token"
-_CACHE_TTL_SECONDS = 3600  # 1 hour
+_CACHE_TTL_SECONDS = 50 * 60  # 50 minutes
 
 
 def _login(email: str, password: str) -> str:

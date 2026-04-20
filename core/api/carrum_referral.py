@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 
@@ -220,6 +220,125 @@ def get_dm_referral_list(
 			"success": False,
 			"status_code": response.status_code,
 			"error": _("Invalid JSON response from referral service"),
+			"response": (response.text or "")[:2000] or None,
+		}
+
+	return {
+		"success": True,
+		"status_code": response.status_code,
+		"data": data.get("data", {}),
+	}
+
+
+def fetch_referee_milestones_from_carrum(
+	lead_id,
+	page=1,
+	limit=20,
+	reward_type="AGENT_REFERRAL",
+):
+	"""
+	GET milestone journey for a referee (CRM Lead id) from Carrum.
+
+	URL: ``{carrum_base_url}/api/v1/referral-rewards/referee/{lead_id}/milestones``
+	Query: ``rewardType``, ``page``, ``limit``.
+	"""
+	lead_id = (lead_id or "").strip()
+	if not lead_id:
+		return {
+			"success": False,
+			"error": _("Lead id is required"),
+		}
+
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
+	if not base_url:
+		return {
+			"success": False,
+			"error": _("Carrum base URL is not configured (carrum_base_url)"),
+		}
+
+	token = frappe.conf.get("carrum_token")
+	if not token:
+		return {
+			"success": False,
+			"error": _("Carrum token is not configured (carrum_token)"),
+		}
+
+	lead_segment = quote(lead_id, safe="")
+	query = urlencode(
+		{
+			"rewardType": reward_type,
+			"page": page,
+			"limit": limit,
+		}
+	)
+	url = f"{base_url}/api/v1/referral-rewards/referee/{lead_segment}/milestones?{query}"
+
+	headers = {
+		"Accept": "application/json",
+		"Authorization": token,
+	}
+
+	try:
+		response = requests.get(url, headers=headers, timeout=30)
+	except requests.exceptions.Timeout:
+		logger.error("Carrum referee milestones timeout url=%s", url)
+		return {
+			"success": False,
+			"error": _("Request to milestone service timed out"),
+		}
+	except requests.exceptions.ConnectionError as err:
+		logger.error("Carrum referee milestones connection error: %s", err)
+		return {
+			"success": False,
+			"error": _("Could not connect to milestone service"),
+		}
+	except requests.exceptions.RequestException as err:
+		logger.error("Carrum referee milestones request error: %s", err)
+		return {
+			"success": False,
+			"error": _("Milestone request failed: {0}").format(str(err)),
+		}
+
+	try:
+		response.raise_for_status()
+	except requests.exceptions.HTTPError as err:
+		text = ""
+		status = getattr(err.response, "status_code", None)
+		if err.response is not None:
+			try:
+				text = (err.response.text or "")[:2000]
+			except Exception:
+				text = ""
+		logger.error(
+			"Carrum referee milestones HTTP error status=%s body=%s",
+			status,
+			text,
+		)
+		return {
+			"success": False,
+			"status_code": status,
+			"error": str(err),
+			"response": text or None,
+		}
+
+	try:
+		data = response.json()
+	except ValueError:
+		logger.error("Carrum referee milestones invalid JSON status=%s", response.status_code)
+		return {
+			"success": False,
+			"status_code": response.status_code,
+			"error": _("Invalid JSON response from milestone service"),
 			"response": (response.text or "")[:2000] or None,
 		}
 

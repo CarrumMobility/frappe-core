@@ -9,30 +9,35 @@ import core.integrations.smartflo.client as smartflo_client
 import core.integrations.smartflo.constants as smartflo_constants
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
+from core.services.util_service import UtilService
 
+util_service = UtilService()
 default_telephony_vendor = "Smartflo"
 
 
-def _assign_chatwoot_agent_for_lead(lead_id: str | None) -> None:
-    """Best-effort: assign the disposing agent's Chatwoot account to the lead's WhatsApp conversation.
+def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
+    """Set ``CRM Lead.telecaller`` to the disposing agent.
 
-    Uses ``frappe.session.user`` (current agent) via ``_get_chatwoot_ctx``; never raises so a
-    Chatwoot/network failure cannot break the dispose flow. No-op for system/webhook contexts.
+    Goes through ``lead.save`` (not ``frappe.db.set_value``) so the CRM Lead controller
+    hook fires and re-assigns the lead's WhatsApp conversation in Chatwoot to the new
+    telecaller. Idempotent: skips when the telecaller is unchanged. Silent on failure.
     """
-    if not lead_id:
+    if not lead_id or not agent:
         return
-    user = (frappe.session.user or "").strip()
-    if not user or user in ("Guest", "Administrator"):
+    agent = agent.strip()
+    if not agent or agent in ("Guest", "Administrator"):
         return
     try:
-        mobile_no = (frappe.db.get_value("CRM Lead", lead_id, "mobile_no") or "").strip()
-        if not mobile_no:
+        if not frappe.db.exists("User", agent):
             return
-        from frappe_chatwoot.api import whatsapp as _chatwoot_whatsapp
-
-        _chatwoot_whatsapp.assignSelfToContactOnChatwootIfHaveAccount(mobile_no)
+        current = (frappe.db.get_value("CRM Lead", lead_id, "telecaller") or "").strip()
+        if current == agent:
+            return
+        lead = frappe.get_doc("CRM Lead", lead_id)
+        lead.telecaller = agent
+        lead.save(ignore_permissions=True)
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "assign_chatwoot_agent_on_dispose")
+        frappe.log_error(frappe.get_traceback(), "set_lead_telecaller_on_dispose")
 
 
 def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
@@ -1063,9 +1068,9 @@ class CallService:
                     frappe.get_traceback(),
                     "update_lead_from_call_disposition_click2call",
                 )
-            _assign_chatwoot_agent_for_lead(lead_id)
+            _set_lead_telecaller(lead_id, doc.get("agent"))
         if callback_datetime:
-            self._create_event_for_callback(
+            util_service.create_event_for_callback(
                 lead_id=lead_id,
                 call_session_id=call_session_id,
                 callback_datetime=callback_datetime,
@@ -1088,48 +1093,6 @@ class CallService:
 
         return {"is_valid": True, "reason": None}
 
-    def _create_event_for_callback(
-        self,
-        lead_id,
-        call_session_id: str,
-        callback_datetime,
-        callback_comments: str,
-        remind_before_minutes: int,
-        expected_call_duration_minutes: int,
-    ):
-        call_at = get_datetime(callback_datetime)
-        if not call_at:
-            frappe.throw(
-                frappe._("Invalid callback date and time"),
-                title=frappe._("Callback"),
-            )
-
-        remind_m = int(remind_before_minutes or 0)
-        duration_m = int(expected_call_duration_minutes or 5)
-        if duration_m < 1:
-            duration_m = 5
-
-        starts_on = call_at - timedelta(minutes=remind_m)
-        ends_on = call_at + timedelta(minutes=duration_m)
-
-        event_doc = frappe.new_doc("Event")
-
-        event_doc.set("subject", f"{lead_id}: Callback Scheduled")
-        event_doc.set("event_category", "Callback")
-        event_doc.set("event_type", "Private")
-        event_doc.set("status", "Open")
-        event_doc.set("starts_on", starts_on)
-        event_doc.set("call_at", call_at)
-        event_doc.set("ends_on", ends_on)
-        event_doc.set("reference_doctype", "Call Session")
-        event_doc.set("reference_docname", call_session_id)
-        event_doc.set("reference_call_session", call_session_id)
-        event_doc.set("description", callback_comments)
-        event_doc.set("callback_status", "Scheduled")
-
-        event_doc.save(ignore_permissions=True)
-
-        return event_doc.name
     def _handle_dialer_submit_disposition(
         self,
         call_session_id: str,
@@ -1230,10 +1193,10 @@ class CallService:
                         frappe.get_traceback(),
                         "update_lead_from_call_disposition_dialer",
                     )
-                _assign_chatwoot_agent_for_lead(lead_id)
+                _set_lead_telecaller(lead_id, call_session_doc.get("agent"))
 
             if callback_datetime:
-                self._create_event_for_callback(
+                util_service.create_event_for_callback(
                     lead_id=lead_id,
                     call_session_id=call_session_id,
                     callback_datetime=callback_datetime,
@@ -1274,10 +1237,12 @@ class CallService:
             else:
                 raise e
 
+        print("============start dialer session=============")
         try:
             # handle dialer session start
             smartflo_client.handle_start_or_end_session_api(user,campaign_id,True)
         except Exception as e:
+            print(e)
             return {
                 "is_valid": False,
                 "reason": str(e)
@@ -1940,3 +1905,13 @@ def dialer_call_disposed(user: str, payload: dict):
 
 def get_last_call(user: str):
     return _service.get_last_call(user)
+
+def create_callback_event(
+    lead_id,
+    call_session_id,
+    callback_datetime,
+    callback_comments,
+    remind_before_minutes,
+    expected_call_duration_minutes,
+):
+    return util_service.create_event_for_callback(lead_id, call_session_id, callback_datetime, callback_comments, remind_before_minutes, expected_call_duration_minutes)

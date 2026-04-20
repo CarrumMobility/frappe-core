@@ -395,9 +395,9 @@ def webhook_capture():
     """
 
     d = frappe.request.get_json()
-    print("====================payment_capture============================")
+    print("==========webhook_capture==========")
     print(d)
-    print("====================payment_capture============================")
+    print("==========webhook_capture==========")
     if not d or not isinstance(d, dict):
         frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
@@ -433,11 +433,43 @@ def webhook_capture():
         )
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
-    lead.db_set(
-        "total_paid_amount",
-        flt(lead.total_paid_amount) + flt(amount),
-    )
+    leadHubFee = lead.hub_fee
+    print(lead.total_paid_amount)
+    new_total_paid = flt(lead.total_paid_amount) + flt(amount)
+    print(new_total_paid)
+    lead.db_set("total_paid_amount", new_total_paid)
 
+    # CRM Lead Status uses ``custom_primary_status`` / ``lead_status`` (not primary_status / secondary_status).
+    leadInitialStatus = frappe.db.get_value(
+        "CRM Lead Status",
+        {"is_apply_on_driver_creation": 1},
+        "custom_primary_status",
+    )
+    psd_status_row = frappe.db.get_value(
+        "CRM Lead Status",
+        {"is_apply_on_psd_conversion": 1},
+        ["custom_primary_status", "lead_status"],
+    )
+    leadPSD_PRIMARY_STATUS = leadPSD_SECONDARY_STATUS = None
+    if psd_status_row:
+        leadPSD_PRIMARY_STATUS, leadPSD_SECONDARY_STATUS = psd_status_row
+    
+    sd = lead.hub_fee
+    if (
+        leadPSD_PRIMARY_STATUS is not None
+        and leadPSD_SECONDARY_STATUS is not None
+        and leadInitialStatus is not None
+        and lead.primary_status != leadInitialStatus
+    ):
+        if sd <= new_total_paid:
+            lead.primary_status = leadPSD_PRIMARY_STATUS
+            lead.secondary_status = leadPSD_SECONDARY_STATUS
+            lead.save()
+        elif leadHubFee <= new_total_paid:
+            lead.primary_status = leadPSD_PRIMARY_STATUS
+            lead.secondary_status = leadPSD_SECONDARY_STATUS
+            lead.save()
+        
     paymentTag = d.get("paymentTag") or {}
     hubFeeTag = flt(paymentTag.get("hubFeeTag"))
     sdTag = flt(paymentTag.get("sdTag"))
@@ -454,6 +486,7 @@ def webhook_capture():
         image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
     elif isinstance(imageUrls, str) and imageUrls.strip():
         image_url = imageUrls.strip()
+
 
     paymentLog = frappe.new_doc("payment_logs")
     paymentLog.set("amount", amount)

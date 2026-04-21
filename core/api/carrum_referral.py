@@ -662,3 +662,127 @@ def fetch_referee_milestones_from_carrum(
 		"status_code": response.status_code,
 		"data": data.get("data", {}),
 	}
+
+
+def get_cumulative_referral_list_from_portal(
+	page=1,
+	limit=20,
+	user_name=None,
+	reward_type="AGENT_REFERRAL",
+):
+	"""
+	GET cumulative referral list from Carrum.
+
+	URL: ``{carrum_base_url}/api/v1/referral-rewards/hub-summary?userName={{user_name}}&rewardType=AGENT_REFERRAL&page=1&limit=20``
+	Query: ``page``, ``limit``.
+	"""
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	user_name = (user_name or frappe.session.user or "").strip()
+	if not user_name:
+		return {
+			"success": False,
+			"error": _("User name is required"),
+		}
+
+	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
+	if not base_url:
+		return {
+			"success": False,
+			"error": _("Carrum base URL is not configured (carrum_base_url)"),
+		}
+
+	token = frappe.conf.get("carrum_token")
+	if not token:
+		return {
+			"success": False,
+			"error": _("Carrum token is not configured (carrum_token)"),
+		}
+
+	query = urlencode(
+		{
+			"userName": user_name,
+			"rewardType": reward_type,
+			"page": page,
+			"limit": limit,
+		}
+	)
+	url = f"{base_url}/api/v1/referral-rewards/hub-summary?{query}"
+
+	headers = {
+		"Accept": "application/json",
+		"Authorization": token,
+	}
+
+	try:
+		response = requests.get(url, headers=headers, timeout=30)
+	except requests.exceptions.Timeout:
+		logger.error("Carrum hub-summary timeout url=%s", url)
+		return {
+			"success": False,
+			"error": _("Request to cumulative referral list timed out"),
+		}
+	except requests.exceptions.ConnectionError as err:
+		logger.error("Carrum hub-summary connection error: %s", err)
+		return {
+			"success": False,
+			"error": _("Could not connect to referral service"),
+		}
+	except requests.exceptions.RequestException as err:
+		logger.error("Carrum hub-summary request error: %s", err)
+		return {
+			"success": False,
+			"error": _("Cumulative referral list request failed: {0}").format(str(err)),
+		}
+
+	try:
+		response.raise_for_status()
+	except requests.exceptions.HTTPError as err:
+		text = ""
+		status = getattr(err.response, "status_code", None)
+		if err.response is not None:
+			try:
+				text = (err.response.text or "")[:2000]
+			except Exception:
+				text = ""
+		logger.error(
+			"Carrum hub-summary HTTP error status=%s body=%s",
+			status,
+			text,
+		)
+		return {
+			"success": False,
+			"status_code": status,
+			"error": str(err),
+			"response": text or None,
+		}
+
+	try:
+		data = response.json()
+	except ValueError:
+		logger.error("Carrum hub-summary invalid JSON status=%s", response.status_code)
+		return {
+			"success": False,
+			"status_code": response.status_code,
+			"error": _("Invalid JSON response from referral service"),
+			"response": (response.text or "")[:2000] or None,
+		}
+
+	if isinstance(data, dict):
+		payload = data.get("data", data)
+	else:
+		payload = data
+
+	return {
+		"success": True,
+		"status_code": response.status_code,
+		"data": payload,
+	}

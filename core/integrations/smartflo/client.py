@@ -100,17 +100,31 @@ def _smartflo_api_client(url, headers, method, body, user: str | None = None, is
 	_raise_smartflo_error(response)
 
 
-def handle_click2call_start_api(agent_number: str, destination_number: str, caller_id: str, custom_identifier, user: str):
-    url = constants.click2call_start_config["url"]
-    method = constants.click2call_start_config["method"]
-    payload = {
-        "async": 1,
-        "agent_number": agent_number,
-        "destination_number": destination_number,
-        "caller_id": caller_id,
-        "custom_identifier": custom_identifier
-    }
-    return _smartflo_api_client(url, None, method, payload, user)
+def handle_click2call_start_api(
+	agent_number: str,
+	destination_number: str,
+	caller_id: str,
+	custom_identifier,
+	user: str,
+	*,
+	use_async: bool = True,
+):
+	"""
+	When ``use_async`` is False (e.g. manual lead / callback "Dial now"), the payload
+	uses ``async: 0`` so Smartflo does not use the async dial / session path that
+	can tie into a separate agent "session" flow. CRM Call Session is still required
+	For ``custom_identifier`` / webhooks.
+	"""
+	url = constants.click2call_start_config["url"]
+	method = constants.click2call_start_config["method"]
+	payload = {
+		"async": 1 if use_async else 0,
+		"agent_number": agent_number,
+		"destination_number": destination_number,
+		"caller_id": caller_id,
+		"custom_identifier": custom_identifier
+	}
+	return _smartflo_api_client(url, None, method, payload, user)
 
 
 def handle_click2call_end_api(*, user: str, telephony_call_id: str):

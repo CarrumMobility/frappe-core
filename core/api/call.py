@@ -2,9 +2,26 @@ import frappe
 import core.services.call_service as call_service
 
 @frappe.whitelist(methods=['POST'])
-def start_call(calling_method: str, leadId: str):
+def start_call(calling_method: str = None, leadId: str = None):
     user = frappe.session.user
-    result = call_service.start_call(calling_method, leadId, user)
+    data = frappe.request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+    form = dict(frappe.local.form_dict or {})
+    for key, val in form.items():
+        if key not in data and key not in ("cmd", "csrf_token"):
+            data[key] = val
+    if not calling_method:
+        calling_method = data.get("calling_method")
+    if not leadId:
+        leadId = data.get("leadId")
+    manual_dial = bool(
+        data.get("manual_dial")
+        or data.get("manualDial")
+    )
+    result = call_service.start_call(
+        calling_method, leadId, user, manual_dial=manual_dial
+    )
     print(result)
     return result
 

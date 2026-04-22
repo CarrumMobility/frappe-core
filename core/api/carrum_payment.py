@@ -5,6 +5,7 @@ from frappe.utils.data import flt
 import requests
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
+from core.api.carrum_drivers import get_portal_driver_detail
 import frappe
 from frappe import _
 
@@ -45,6 +46,154 @@ def _resolve_lead_for_carrum_user_id(user_id):
     return frappe.db.get_value(
         "CRM Lead", {"custom_account_id": user_id}, "name"
     )
+
+
+def _fetch_crm_lead_status_primary_secondary(filters):
+    """Return ``(custom_primary_status, lead_status)`` from **CRM Lead Status** or ``None``."""
+    return frappe.db.get_value(
+        "CRM Lead Status",
+        filters,
+        ["custom_primary_status", "lead_status"],
+    )
+
+
+def _lead_matches_crm_status_row(lead, row):
+    if not row:
+        return False
+    primary, secondary = row
+    return (lead.primary_status or "") == (primary or "") and (
+        lead.secondary_status or ""
+    ) == (secondary or "")
+
+
+def _apply_crm_lead_status_row(lead, row):
+    primary, secondary = row
+    lead.db_set(
+        {"primary_status": primary, "secondary_status": secondary},
+        update_modified=True,
+    )
+
+
+def _portal_driver_detail_results(envelope):
+    """
+    Normalize Carrum driver API payload to the ``results`` object (mirrors
+    ``getPortalDriverDetailResults`` in the CRM frontend).
+    """
+    if not isinstance(envelope, dict):
+        return None
+    if not envelope.get("success") or envelope.get("data") is None:
+        return None
+    top = envelope["data"]
+    if not isinstance(top, dict):
+        return None
+    results = top.get("results")
+    if isinstance(results, dict) and (
+        "walletData" in results
+        or "scheme_id" in results
+        or "chequeData" in results
+        or "scheme_alias_detail" in results
+        or "assignedVehicle" in results
+    ):
+        return results
+    msg = top.get("message")
+    if isinstance(msg, dict):
+        inner = msg.get("data") or msg
+        if isinstance(inner, dict) and isinstance(inner.get("results"), dict):
+            return inner["results"]
+    if "scheme_id" in top or "chequeData" in top:
+        return top
+    if isinstance(top.get("results"), dict):
+        return top["results"]
+    return None
+
+
+def _wallet_data_for_lead_account(account_id):
+    """``walletData`` from legacy Carrum portal (hubFee / securityDeposit ``remaining``)."""
+    aid = (account_id or "").strip()
+    if not aid:
+        return None
+    try:
+        r = get_portal_driver_detail(aid)
+    except Exception:
+        frappe.logger().exception(
+            "webhook_capture: get_portal_driver_detail failed for account_id=%s",
+            aid,
+        )
+        return None
+    results = _portal_driver_detail_results(r)
+    if not isinstance(results, dict):
+        return None
+    wd = results.get("walletData")
+    return wd if isinstance(wd, dict) else None
+
+
+def _maybe_update_lead_status_after_payment_capture(lead):
+    """
+    After a captured payment, optionally update CRM Lead ``primary_status`` /
+    ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
+
+    - If the lead already matches **Apply on FSD Conversion**, do nothing.
+    - If the lead matches **Vehicle Assignment** and both hub fee and SD ``remaining`` are 0,
+      move to the FSD row.
+    - If the lead matches **Apply on PSD Conversion** (partial SD) and SD ``remaining`` is 0,
+      move to the FSD row.
+    - Else if the lead matches **Vehicle Assignment** and hub fee ``remaining`` is 0,
+      move to the PSD row.
+
+    If portal wallet data cannot be loaded, status is left unchanged.
+    """
+    account_id = (getattr(lead, "custom_account_id", None) or "").strip()
+    if not account_id:
+        return
+
+    wallet = _wallet_data_for_lead_account(account_id)
+    if not wallet:
+        return
+
+    hub_fee = wallet.get("hubFee") or {}
+    sec_dep = wallet.get("securityDeposit") or {}
+    hub_rem = flt(hub_fee.get("remaining"))
+    sd_rem = flt(sec_dep.get("remaining"))
+
+    fsd_row = _fetch_crm_lead_status_primary_secondary(
+        {"is_apply_on_fsd_conversion": 1}
+    )
+    psd_row = _fetch_crm_lead_status_primary_secondary(
+        {"is_apply_on_psd_conversion": 1}
+    )
+    va_row = _fetch_crm_lead_status_primary_secondary(
+        {"is_apply_on_vehicle_assignment": 1}
+    )
+
+    if fsd_row and _lead_matches_crm_status_row(lead, fsd_row):
+        return
+
+    if (
+        va_row
+        and _lead_matches_crm_status_row(lead, va_row)
+        and fsd_row
+        and hub_rem == 0
+        and sd_rem == 0
+    ):
+        _apply_crm_lead_status_row(lead, fsd_row)
+        return
+
+    if (
+        psd_row
+        and _lead_matches_crm_status_row(lead, psd_row)
+        and fsd_row
+        and sd_rem == 0
+    ):
+        _apply_crm_lead_status_row(lead, fsd_row)
+        return
+
+    if (
+        va_row
+        and _lead_matches_crm_status_row(lead, va_row)
+        and psd_row
+        and hub_rem == 0
+    ):
+        _apply_crm_lead_status_row(lead, psd_row)
 
 
 def _resolve_payment_doc(doctype=None, name=None, lead_id=None):
@@ -395,9 +544,6 @@ def webhook_capture():
     """
 
     d = frappe.request.get_json()
-    print("==========webhook_capture==========")
-    print(d)
-    print("==========webhook_capture==========")
     if not d or not isinstance(d, dict):
         frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
@@ -433,43 +579,14 @@ def webhook_capture():
         )
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
-    leadHubFee = lead.hub_fee
-    print(lead.total_paid_amount)
     new_total_paid = flt(lead.total_paid_amount) + flt(amount)
-    print(new_total_paid)
     lead.db_set("total_paid_amount", new_total_paid)
 
-    # CRM Lead Status uses ``custom_primary_status`` / ``lead_status`` (not primary_status / secondary_status).
-    leadInitialStatus = frappe.db.get_value(
-        "CRM Lead Status",
-        {"is_apply_on_driver_creation": 1},
-        "custom_primary_status",
-    )
-    psd_status_row = frappe.db.get_value(
-        "CRM Lead Status",
-        {"is_apply_on_psd_conversion": 1},
-        ["custom_primary_status", "lead_status"],
-    )
-    leadPSD_PRIMARY_STATUS = leadPSD_SECONDARY_STATUS = None
-    if psd_status_row:
-        leadPSD_PRIMARY_STATUS, leadPSD_SECONDARY_STATUS = psd_status_row
-    
-    sd = lead.hub_fee
-    if (
-        leadPSD_PRIMARY_STATUS is not None
-        and leadPSD_SECONDARY_STATUS is not None
-        and leadInitialStatus is not None
-        and lead.primary_status != leadInitialStatus
-    ):
-        if sd <= new_total_paid:
-            lead.primary_status = leadPSD_PRIMARY_STATUS
-            lead.secondary_status = leadPSD_SECONDARY_STATUS
-            lead.save()
-        elif leadHubFee <= new_total_paid:
-            lead.primary_status = leadPSD_PRIMARY_STATUS
-            lead.secondary_status = leadPSD_SECONDARY_STATUS
-            lead.save()
-        
+    # CRM Lead ``primary_status`` / ``secondary_status`` align with **CRM Lead Status**
+    # ``custom_primary_status`` / ``lead_status``. Transitions use Carrum portal wallet
+    # (``get_portal_driver_detail`` → ``walletData``), same as the CRM payment summary UI.
+    _maybe_update_lead_status_after_payment_capture(lead)
+
     paymentTag = d.get("paymentTag") or {}
     hubFeeTag = flt(paymentTag.get("hubFeeTag"))
     sdTag = flt(paymentTag.get("sdTag"))

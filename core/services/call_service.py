@@ -127,11 +127,25 @@ class CallService:
     AGENT_DIALER_SESSION_LOG_DOCTYPE = "User dialer session logs"
     SESSION_BREAK_LOG_DOCTYPE = "User dialer session break logs"
 
-    def start_call(self,calling_method: str,leadId: str,user: str):
+    def start_call(
+        self,
+        calling_method: str,
+        leadId: str,
+        user: str,
+        *,
+        manual_dial: bool = False,
+    ):
         if calling_method == "Dialer":
             raise ValueError(f"Dialer calling method is not supported: {calling_method}")
         if calling_method != "Click2Call":
             raise ValueError(f"Invalid calling method: {calling_method}")
+
+        if self._user_has_active_dialer_session(user):
+            raise ValueError(
+                frappe._(
+                    "You have an active dialer session. End the session before using click-to-call."
+                )
+            )
 
         lead = frappe.get_doc("CRM Lead", leadId)
         if not lead:
@@ -158,7 +172,11 @@ class CallService:
         call_session_doc.insert()
 
         call_initiated_result = self._handle_click2call_start_logic(
-            user, call_session_doc.name, mobile_no, pre_vendor_check_result["calling_config"]
+            user,
+            call_session_doc.name,
+            mobile_no,
+            pre_vendor_check_result["calling_config"],
+            manual_dial=bool(manual_dial),
         )
 
         if call_initiated_result["is_valid"] == False:
@@ -339,18 +357,32 @@ class CallService:
             "reason": None,
         }
 
-    def _handle_click2call_start_logic(self, user: str, call_session_id: str, mobile_no, calling_config: dict):
+    def _handle_click2call_start_logic(
+        self,
+        user: str,
+        call_session_id: str,
+        mobile_no,
+        calling_config: dict,
+        *,
+        manual_dial: bool = False,
+    ):
         match default_telephony_vendor:
             case "Smartflo":
                 return self._handle_smartflo_click2call_start_logic(
-                    user, call_session_id, mobile_no, calling_config
+                    user, call_session_id, mobile_no, calling_config, manual_dial=manual_dial
                 )
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
     
     def _handle_smartflo_click2call_start_logic(
-        self, user: str, call_session_id: str, mobile_no, calling_config: dict
+        self,
+        user: str,
+        call_session_id: str,
+        mobile_no,
+        calling_config: dict,
+        *,
+        manual_dial: bool = False,
     ):
         # campaign_id = calling_config["default_campaign_id"]
 
@@ -401,6 +433,7 @@ class CallService:
                     destination_number=mobile_no,
                     caller_id=calling_number,
                     custom_identifier=call_session_id,
+                    use_async=not manual_dial,
                 )
 
                 return {"is_valid": True, "reason": None}
@@ -1056,6 +1089,18 @@ class CallService:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
         doc.save(ignore_permissions=True)
+        try:
+            util_service.create_event_for_visit_date(
+                lead_id=lead_id,
+                call_session_id=call_session_id,
+                scheduled_visit_date=doc.get("scheduled_visit_date"),
+                disposition_remarks=doc.get("disposition_remarks"),
+            )
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                "sync_visit_date_event_click2call",
+            )
         if lead_id:
             try:
                 update_lead_from_call_disposition(
@@ -1210,12 +1255,33 @@ class CallService:
             call_session_doc.set("status", "DISPOSED")
 
             call_session_doc.save(ignore_permissions=True)
+            try:
+                util_service.create_event_for_visit_date(
+                    lead_id,
+                    call_session_id,
+                    call_session_doc.get("scheduled_visit_date"),
+                    call_session_doc.get("disposition_remarks"),
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "sync_visit_date_event_dialer",
+                )
             return {"is_valid": True, "reason": None}
         except Exception as e:
             return {
                 "is_valid": False,
                 "reason": str(getattr(e, "message", None) or e),
             }
+
+    def _user_has_active_dialer_session(self, user: str) -> bool:
+        return bool(
+            frappe.db.get_value(
+                self.AGENT_DIALER_SESSION_LOG_DOCTYPE,
+                {"user": user, "status": "ACTIVE"},
+                "name",
+            )
+        )
 
     def start_dialer_session(self, user:str, campaign_id: str):
         match default_telephony_vendor:
@@ -1809,8 +1875,10 @@ class CallService:
 _service = CallService()
 
 
-def start_call(calling_method: str, leadId: str, user: str):
-    return _service.start_call(calling_method, leadId, user)
+def start_call(calling_method: str, leadId: str, user: str, manual_dial: bool = False):
+    return _service.start_call(
+        calling_method, leadId, user, manual_dial=bool(manual_dial)
+    )
 
 
 def end_call(calling_method: str, call_id: str, user: str):

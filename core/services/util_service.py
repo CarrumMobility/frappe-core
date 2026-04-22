@@ -2,6 +2,15 @@ from datetime import datetime, timedelta
 from frappe.utils import flt, get_datetime, get_time, getdate
 import frappe
 
+
+def _crm_lead_event_subject(lead_id: str, suffix: str) -> str:
+	"""Event subject: ``(LEAD_ID) Lead Name: (Suffix)`` — name omitted if missing."""
+	lead_name = (frappe.db.get_value("CRM Lead", lead_id, "lead_name") or "").strip()
+	if lead_name:
+		return f"({lead_id}) {lead_name}: ({suffix})"
+	return f"({lead_id}): ({suffix})"
+
+
 class UtilService:
     def __init__(self):
         pass
@@ -51,7 +60,7 @@ class UtilService:
 
         event_doc = frappe.new_doc("Event")
 
-        event_doc.set("subject", f"{lead_id}: Callback Scheduled")
+        event_doc.set("subject", _crm_lead_event_subject(lead_id, "Callback scheduled"))
         event_doc.set("event_category", "Callback")
         event_doc.set("event_type", "Private")
         event_doc.set("status", "Open")
@@ -67,3 +76,44 @@ class UtilService:
         event_doc.save(ignore_permissions=True)
 
         return event_doc.name
+
+    def create_event_for_visit_date(
+        self,
+        lead_id,
+        scheduled_visit_date,
+        disposition_remarks=None,
+        call_session_id: str | None= None,
+    ):
+        """Keep an Event (category Visit Date) in sync with scheduled visit on Call Session."""
+
+        svd = (
+            str(scheduled_visit_date).strip()
+            if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
+            else ""
+        )
+
+        visit_d = getdate(svd)
+        starts_on = get_datetime(f"{visit_d} 10:00:00")
+        ends_on = starts_on + timedelta(hours=1)
+        remarks = (
+            str(disposition_remarks).strip()
+            if disposition_remarks is not None and str(disposition_remarks).strip()
+            else None
+        )
+
+        event_doc = frappe.new_doc("Event")
+        event_doc.subject = _crm_lead_event_subject(lead_id, "Visit Scheduled")
+        event_doc.event_category = "Visit Date"
+        event_doc.event_type = "Private"
+        event_doc.status = "Open"
+        event_doc.starts_on = starts_on
+        event_doc.ends_on = ends_on
+        event_doc.reference_doctype = "CRM Lead"
+        event_doc.reference_docname = lead_id
+        if call_session_id is not None:
+            event_doc.reference_call_session = call_session_id
+        if remarks:
+            event_doc.description = remarks
+        event_doc.save(ignore_permissions=True)
+        
+        return event_doc

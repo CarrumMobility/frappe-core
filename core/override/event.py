@@ -10,6 +10,7 @@ from frappe.utils import get_fullname
 COMMUNICATION_MAPPING = {
 	**event_module.communication_mapping,
 	"Callback": "Phone",
+	"Visit Date": "Other",
 }
 
 

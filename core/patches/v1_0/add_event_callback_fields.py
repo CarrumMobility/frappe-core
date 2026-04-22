@@ -40,7 +40,7 @@ def _ensure_event_category_callback_option():
 			"doctype": "Event",
 			"fieldname": "event_category",
 			"property": "options",
-			"value": "Event\nMeeting\nCall\nSent/Received Email\nOther\nCallback",
+			"value": "Event\nMeeting\nCall\nSent/Received Email\nOther\nCallback\nVisit Date",
 		},
 		module="Platform",
 	)

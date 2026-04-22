@@ -412,7 +412,6 @@ def get_portal_driver_detail(account_id: str | None = None):
         frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
 
     url = f"{base}/api/v1/driver/accounts/{aid}"
-    print("======get_portal_driver_detail url: " + url)
     headers = {"Authorization": token}
 
     try:
@@ -420,7 +419,7 @@ def get_portal_driver_detail(account_id: str | None = None):
     except re.exceptions.RequestException as e:
         logger.exception("get_portal_driver_detail request failed: %s", e)
         return {"success": False, "message": "Failed to get driver details"}
-    print(response.text)
+    
     if not response.ok:
         logger.error(
             "get_portal_driver_detail HTTP %s: %s",
@@ -614,3 +613,28 @@ def lead_creation_webhook():
 
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}
+
+@frappe.whitelist(methods=["POST"])
+def driver_status_update_webhook():
+    payload = frappe.request.get_json()    # {'driverId': 'eb320a30-44ca-4b81-812c-c971cca3ce61', 'accountId': 'dc485de4-4cd6-41e7-94d5-6f617ea81c60', 'smallId': 'AAAA0017', 'previousStatus': 'created', 'newStatus': 'onboarded'}
+    # print(payload)
+    accountId = payload.get("accountId")
+    lead = frappe.get_doc("CRM Lead", {"custom_account_id": accountId})
+    if not lead:
+        frappe.throw(_("Lead not found with account ID: {0}").format(accountId))
+        return
+
+    newStatus = payload.get("newStatus")
+    if newStatus == "onboarded":
+        leadStatus = frappe.db.get_value("CRM Lead Status", {"is_apply_on_vehicle_assignment": 1}, "custom_primary_status")
+        if leadStatus:
+            lead.primary_status = leadStatus
+            lead.secondary_status = leadStatus
+            lead.save(ignore_permissions=True)
+        else:
+            frappe.throw(_("Lead status not found with is_apply_on_vehicle_assignment = 1"))
+    else:
+        return {
+            "message": "Unhandled status: {0}".format(newStatus)
+        }
+    return {"message": "ok"}

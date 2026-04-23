@@ -93,8 +93,8 @@ class UtilService:
         )
 
         visit_d = getdate(svd)
-        starts_on = get_datetime(f"{visit_d} 10:00:00")
-        ends_on = starts_on + timedelta(hours=1)
+        starts_on = get_datetime(f"{visit_d} 00:00:00")
+        ends_on = starts_on + timedelta(days=1) - timedelta(seconds=1)
         remarks = (
             str(disposition_remarks).strip()
             if disposition_remarks is not None and str(disposition_remarks).strip()
@@ -107,6 +107,7 @@ class UtilService:
         event_doc.event_type = "Private"
         event_doc.status = "Open"
         event_doc.starts_on = starts_on
+        event_doc.call_at = starts_on
         event_doc.ends_on = ends_on
         event_doc.reference_doctype = "CRM Lead"
         event_doc.reference_docname = lead_id

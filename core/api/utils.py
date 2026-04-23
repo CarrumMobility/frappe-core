@@ -27,3 +27,7 @@ def get_env_config():
         "isValid": True,
         "configs": config.model_dump()
     }
+
+@frappe.whitelist(allow_guest=True)
+def emit_socket_event(event: str, payload: dict):
+    frappe.publish_realtime(event, payload)

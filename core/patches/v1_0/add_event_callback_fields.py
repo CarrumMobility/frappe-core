@@ -20,7 +20,7 @@ def execute():
 		{
 			"fieldtype": "Select",
 			"label": "Callback status",
-			"options": "Scheduled\nTriggered\nCompleted",
+			"options": "Scheduled\nTriggered\nMissed\nCompleted",
 			"insert_after": "call_at",
 			"in_list_view": 1,
 		},

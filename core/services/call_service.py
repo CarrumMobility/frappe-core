@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timedelta
 from time import sleep
@@ -6,10 +7,10 @@ from crm.api.lead import update_lead_from_call_disposition
 from crm.utils import parse_phone_number
 import frappe
 import core.integrations.smartflo.client as smartflo_client
-import core.integrations.smartflo.constants as smartflo_constants
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from core.services.util_service import UtilService
+
 
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
@@ -120,6 +121,31 @@ def _call_session_direction_to_ui(direction: str | None) -> str:
     return (direction or "").strip()
 
 
+def _direction_inbound_outbound_from_vendor_payload(payload: dict | None) -> str:
+    """
+    Map Smartflo/vendor ``direction`` to Call Session INBOUND | OUTBOUND.
+    click_to_call / clicktocall / CTC = agent dials customer => OUTBOUND.
+    """
+    if not payload:
+        return "OUTBOUND"
+    raw = (payload.get("direction") or "").strip()
+    if not raw:
+        return "OUTBOUND"
+    u = raw.upper()
+    if u in ("INBOUND", "INCOMING"):
+        return "INBOUND"
+    if u in ("OUTBOUND", "OUTGOING"):
+        return "OUTBOUND"
+    if u == "DIALER (OUTBOUND)":
+        return "OUTBOUND"
+    if u in ("DIALER (INBOUND)", "DIALER (INCOMING)"):
+        return "INBOUND"
+    s = raw.lower()
+    if "inbound" in s or "incoming" in s:
+        return "INBOUND"
+    return "OUTBOUND"
+
+
 class CallService:
     def __init__(self):
         pass
@@ -196,11 +222,20 @@ class CallService:
                 "calling_method": "Click2Call",
                 "status": "CALL INITIATED TO AGENT",
                 "after_commit": True,
+                "direction": _call_session_direction_to_ui(
+                    call_session_doc.get("direction") or "OUTBOUND"
+                ),
             },
             user=frappe.session.user,
         )
 
-        return {"status": "success", "call_session_id": call_session_doc.name}
+        return {
+            "status": "success",
+            "call_session_id": call_session_doc.name,
+            "direction": _call_session_direction_to_ui(
+                call_session_doc.get("direction") or "OUTBOUND"
+            ),
+        }
 
     def end_call(self,calling_method: str, call_session_id: str, user: str):
         if calling_method == "Click2Call":
@@ -248,6 +283,9 @@ class CallService:
         return {
             "is_valid": True,
             "reason": None,
+            "direction": _call_session_direction_to_ui(
+                call_session_doc.get("direction")
+            ),
         }
 
 
@@ -289,6 +327,9 @@ class CallService:
                     "phone_number": call_session_doc.get("lead_phone"),
                     "failure_reason": call_session_doc.failure_reason or "",
                     "calling_method": "Click2Call",
+                    "direction": _call_session_direction_to_ui(
+                        call_session_doc.get("direction") or "OUTBOUND"
+                    ),
                 },
                 user=target_user,
             )
@@ -355,6 +396,9 @@ class CallService:
         return {
             "is_valid": True,
             "reason": None,
+            "direction": _call_session_direction_to_ui(
+                call_session_doc.get("direction") or "OUTBOUND"
+            ),
         }
 
     def _handle_click2call_start_logic(
@@ -575,6 +619,10 @@ class CallService:
             call_session_record.set("agent_call_id", call_id)
             call_session_record.set("agent_answer_event_id", agent_answer_event_id)
             call_session_record.set("agent_answer_event_log", payload)
+            call_session_record.set(
+                "direction",
+                _direction_inbound_outbound_from_vendor_payload(payload),
+            )
             call_session_record.save(ignore_permissions=True)
 
             lead_id, lead_name, mobile_no = _call_session_lead_fields(call_session_record)
@@ -590,6 +638,9 @@ class CallService:
                     "to_number": phone_display,
                     "status": "AGENT CONNECTED",
                     "calling_method": "Click2Call",
+                    "direction": _call_session_direction_to_ui(
+                        call_session_record.get("direction")
+                    ),
                 },
                 user=call_session_record.get("agent"),
             )
@@ -644,6 +695,10 @@ class CallService:
         call_session_record.set("lead_answered_at", start_stamp)
         call_session_record.set("lead_answer_event_log", payload)
         call_session_record.set("lead_answer_event_id", lead_answer_event_id)
+        call_session_record.set(
+            "direction",
+            _direction_inbound_outbound_from_vendor_payload(payload),
+        )
         call_session_record.save(ignore_permissions=True)
 
         target_user = call_session_record.get("agent")
@@ -661,6 +716,9 @@ class CallService:
                 "timestamp": start_stamp,
                 "status": "CUSTOMER CONNECTED",
                 "calling_method": "Click2Call",
+                "direction": _call_session_direction_to_ui(
+                    call_session_record.get("direction")
+                ),
             },
             user=target_user,
             after_commit=True
@@ -765,6 +823,11 @@ class CallService:
         call_session_record.set("hangup_event_log", payload)
         call_session_record.set("hangup_event_id", event_id)
         call_session_record.set("hangup_at", _hangup_at_from_smartflo_payload(payload))
+        if not (call_session_record.get("direction") or "").strip():
+            call_session_record.set(
+                "direction",
+                _direction_inbound_outbound_from_vendor_payload(payload),
+            )
         call_session_record.save(ignore_permissions=True)
 
         target_user = call_session_record.get("agent")
@@ -782,6 +845,9 @@ class CallService:
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL MISSED BY CUSTOMER",
                 "calling_method": "Click2Call",
+                "direction": _call_session_direction_to_ui(
+                    call_session_record.get("direction") or "OUTBOUND"
+                ),
             },
             user=target_user,
             after_commit=True
@@ -908,6 +974,11 @@ class CallService:
         call_session_record.set("hangup_reason", call_hangup_reason)
         if bill_sec is not None:
             call_session_record.set("duration", flt(bill_sec))
+        if not (call_session_record.get("direction") or "").strip():
+            call_session_record.set(
+                "direction",
+                _direction_inbound_outbound_from_vendor_payload(payload),
+            )
         call_session_record.save(ignore_permissions=True)
 
         target_user = call_session_record.get("agent")
@@ -926,6 +997,9 @@ class CallService:
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL DISCONNECTED",
                 "calling_method": "Click2Call",
+                "direction": _call_session_direction_to_ui(
+                    call_session_record.get("direction")
+                ),
             },
             user=target_user,
         )
@@ -1132,6 +1206,7 @@ class CallService:
                 "call_id": call_session_id,
                 "call_session_id": call_session_id,
                 "call_log_name": "",
+                "direction": _call_session_direction_to_ui(doc.get("direction")),
             },
             user=user,
         )
@@ -1611,7 +1686,8 @@ class CallService:
     def dialer_call_connected(self, user: str, payload: dict):
         call_id = payload.get("call_id")
         event_id = payload.get("uuid")
-        to_number = payload.get("call_to_number")  # customer number
+        to_number = payload.get("call_to_number")
+        caller_id_number = payload.get("caller_id_number")
         start_date = payload.get("start_date")
         start_time = payload.get("start_time")
         agent_list = payload.get("agent") or []
@@ -1619,6 +1695,7 @@ class CallService:
             agent_email = agent_list.get("email")
         else:
             agent_email = agent_list[0].get("email") if agent_list else None
+
         target_user = self._get_user_for_agent_email(agent_email)
         timestamp = self._parse_call_timestamp(start_date, start_time)
 
@@ -1629,11 +1706,30 @@ class CallService:
                     to_number or ""
                 )
             )
+        
+        DID_SOURCE_MAPPING = frappe.get_doc("Global Config", {
+            "key": "DID_SOURCE_MAPPING"
+        })
+        did_source_map = {}
+        if DID_SOURCE_MAPPING:
+            did_source_map = json.loads(DID_SOURCE_MAPPING.value)
 
+        newSource = did_source_map.get(caller_id_number) or did_source_map.get(to_number)
+        if newSource is not None:
+            lead.set('current_source',newSource)
+            lead.save(ignore_permissions=True)
+        
+        direction = payload.get("direction")
+        if direction == "Dialer (outbound)":
+            direction = "OUTBOUND"
+        else:
+            direction = "INBOUND"
+
+        
         new_call_session_doc = frappe.new_doc(
             "Call Session",
             calling_method="Dialer",
-            direction="OUTBOUND",
+            direction=direction,
             agent=target_user,
             vendor_agent_id=agent_email,
             lead=lead.name,
@@ -1650,7 +1746,6 @@ class CallService:
         frappe.db.commit()
 
         if target_user is not None:
-            # print("Triggering call connected event for user: ", target_user)
             lead_id = lead.name
             lead_name = lead.lead_name
             phone_display = (lead.get("mobile_no") or "").strip() 
@@ -1666,6 +1761,9 @@ class CallService:
                     "timestamp": start_stamp,
                     "status": "CUSTOMER CONNECTED",
                     "calling_method": "Dialer",
+                    "direction": _call_session_direction_to_ui(
+                        new_call_session_doc.get("direction") or direction
+                    ),
                 },
                 user=target_user,
                 after_commit=True
@@ -1798,6 +1896,7 @@ class CallService:
                 "status": "CALL DISCONNECTED",
                 "calling_method": "Dialer",
                 "message": "Call Disconnected",
+                "direction": _call_session_direction_to_ui(row.get("direction")),
             },
             user=target_user,
         )

@@ -10,106 +10,43 @@ from core.services.carrum_client import CarrumHttpClient
 logger = frappe.logger("core::carrum_referral")
 
 
-def create_lead_referral_on_portal(refereeId, referrerId, agentReferrerId, hubId):
+def create_lead_referral_on_portal(
+	refereeId,
+	referrerId,
+	hubId,
+	base_url=None,
+	token=None,
+):
 	"""
 	POST ``/api/v1/referral-rewards`` when both referee and referrer CRM leads are known.
 
-	Payload includes ``refereeId``, ``referrerId``, ``agentReferrerId``, and ``hubId``.
+	Payload includes ``refereeId``, ``referrerId``, and ``hubId``.
 	``referrerId`` / ``hubId`` may be None (sent as JSON null).
 
-	Returns:
-		dict with ``success`` bool; on success ``status_code`` and ``data`` (parsed JSON);
-		on failure ``error`` and optionally ``status_code``, ``response``.
+	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
+	``request_url``, etc.).
 	"""
-	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
-	if not base_url:
+	referee_key = (refereeId or "").strip() if refereeId is not None else ""
+	if not referee_key:
 		return {
 			"success": False,
-			"error": _("Carrum base URL is not configured (carrum_base_url)"),
+			"error": _("Referee id is required"),
+			"request_url": None,
 		}
 
-	token = frappe.conf.get("carrum_token")
-	if not token:
-		return {
-			"success": False,
-			"error": _("Carrum token is not configured (carrum_token)"),
-		}
-
-	url = f"{base_url}/api/v1/referral-rewards"
 	payload = {
-		"refereeId": refereeId,
+		"refereeId": referee_key,
 		"referrerId": referrerId,
-		"agentReferrerId": agentReferrerId,
 		"hubId": hubId,
 	}
 
-	headers = {
-		"Content-Type": "application/json",
-		"Authorization": token,
-	}
-
-	try:
-		response = requests.post(url, json=payload, headers=headers, timeout=30)
-	except requests.exceptions.Timeout:
-		logger.error("Carrum lead referral-rewards timeout url=%s", url)
-		return {
-			"success": False,
-			"error": _("Request to referral portal timed out"),
-		}
-	except requests.exceptions.ConnectionError as err:
-		logger.error("Carrum lead referral-rewards connection error: %s", err)
-		return {
-			"success": False,
-			"error": _("Could not connect to referral portal"),
-		}
-	except requests.exceptions.RequestException as err:
-		logger.error("Carrum lead referral-rewards request error: %s", err)
-		return {
-			"success": False,
-			"error": _("Referral portal request failed: {0}").format(str(err)),
-		}
-
-	try:
-		response.raise_for_status()
-	except requests.exceptions.HTTPError as err:
-		text = ""
-		status = getattr(err.response, "status_code", None)
-		if err.response is not None:
-			try:
-				text = (err.response.text or "")[:2000]
-			except Exception:
-				text = ""
-		logger.error(
-			"Carrum lead referral-rewards HTTP error status=%s body=%s",
-			status,
-			text,
-		)
-		return {
-			"success": False,
-			"status_code": status,
-			"error": str(err),
-			"response": text or None,
-		}
-
-	try:
-		data = response.json()
-	except ValueError:
-		logger.error(
-			"Carrum lead referral-rewards invalid JSON status=%s",
-			response.status_code,
-		)
-		return {
-			"success": False,
-			"status_code": response.status_code,
-			"error": _("Invalid JSON response from referral portal"),
-			"response": (response.text or "")[:2000] or None,
-		}
-
-	return {
-		"success": True,
-		"status_code": response.status_code,
-		"data": data,
-	}
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path="/api/v1/referral-rewards",
+		json=payload,
+		log_tag="create-lead-referral",
+	)
 
 
 def create_referral_on_portal(

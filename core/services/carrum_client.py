@@ -115,7 +115,11 @@ class CarrumHttpClient:
 				"response": (response.text or "")[:2000] or None,
 				"request_url": resolved_url,
 			}
-		payload = body.get("data", {}) if isinstance(body, dict) else body
+		if isinstance(body, dict):
+			# Prefer wrapped ``data`` when present; otherwise return the full JSON object.
+			payload = body["data"] if "data" in body else body
+		else:
+			payload = body
 		return {
 			"success": True,
 			"status_code": response.status_code,

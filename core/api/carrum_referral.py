@@ -253,6 +253,50 @@ def get_agent_referral_list(
 	)
 
 
+def get_wallet_transactions_from_portal(
+	wallet_id,
+	page=1,
+	limit=20,
+	base_url=None,
+	token=None,
+):
+	"""
+	GET ``/api/v1/referral-rewards/wallets/{walletId}/transactions`` from Carrum.
+
+	Query: ``page``, ``limit``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	wallet_key = (str(wallet_id).strip() if wallet_id is not None else "") or ""
+	if not wallet_key:
+		return {
+			"success": False,
+			"error": _("Wallet id is required"),
+			"request_url": None,
+		}
+
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+	if limit > 100:
+		limit = 100
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	wallet_segment = quote(wallet_key, safe="")
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/wallets/{wallet_segment}/transactions",
+		params={"page": page, "limit": limit},
+		log_tag="wallet-transactions",
+	)
+
+
 def get_lead_referred_by_details_from_portal(lead_id):
 	"""
 	GET referee referral details from Carrum (referrer context for a referee lead).

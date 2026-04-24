@@ -212,6 +212,7 @@ def get_lead_referrals_from_carrum_portal(referrer_id):
 
 def get_agent_referral_list(
 	agent_referrer_id,
+	referrerId=None,
 	page=1,
 	limit=20,
 	reward_type="AGENT_REFERRAL",
@@ -241,14 +242,17 @@ def get_agent_referral_list(
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	agent_segment = quote(agent_referrer_id, safe="")
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+	}
+	if referrerId:
+		params["referrerId"] = referrerId
 	return client.request(
 		method="GET",
 		path=f"/api/v1/referral-rewards/agent/{agent_segment}",
-		params={
-			"rewardType": reward_type,
-			"page": page,
-			"limit": limit,
-		},
+		params=params,
 		log_tag="agent-referral-list",
 	)
 

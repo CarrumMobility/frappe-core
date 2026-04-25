@@ -3,6 +3,10 @@ import re
 from datetime import datetime, timedelta
 from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
+from crm.api.event import (
+    apply_not_connected_dial_for_today_lead_callback,
+    complete_today_callback_followups_for_lead,
+)
 from crm.api.lead import update_lead_from_call_disposition
 from crm.utils import parse_phone_number
 import frappe
@@ -705,6 +709,17 @@ class CallService:
         )
         call_session_record.save(ignore_permissions=True)
 
+        direction_u = (call_session_record.get("direction") or "").strip().upper()
+        lead_fu = (call_session_record.get("lead") or "").strip()
+        if direction_u == "OUTBOUND" and lead_fu:
+            try:
+                complete_today_callback_followups_for_lead(lead_fu)
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "complete_today_callback_followups_for_lead (click2call customer_connected)",
+                )
+
         target_user = call_session_record.get("agent")
         lead_id, lead_name, mobile_no = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
@@ -833,6 +848,20 @@ class CallService:
                 _direction_inbound_outbound_from_vendor_payload(payload),
             )
         call_session_record.save(ignore_permissions=True)
+
+        direction_u = (call_session_record.get("direction") or "").strip().upper()
+        lead_for_nc = (call_session_record.get("lead") or "").strip()
+        if direction_u == "OUTBOUND" and lead_for_nc:
+            try:
+                apply_not_connected_dial_for_today_lead_callback(
+                    lead_for_nc,
+                    lock_key=str(event_id or payload.get("call_id") or "").strip() or None,
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "apply_not_connected_dial_for_today_lead_callback (click2call missed)",
+                )
 
         target_user = call_session_record.get("agent")
         lead_id, lead_name, mobile_no = _call_session_lead_fields(call_session_record)
@@ -1749,6 +1778,14 @@ class CallService:
         )
 
         new_call_session_doc.insert(ignore_permissions=True)
+        if direction == "OUTBOUND":
+            try:
+                complete_today_callback_followups_for_lead(lead.name)
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "complete_today_callback_followups_for_lead (dialer_call_connected)",
+                )
         frappe.db.commit()
 
         if target_user is not None:
@@ -1874,6 +1911,10 @@ class CallService:
             row_name = call_status.name
 
         row = frappe.get_doc("Call Session", row_name)
+        pre_status = (row.get("status") or "").strip().upper()
+        is_outbound = (row.get("direction") or "").strip().upper() == "OUTBOUND"
+        had_customer_connection = pre_status == "CUSTOMER_CONNECTED"
+        lead_for_followup = (row.get("lead") or "").strip()
         row.hangup_event_id = event_id
         row.hangup_event_log = payload
         row.hangup_at = frappe.utils.now()
@@ -1881,6 +1922,21 @@ class CallService:
         # row.hangup_reason = "CALL_DISCONNECTED"
         row.set("status", "DISCONNECTED")
         row.save(ignore_permissions=True)
+        if is_outbound and not had_customer_connection and lead_for_followup:
+            try:
+                apply_not_connected_dial_for_today_lead_callback(
+                    lead_for_followup,
+                    lock_key=(
+                        str(event_id or "").strip()
+                        or str(call_id or "").strip()
+                        or None
+                    ),
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "apply_not_connected_dial_for_today_lead_callback (dialer disconnect)",
+                )
         frappe.db.commit()
 
         target_user = row.agent

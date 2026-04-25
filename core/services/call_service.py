@@ -5,7 +5,7 @@ from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from crm.api.event import (
     apply_not_connected_dial_for_today_lead_callback,
-    complete_today_callback_followups_for_lead,
+    enqueue_complete_today_callback_followups_for_lead,
 )
 from crm.api.lead import update_lead_from_call_disposition
 from crm.utils import parse_phone_number
@@ -712,13 +712,7 @@ class CallService:
         direction_u = (call_session_record.get("direction") or "").strip().upper()
         lead_fu = (call_session_record.get("lead") or "").strip()
         if direction_u == "OUTBOUND" and lead_fu:
-            try:
-                complete_today_callback_followups_for_lead(lead_fu)
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "complete_today_callback_followups_for_lead (click2call customer_connected)",
-                )
+            enqueue_complete_today_callback_followups_for_lead(lead_fu)
 
         target_user = call_session_record.get("agent")
         lead_id, lead_name, mobile_no = _call_session_lead_fields(call_session_record)
@@ -1196,18 +1190,19 @@ class CallService:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
         doc.save(ignore_permissions=True)
-        try:
-            util_service.create_event_for_visit_date(
-                lead_id=lead_id,
-                call_session_id=call_session_id,
-                scheduled_visit_date=doc.get("scheduled_visit_date"),
-                disposition_remarks=doc.get("disposition_remarks"),
-            )
-        except Exception:
-            frappe.log_error(
-                frappe.get_traceback(),
-                "sync_visit_date_event_click2call",
-            )
+        if doc.get("scheduled_visit_date") and doc.get("is_visit_scheduled"):
+            try:
+                util_service.create_event_for_visit_date(
+                    lead_id=lead_id,
+                    call_session_id=call_session_id,
+                    scheduled_visit_date=doc.get("scheduled_visit_date"),
+                    disposition_remarks=doc.get("disposition_remarks"),
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "sync_visit_date_event_click2call",
+                )
         if lead_id:
             try:
                 update_lead_from_call_disposition(
@@ -1365,18 +1360,19 @@ class CallService:
             call_session_doc.set("status", "DISPOSED")
 
             call_session_doc.save(ignore_permissions=True)
-            try:
-                util_service.create_event_for_visit_date(
-                    lead_id,
-                    call_session_id,
-                    call_session_doc.get("scheduled_visit_date"),
-                    call_session_doc.get("disposition_remarks"),
-                )
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "sync_visit_date_event_dialer",
-                )
+            if call_session_doc.get("scheduled_visit_date") and call_session_doc.get("is_visit_scheduled"):
+                try:
+                    util_service.create_event_for_visit_date(
+                        lead_id,
+                        call_session_id,
+                        call_session_doc.get("scheduled_visit_date"),
+                        call_session_doc.get("disposition_remarks"),
+                    )
+                except Exception:
+                    frappe.log_error(
+                        frappe.get_traceback(),
+                        "sync_visit_date_event_dialer",
+                    )
             return {"is_valid": True, "reason": None}
         except Exception as e:
             return {
@@ -1779,13 +1775,7 @@ class CallService:
 
         new_call_session_doc.insert(ignore_permissions=True)
         if direction == "OUTBOUND":
-            try:
-                complete_today_callback_followups_for_lead(lead.name)
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "complete_today_callback_followups_for_lead (dialer_call_connected)",
-                )
+            enqueue_complete_today_callback_followups_for_lead(lead.name)
         frappe.db.commit()
 
         if target_user is not None:

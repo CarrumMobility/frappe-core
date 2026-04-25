@@ -93,6 +93,8 @@ class UtilService:
             if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
             else ""
         )
+        if not svd or not (lead_id or "").strip():
+            return None
 
         visit_d = getdate(svd)
         starts_on = get_datetime(f"{visit_d} 00:00:00")

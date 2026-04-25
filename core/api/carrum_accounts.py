@@ -5,7 +5,9 @@ import frappe
 logger = frappe.logger("core::carrum_accounts")
 
 CARRUM_USER_CACHE_PREFIX = "carrum_user_data"
-CARRUM_USER_CACHE_TTL_SECONDS = 15
+SMARTFLO_CACHE_PREFIX = "smartflo_user_data"
+# Shared TTL for Carrum HTTP responses (Frappe user payload + Smartflo→Frappe resolve).
+CARRUM_API_CACHE_TTL_SECONDS = 2 * 60  # 2 minutes
 
 
 class ChatwootConfigValidationSchema(BaseModel):
@@ -17,13 +19,15 @@ class ChatwootConfigValidationSchema(BaseModel):
 def _carrum_user_cache_key(username: str) -> str:
     return f"{CARRUM_USER_CACHE_PREFIX}:{username}"
 
+def _smartflo_cache_key(smartflow_external_username: str) -> str:
+    return f"{SMARTFLO_CACHE_PREFIX}:{str(smartflow_external_username or '').strip()}"
 
 def fetch_carrum_user_data_using_frappe_username(username: str) -> dict:
     """
     GET Carrum user by Frappe username.
 
     Returns the ``data`` object from the API response, or ``{}`` if missing/invalid.
-    Cached in Redis (per Frappe user) for ``CARRUM_USER_CACHE_TTL_SECONDS`` seconds via
+    Cached in Redis (per Frappe user) for ``CARRUM_API_CACHE_TTL_SECONDS`` seconds via
     ``frappe.cache().set_value`` so list-view filters (which call this on every request)
     don't hammer the Carrum service.
 
@@ -63,7 +67,7 @@ def fetch_carrum_user_data_using_frappe_username(username: str) -> dict:
     if data:
         try:
             frappe.cache().set_value(
-                cache_key, data, expires_in_sec=CARRUM_USER_CACHE_TTL_SECONDS
+                cache_key, data, expires_in_sec=CARRUM_API_CACHE_TTL_SECONDS
             )
         except Exception:
             logger.exception("Failed to cache Carrum user data for: %s", username)
@@ -130,48 +134,60 @@ def get_smartflo_credentials_for_frappe_user(frappe_username: str):
     return _normalize_smartflo_cred_dict(cred)
 
 
-def get_frappe_user_by_smartflo_account(smartflow_external_username: str):
+def get_frappe_user_by_smartflo_account(smartflo_external_username: str):
     """
     Resolve Frappe user id for a Smartflo-linked external id (e.g. agent email from webhooks).
 
     Uses Carrum `users/by-external-username?credentialType=smartflow&username=...`
     and returns frappeCred.username for realtime routing — not Smartflo login credentials.
 
+    Successful results are cached for ``CARRUM_API_CACHE_TTL_SECONDS``. Misses / errors are
+    not cached (avoids sticky failures on transient Carrum issues).
+
     Returns:
         {"frappe_user": "<Frappe user name>"} or None
     """
-    if not str(smartflow_external_username or "").strip():
+    if not str(smartflo_external_username or "").strip():
         return None
+
+    cache_key = _smartflo_cache_key(smartflo_external_username)
+    try:
+        cached = frappe.cache().get_value(cache_key)
+    except Exception:
+        cached = None
+    if isinstance(cached, dict) and "frappe_user" in cached:
+        logger.info("Carrum Smartflo→Frappe cache hit for: %s", smartflo_external_username)
+        return cached
+
     carrum_base_url = frappe.conf.get("carrum_base_url")
     carrum_token = frappe.conf.get("carrum_token")
-    user_part = requests.utils.quote(str(smartflow_external_username).strip(), safe="")
+    user_part = requests.utils.quote(str(smartflo_external_username).strip(), safe="")
     url = f"{carrum_base_url}/api/v1/users/by-external-username?credentialType=smartflow&username={user_part}"
-    logger.info("Carrum resolve Smartflo→Frappe for external user: %s", smartflow_external_username)
-    # print("get_frappe_user_by_smartflo_account==========url==========")
-    # print(url)
-    # print("==========url==========")
-    response = requests.get(url, headers={"Authorization": carrum_token})
-    carrum_response = response.json()
+    logger.info("Carrum resolve Smartflo→Frappe for external user: %s", smartflo_external_username)
+    try:
+        response = requests.get(url, headers={"Authorization": carrum_token}, timeout=10)
+        carrum_response = response.json()
+    except Exception:
+        logger.exception("Carrum Smartflo resolve API call failed for: %s", smartflo_external_username)
+        return None
     logger.info("Carrum API response: %s", carrum_response)
-    # print("==========carrum_response==========")
-    # print(carrum_response)
-    # print("==========carrum_response==========")
     raw_data = carrum_response.get("data") if isinstance(carrum_response, dict) else None
-    # print("==========raw_data==========")
-    # print(raw_data)
-    # print("==========raw_data==========")
     data = raw_data if isinstance(raw_data, dict) else {}
     frappe_cred = data.get("frappeCred")
-    # print("==========frappeCred==========")
-    # print(frappe_cred)
-    # print("==========frappeCred==========")
 
     if not isinstance(frappe_cred, dict):
         return None
     frappe_user = str(frappe_cred.get("username") or "").strip()
     if not frappe_user:
         return None
-    return {"frappe_user": frappe_user}
+    out = {"frappe_user": frappe_user}
+    try:
+        frappe.cache().set_value(
+            cache_key, out, expires_in_sec=CARRUM_API_CACHE_TTL_SECONDS
+        )
+    except Exception:
+        logger.exception("Failed to cache Smartflo→Frappe mapping for: %s", smartflo_external_username)
+    return out
 
 @frappe.whitelist()
 def get_dms():

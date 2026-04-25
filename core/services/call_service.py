@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from crm.api.event import (
-    apply_not_connected_dial_for_today_lead_callback,
+    enqueue_apply_not_connected_dial_for_today_lead_callback,
     enqueue_complete_today_callback_followups_for_lead,
 )
 from crm.api.lead import update_lead_from_call_disposition
@@ -832,30 +832,27 @@ class CallService:
             return {"is_valid": False, "reason": "Call session record not found"}
 
         event_id = payload.get("uuid")
-        call_session_record.set("status", "MISSED")
-        call_session_record.set("hangup_event_log", payload)
-        call_session_record.set("hangup_event_id", event_id)
-        call_session_record.set("hangup_at", _hangup_at_from_smartflo_payload(payload))
         if not (call_session_record.get("direction") or "").strip():
             call_session_record.set(
                 "direction",
                 _direction_inbound_outbound_from_vendor_payload(payload),
             )
+        direction_u = (call_session_record.get("direction") or "").strip().upper()
+        call_session_record.set(
+            "status",
+            "NOT_CONNECTED" if direction_u == "OUTBOUND" else "MISSED",
+        )
+        call_session_record.set("hangup_event_log", payload)
+        call_session_record.set("hangup_event_id", event_id)
+        call_session_record.set("hangup_at", _hangup_at_from_smartflo_payload(payload))
         call_session_record.save(ignore_permissions=True)
 
-        direction_u = (call_session_record.get("direction") or "").strip().upper()
         lead_for_nc = (call_session_record.get("lead") or "").strip()
         if direction_u == "OUTBOUND" and lead_for_nc:
-            try:
-                apply_not_connected_dial_for_today_lead_callback(
-                    lead_for_nc,
-                    lock_key=str(event_id or payload.get("call_id") or "").strip() or None,
-                )
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "apply_not_connected_dial_for_today_lead_callback (click2call missed)",
-                )
+            enqueue_apply_not_connected_dial_for_today_lead_callback(
+                lead_for_nc,
+                lock_key=str(event_id or payload.get("call_id") or "").strip() or None,
+            )
 
         target_user = call_session_record.get("agent")
         lead_id, lead_name, mobile_no = _call_session_lead_fields(call_session_record)
@@ -1886,6 +1883,8 @@ class CallService:
                     payload.get("call_to_number") or ""
                 )
             )
+
+        call_direction = "OUTBOUND" if payload.get("direction") == "Dialer (outbound)" else "INBOUND"
         if not row_name:
             call_status = frappe.new_doc("Call Session")
             call_status.agent_call_id = call_id
@@ -1893,40 +1892,40 @@ class CallService:
             call_status.calling_method = "Dialer"
             call_status.lead = lead.name
             call_status.lead_phone = lead.get("mobile_no") or ""
-            call_status.direction = (
-                "OUTBOUND" if payload.get("direction") == "Dialer (outbound)" else "INBOUND"
-            )
-            call_status.status = "MISSED"
+            call_status.direction = call_direction
+            call_status.status = "NOT_CONNECTED" if call_direction == "OUTBOUND" else "MISSED"
             call_status.insert(ignore_permissions=True)
             row_name = call_status.name
 
         row = frappe.get_doc("Call Session", row_name)
         pre_status = (row.get("status") or "").strip().upper()
         is_outbound = (row.get("direction") or "").strip().upper() == "OUTBOUND"
-        had_customer_connection = pre_status == "CUSTOMER_CONNECTED"
+        had_agent_connection = pre_status in ("AGENT_CONNECTED", "CUSTOMER_CONNECTED")
         lead_for_followup = (row.get("lead") or "").strip()
         row.hangup_event_id = event_id
         row.hangup_event_log = payload
         row.hangup_at = frappe.utils.now()
-        # row.hangup_by = "LEAD"
-        # row.hangup_reason = "CALL_DISCONNECTED"
-        row.set("status", "DISCONNECTED")
+        if pre_status in ("DISPOSED", "DISCONNECTED"):
+            pass
+        elif had_agent_connection:
+            row.set("status", "DISCONNECTED")
+        else:
+            row.set("status", "NOT_CONNECTED" if is_outbound else "MISSED")
         row.save(ignore_permissions=True)
-        if is_outbound and not had_customer_connection and lead_for_followup:
-            try:
-                apply_not_connected_dial_for_today_lead_callback(
-                    lead_for_followup,
-                    lock_key=(
-                        str(event_id or "").strip()
-                        or str(call_id or "").strip()
-                        or None
-                    ),
-                )
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "apply_not_connected_dial_for_today_lead_callback (dialer disconnect)",
-                )
+        if (
+            is_outbound
+            and not had_agent_connection
+            and lead_for_followup
+            and pre_status not in ("DISPOSED", "DISCONNECTED")
+        ):
+            enqueue_apply_not_connected_dial_for_today_lead_callback(
+                lead_for_followup,
+                lock_key=(
+                    str(event_id or "").strip()
+                    or str(call_id or "").strip()
+                    or None
+                ),
+            )
         frappe.db.commit()
 
         target_user = row.agent

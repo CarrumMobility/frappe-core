@@ -5,6 +5,7 @@ from frappe.utils import cint, flt
 def _persist_api_hit(
 	api_name,
 	end_point,
+	headers,
 	request_payload,
 	response,
 	status_code,
@@ -13,18 +14,19 @@ def _persist_api_hit(
 	created_by=None,
 ):
 	"""Background job: create Api hit log (called via frappe.enqueue)."""
-	doc = frappe.get_doc(
-		{
-			"doctype": "Api hit log",
-			"api_name": api_name,
-			"end_point": end_point,
-			"request_payload": request_payload,
-			"response": response,
-			"status_code": cint(status_code or 0),
-			"error_message": (error_message or None),
-			"execution_time": flt(execution_time or 0, 4),
-		}
-	)
+	d = {
+		"doctype": "Api hit log",
+		"api_name": api_name,
+		"end_point": end_point,
+		"request_payload": request_payload,
+		"response": response,
+		"status_code": cint(status_code or 0),
+		"error_message": (error_message or None),
+		"execution_time": flt(execution_time or 0, 4),
+	}
+	if headers is not None:
+		d["headers"] = headers
+	doc = frappe.get_doc(d)
 	if created_by and created_by not in (None, "Guest") and frappe.db.exists("User", created_by):
 		doc.created_by = created_by
 	doc.insert(ignore_permissions=True)
@@ -38,6 +40,7 @@ class ApiHitService:
 		self,
 		api_name,
 		end_point,
+		headers,
 		request_payload,
 		response,
 		status_code,
@@ -50,6 +53,7 @@ class ApiHitService:
 			queue="default",
 			api_name=api_name,
 			end_point=end_point,
+			headers=headers,
 			request_payload=request_payload,
 			response=response,
 			status_code=status_code,
@@ -62,6 +66,7 @@ class ApiHitService:
 		self,
 		api_name,
 		end_point,
+		headers,
 		request_payload,
 		response,
 		status_code,
@@ -73,6 +78,7 @@ class ApiHitService:
 		_persist_api_hit(
 			api_name,
 			end_point,
+			headers,
 			request_payload,
 			response,
 			status_code,

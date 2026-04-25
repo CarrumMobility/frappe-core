@@ -15,6 +15,16 @@ def _response_body_for_log(response: requests.Response):
 		return response.text
 
 
+def _request_headers_for_log(response: requests.Response | None) -> dict | None:
+	"""Request headers as sent (from ``requests`` response's prepared request)."""
+	if response is None or not getattr(response, "request", None):
+		return None
+	try:
+		return dict(response.request.headers)
+	except (TypeError, ValueError):
+		return None
+
+
 def _created_by_user(user: str | None) -> str | None:
 	if user and user not in (None, "Guest"):
 		return user
@@ -112,6 +122,7 @@ def _smartflo_api_client(
 			api_hit_service.enqueue_log_api_hit(
 				api_name,
 				str(url),
+				_request_headers_for_log(http_res),
 				body,
 				out,
 				sc,

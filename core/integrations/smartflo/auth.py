@@ -25,8 +25,18 @@ def _session_user_for_log(explicit: str | None = None) -> str | None:
 	return None
 
 
+def _req_headers(res: requests.Response | None) -> dict | None:
+	if res is None or not getattr(res, "request", None):
+		return None
+	try:
+		return dict(res.request.headers)
+	except (TypeError, ValueError):
+		return None
+
+
 def _emit_token_api_hit(
 	url: str,
+	headers: dict | None,
 	request_log: object,
 	response_log: object,
 	status_code: int,
@@ -39,6 +49,7 @@ def _emit_token_api_hit(
 		api_hit_service.enqueue_log_api_hit(
 			f"Smartflo:{log_op}",
 			str(url),
+			headers,
 			request_log,
 			response_log,
 			int(status_code),
@@ -85,6 +96,7 @@ def _login(
 		if access_token:
 			_emit_token_api_hit(
 				url,
+				_req_headers(response),
 				request_body,
 				data,
 				sc,
@@ -105,6 +117,7 @@ def _login(
 		resp_log = response.text
 	_emit_token_api_hit(
 		url,
+		_req_headers(response),
 		request_body,
 		resp_log,
 		sc,

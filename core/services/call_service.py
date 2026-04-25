@@ -1185,6 +1185,7 @@ class CallService:
                     lead_id,
                     disposition_status,
                     sub_disposition,
+                    remarks,
                 )
             except Exception:
                 frappe.log_error(
@@ -1311,6 +1312,7 @@ class CallService:
                         lead_id,
                         disposition_status,
                         sub_disposition_status,
+                        remarks,
                     )
                 except Exception:
                     frappe.log_error(

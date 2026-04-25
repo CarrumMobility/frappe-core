@@ -7,6 +7,7 @@
  "field_order": [
   "api_name",
   "end_point",
+  "headers",
   "request_payload",
   "response",
   "status_code",
@@ -18,12 +19,19 @@
   {
    "fieldname": "api_name",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Api name"
   },
   {
    "fieldname": "end_point",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Endpoint"
+  },
+  {
+   "fieldname": "headers",
+   "fieldtype": "JSON",
+   "label": "Headers"
   },
   {
    "fieldname": "request_payload",
@@ -38,22 +46,26 @@
   {
    "fieldname": "status_code",
    "fieldtype": "Int",
+   "in_list_view": 1,
    "label": "Status code"
   },
   {
    "fieldname": "error_message",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Error message"
   },
   {
    "fieldname": "execution_time",
    "fieldtype": "Float",
+   "in_list_view": 1,
    "label": "Execution time"
   },
   {
    "fieldname": "created_by",
    "fieldtype": "Link",
-   "label": "created_by",
+   "in_list_view": 1,
+   "label": "Created by",
    "options": "User"
   }
  ],

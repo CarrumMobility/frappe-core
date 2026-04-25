@@ -10,7 +10,7 @@ import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from core.services.util_service import UtilService
-
+log = frappe.logger("core.services.call_service")
 
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
@@ -23,7 +23,9 @@ def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
     hook fires and re-assigns the lead's WhatsApp conversation in Chatwoot to the new
     telecaller. Idempotent: skips when the telecaller is unchanged. Silent on failure.
     """
+    log.info(f"Setting lead telecaller on dispose with lead_id: {lead_id} and agent: {agent}")
     if not lead_id or not agent:
+        log.info(f"Skipping set_lead_telecaller_on_dispose with lead_id: {lead_id} and agent: {agent}")
         return
     agent = agent.strip()
     if not agent or agent in ("Guest", "Administrator"):
@@ -161,6 +163,7 @@ class CallService:
         *,
         manual_dial: bool = False,
     ):
+        log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId} and user: {user} and manual_dial: {manual_dial}")
         if calling_method == "Dialer":
             raise ValueError(f"Dialer calling method is not supported: {calling_method}")
         if calling_method != "Click2Call":
@@ -238,6 +241,7 @@ class CallService:
         }
 
     def end_call(self,calling_method: str, call_session_id: str, user: str):
+        log.info(f"Ending call with calling_method: {calling_method} and call_session_id: {call_session_id} and user: {user}")
         if calling_method == "Click2Call":
             return self._handle_click2call_end_logic(call_session_id, user)
         elif calling_method == "Dialer":

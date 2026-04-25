@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
+from core.constants.enums import EnumValues
 from frappe.utils import flt, get_datetime, get_time, getdate
 import frappe
+from frappe.core.doctype.user.user import update_password as original_update_password
 
 
 def _crm_lead_event_subject(lead_id: str, suffix: str) -> str:
@@ -118,3 +120,36 @@ class UtilService:
         event_doc.save(ignore_permissions=True)
         
         return event_doc
+
+
+    def block_desk_access(self):
+        if frappe.session.user == "Administrator":
+            return
+
+        if frappe.session.user == "Guest":
+            return
+
+        path = frappe.request.path or ""
+
+        if path.startswith("/app"):
+            frappe.throw(frappe._("Desk access is disabled"), title=frappe._("Permission Error"))
+
+    def block_password_change(*args, **kwargs):
+        user_doc= frappe.get_doc('User', frappe.session.user)
+        userRoleDetails = user_doc.roles
+
+        for roleDetail in userRoleDetails:
+            roleName = roleDetail.role
+            if roleName == EnumValues.Roles.SYSTEM_USER:
+                return original_update_password(*args, **kwargs)
+
+        frappe.throw(frappe._("Password change is disabled"), title=frappe._("Permission Error"))
+
+
+util_service = UtilService()
+blockDeskAccess = util_service.block_desk_access
+
+@frappe.whitelist()
+def blockPasswordChange(*args, **kwargs):
+    util_service = UtilService()
+    return util_service.block_password_change(*args, **kwargs)

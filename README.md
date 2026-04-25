@@ -28,5 +28,7 @@ aws_secret_access_key: str
 s3_bucket: str
 s3_bucket_prefix: str
 s3_file_storage_enabled: 0|1
-s3_region: str
+s3_region: str,
+login_url: str
+desk_url: str
 ```

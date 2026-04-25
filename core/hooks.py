@@ -189,9 +189,10 @@ delete_file_data_content=["core.s3_file_hooks.delete_file_data_content"]
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "core.event.get_events"
-# }
+override_whitelisted_methods = {
+    "frappe.core.doctype.user.user.update_password": "core.services.util_service.blockPasswordChange",
+    "frappe.core.doctype.user.user.reset_password": "core.services.util_service.blockPasswordChange"
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -271,3 +272,4 @@ require_type_annotated_api_methods = True
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+before_request = ["core.services.util_service.blockDeskAccess"]

@@ -1,8 +1,10 @@
 import frappe
 import core.services.call_service as call_service
+log = frappe.logger("core.api.call")
 
 @frappe.whitelist(methods=['POST'])
 def start_call(calling_method: str = None, leadId: str = None):
+    log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId}")
     user = frappe.session.user
     data = frappe.request.get_json(silent=True) or {}
     if not isinstance(data, dict):
@@ -27,6 +29,7 @@ def start_call(calling_method: str = None, leadId: str = None):
 
 @frappe.whitelist(methods=['POST'])
 def end_call(calling_method: str, call_id: str):
+    log.info(f"Ending call with calling_method: {calling_method} and call_id: {call_id}")
     user = frappe.session.user
     return call_service.end_call(calling_method, call_id, user)
 

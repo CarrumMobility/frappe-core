@@ -30,12 +30,7 @@
         document.getElementById("status").style.color = "#b91c1c";
         return;
       }
-      var redirectTo = {{ redirect_to | tojson }};
-      if (!redirectTo || (typeof redirectTo === 'string' && !redirectTo.trim())) {
-        document.getElementById('status').textContent = 'redirect-to is required';
-        document.getElementById('status').style.color = '#b91c1c';
-        return;
-      }
+      var redirectTo = "dashboard"
       function getCookies() {
         var cookies = {};
         document.cookie.split('; ').forEach(function(part) {

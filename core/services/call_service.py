@@ -3,10 +3,7 @@ import re
 from datetime import datetime, timedelta
 from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
-from crm.api.event import (
-    enqueue_apply_not_connected_dial_for_today_lead_callback,
-    enqueue_complete_today_callback_followups_for_lead,
-)
+from crm.api.event import enqueue_complete_today_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
 from crm.utils import parse_phone_number
 import frappe
@@ -18,6 +15,31 @@ log = frappe.logger("core.services.call_service")
 
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
+
+
+def _enqueue_apply_not_connected_dial_for_today_lead_callback(
+    lead_name: str, lock_key: str | None = None
+) -> None:
+    """
+    Defer not-connected dial side effects to the default RQ worker (same target as
+    crm.api.event.apply_not_connected_dial_for_today_lead_callback) without importing
+    a separate enqueue symbol from crm.api.event.
+    """
+    if not (lead_name or "").strip():
+        return
+    try:
+        frappe.enqueue(
+            "crm.api.event.apply_not_connected_dial_for_today_lead_callback",
+            queue="default",
+            enqueue_after_commit=True,
+            lead_name=lead_name.strip(),
+            lock_key=lock_key,
+        )
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "_enqueue_apply_not_connected_dial_for_today_lead_callback",
+        )
 
 
 def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
@@ -849,7 +871,7 @@ class CallService:
 
         lead_for_nc = (call_session_record.get("lead") or "").strip()
         if direction_u == "OUTBOUND" and lead_for_nc:
-            enqueue_apply_not_connected_dial_for_today_lead_callback(
+            _enqueue_apply_not_connected_dial_for_today_lead_callback(
                 lead_for_nc,
                 lock_key=str(event_id or payload.get("call_id") or "").strip() or None,
             )
@@ -1918,7 +1940,7 @@ class CallService:
             and lead_for_followup
             and pre_status not in ("DISPOSED", "DISCONNECTED")
         ):
-            enqueue_apply_not_connected_dial_for_today_lead_callback(
+            _enqueue_apply_not_connected_dial_for_today_lead_callback(
                 lead_for_followup,
                 lock_key=(
                     str(event_id or "").strip()

@@ -6,7 +6,6 @@ logger = frappe.logger("core::carrum_accounts")
 
 CARRUM_USER_CACHE_PREFIX = "carrum_user_data"
 SMARTFLO_CACHE_PREFIX = "smartflo_user_data"
-# Shared TTL for Carrum HTTP responses (Frappe user payload + Smartflo→Frappe resolve).
 CARRUM_API_CACHE_TTL_SECONDS = 2 * 60  # 2 minutes
 
 
@@ -48,11 +47,19 @@ def fetch_carrum_user_data_using_frappe_username(username: str) -> dict:
 
     carrum_base_url = frappe.conf.get("carrum_base_url")
     carrum_token = frappe.conf.get("carrum_token")
-    url = f"{carrum_base_url}/api/v1/users/by-external-username?credentialType=frappe&username={username}"
+    url = f"{carrum_base_url}/api/v1/users/by-external-username"
     logger.info("Calling Carrum API for Frappe user: %s url: %s", username, url)
-
+    requestBody = {
+        "username": username,
+        "credentialType": "frappe"
+    }
     try:
-        response = requests.get(url, headers={"Authorization": carrum_token}, timeout=10)
+        response = requests.post(
+            url,
+            headers={"Authorization": carrum_token},
+            json=requestBody,
+            timeout=10,
+        )
         carrum_response = response.json()
     except Exception:
         logger.exception("Carrum API call failed for user: %s", username)
@@ -120,7 +127,8 @@ def get_smartflo_credentials_for_frappe_user(frappe_username: str):
     """
     Smartflo API login email + password for the given Frappe user.
 
-    Uses Carrum `users/by-external-username?credentialType=frappe&username=...`
+    Uses Carrum POST `users/by-external-username` with JSON body
+    ``username`` and ``credentialType: frappe``.
     and reads smartflowCred / smartfloCred from the user payload.
     """
     if not frappe_username:
@@ -129,24 +137,12 @@ def get_smartflo_credentials_for_frappe_user(frappe_username: str):
     
     if not data:
         return None
-    print("get_smartflo_credentials_for_frappe_user==========data==========: "+ str(data))
+    
     cred = data.get("smartfloCred") or data.get("smartflowCred")
     return _normalize_smartflo_cred_dict(cred)
 
 
 def get_frappe_user_by_smartflo_account(smartflo_external_username: str):
-    """
-    Resolve Frappe user id for a Smartflo-linked external id (e.g. agent email from webhooks).
-
-    Uses Carrum `users/by-external-username?credentialType=smartflow&username=...`
-    and returns frappeCred.username for realtime routing — not Smartflo login credentials.
-
-    Successful results are cached for ``CARRUM_API_CACHE_TTL_SECONDS``. Misses / errors are
-    not cached (avoids sticky failures on transient Carrum issues).
-
-    Returns:
-        {"frappe_user": "<Frappe user name>"} or None
-    """
     if not str(smartflo_external_username or "").strip():
         return None
 
@@ -155,17 +151,25 @@ def get_frappe_user_by_smartflo_account(smartflo_external_username: str):
         cached = frappe.cache().get_value(cache_key)
     except Exception:
         cached = None
+
     if isinstance(cached, dict) and "frappe_user" in cached:
-        logger.info("Carrum Smartflo→Frappe cache hit for: %s", smartflo_external_username)
         return cached
 
     carrum_base_url = frappe.conf.get("carrum_base_url")
     carrum_token = frappe.conf.get("carrum_token")
-    user_part = requests.utils.quote(str(smartflo_external_username).strip(), safe="")
-    url = f"{carrum_base_url}/api/v1/users/by-external-username?credentialType=smartflow&username={user_part}"
-    logger.info("Carrum resolve Smartflo→Frappe for external user: %s", smartflo_external_username)
+
+    url = f"{carrum_base_url}/api/v1/users/by-external-username"
     try:
-        response = requests.get(url, headers={"Authorization": carrum_token}, timeout=10)
+        requestBody = {
+            "username": smartflo_external_username,
+            "credentialType": "smartflow"
+        }
+        response = requests.post(
+            url,
+            headers={"Authorization": carrum_token},
+            json=requestBody,
+            timeout=40,
+        )
         carrum_response = response.json()
     except Exception:
         logger.exception("Carrum Smartflo resolve API call failed for: %s", smartflo_external_username)

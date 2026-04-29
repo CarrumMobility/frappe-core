@@ -8,6 +8,7 @@ core.patches.v1_0.drop_call_session_disposition_id_column
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 core.patches.v1_0.add_event_callback_fields
+core.patches.v1_0.ensure_event_call_at_field
 core.patches.v1_0.migrate_event_call_at_to_datetime
 core.patches.v1_0.migrate_event_reference_call_log_to_session
 core.patches.v1_0.migrate_call_session_custom_hangup_at

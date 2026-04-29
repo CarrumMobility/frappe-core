@@ -28,10 +28,10 @@ def execute():
 			continue
 		try:
 			util.create_event_for_visit_date(
-				s.lead,
-				s.name,
-				s.scheduled_visit_date,
-				s.disposition_remarks,
+				lead_id=s.lead,
+				scheduled_visit_date=s.scheduled_visit_date,
+				disposition_remarks=s.disposition_remarks,
+				call_session_id=s.name,
 			)
 		except Exception:
 			frappe.log_error(

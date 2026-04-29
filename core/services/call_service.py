@@ -1382,10 +1382,10 @@ class CallService:
             if call_session_doc.get("scheduled_visit_date") and call_session_doc.get("is_visit_scheduled"):
                 try:
                     util_service.create_event_for_visit_date(
-                        lead_id,
-                        call_session_id,
-                        call_session_doc.get("scheduled_visit_date"),
-                        call_session_doc.get("disposition_remarks"),
+                        lead_id=lead_id,
+                        scheduled_visit_date=call_session_doc.get("scheduled_visit_date"),
+                        disposition_remarks=call_session_doc.get("disposition_remarks"),
+                        call_session_id=call_session_id,
                     )
                 except Exception:
                     frappe.log_error(

@@ -208,3 +208,25 @@ def get_dms():
         "success": True,
         "data": data
     }
+
+
+def _get_telecaller_by_inbox_id(inbox_id: int):
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users/inbox/{inbox_id}"
+
+    response = requests.get(url, headers={"Authorization": carrum_token})
+    jsonData = response.json()
+
+    return jsonData.get("data") or []
+
+def get_users_by_inbox_id(inbox_id: int):
+    data = _get_telecaller_by_inbox_id(inbox_id)
+    
+    data2Return = []
+    for i in data:
+        frappeUsername = i.get("frappeCred", {}).get("username")
+        print("frappeUsername==========: "+ str(frappeUsername))
+        data2Return.append(frappeUsername)
+
+    return data2Return 

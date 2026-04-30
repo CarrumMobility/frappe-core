@@ -1,7 +1,7 @@
 import base64
 import json
 from crm.api.lead import unAssignSecondaryLeadFromLead
-from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
+from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
 from crm.utils import parse_phone_number
 import requests as re
 
@@ -585,23 +585,14 @@ def lead_creation_webhook():
     if frappe.db.exists("CRM Lead", displayId):
         return "Lead already exists"
 
-    status_rows = frappe.get_all(
-        "CRM Lead Status",
-        pluck="name",
-        order_by="position asc, creation asc",
-        limit=1,
-    )
-    default_status = status_rows[0] if status_rows else None
-    if not default_status:
+    lead = frappe.new_doc("CRM Lead")
+    lead.flags.skip_crm_lead_auto_id = True
+    lead.mobile_no = mobile_no
+    if not apply_default_crm_lead_status_to_doc(lead):
         frappe.throw(
             _("No CRM Lead Status is configured. Add one in CRM Lead Status."),
             frappe.ValidationError,
         )
-
-    lead = frappe.new_doc("CRM Lead")
-    lead.flags.skip_crm_lead_auto_id = True
-    lead.mobile_no = mobile_no
-    lead.status = default_status
     lead.lead_type = "DRIVER"
     lead.lead_name = None
 

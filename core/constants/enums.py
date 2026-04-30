@@ -13,10 +13,14 @@ class Roles:
 	SYSTEM_USER = "System User"
 	GUEST = "Guest"
 
+class LeadType:
+	LEAD = "LEAD"
+	DRIVER = "DRIVER"
+
 class _EnumValues:
 	EventCallbackStatus = EventCallbackStatus
 	EventCallbackCategory = EventCallbackCategory
 	Roles = Roles
-
+	LeadType = LeadType
 
 EnumValues = _EnumValues()

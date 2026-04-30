@@ -226,7 +226,6 @@ def get_users_by_inbox_id(inbox_id: int):
     data2Return = []
     for i in data:
         frappeUsername = i.get("frappeCred", {}).get("username")
-        print("frappeUsername==========: "+ str(frappeUsername))
         data2Return.append(frappeUsername)
 
     return data2Return 

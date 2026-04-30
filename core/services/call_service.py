@@ -5,6 +5,7 @@ from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from crm.api.event import enqueue_complete_today_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
+from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from crm.utils import parse_phone_number
 import frappe
 import core.integrations.smartflo.client as smartflo_client
@@ -1718,18 +1719,13 @@ class CallService:
         if not mobile_to_store:
             return None
 
-        status_list = frappe.get_all(
-            "CRM Lead Status",
-            pluck="name",
-            order_by="position asc, creation asc",
-            limit=1,
-        )
-        default_status = status_list[0] if status_list else None
         lead = frappe.new_doc("CRM Lead")
         lead.mobile_no = mobile_to_store
-        if default_status:
-            lead.status = default_status
-        lead.flags.ignore_mandatory = True
+        if not apply_default_crm_lead_status_to_doc(lead):
+            frappe.throw(
+                frappe._("No CRM Lead Status is configured. Add one in CRM Lead Status."),
+                frappe.ValidationError,
+            )
         lead.insert(ignore_permissions=True)
         return lead
 

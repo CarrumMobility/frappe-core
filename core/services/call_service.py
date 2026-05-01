@@ -1855,7 +1855,7 @@ class CallService:
         if event_id and (row.get("disposition_event_id") or "").strip() == event_id:
             return {"is_valid": True, "skipped": True}
 
-        duration = payload.get("duration")
+        duration = payload.get("outbound_sec")
         if duration is not None:
             row.set("duration", duration)
 
@@ -1918,6 +1918,10 @@ class CallService:
             call_status.status = "NOT_CONNECTED" if call_direction == "OUTBOUND" else "MISSED"
             call_status.insert(ignore_permissions=True)
             row_name = call_status.name
+
+        call_duration = payload.get("outbound_sec")
+        if call_duration is not None:
+            row.set("duration", call_duration)
 
         row = frappe.get_doc("Call Session", row_name)
         pre_status = (row.get("status") or "").strip().upper()

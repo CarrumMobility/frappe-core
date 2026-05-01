@@ -1,6 +1,6 @@
 import frappe
 import core.services.call_service as call_service
-log = frappe.logger("core.api.call")
+log = frappe.logger("core_api_call")
 
 @frappe.whitelist(methods=['POST'])
 def start_call(calling_method: str = None, leadId: str = None):

@@ -1856,9 +1856,9 @@ class CallService:
             return {"is_valid": True, "skipped": True}
 
         duration = payload.get("duration")
-        if duration:
+        if duration is not None:
             row.set("duration", duration)
-            
+
         if event_id:
             if not _webhook_acquire_lock(f"dialer_disposed:{event_id}", ttl=120):
                 return {"is_valid": True, "skipped": True}

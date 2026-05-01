@@ -123,3 +123,8 @@ def dialer_call_disposed_webhook():
 def get_last_call():
     """Latest Call Session for the current user (Dialer / Click2Call); UI shape matches LastCallStatusModal."""
     return call_service.get_last_call(user=frappe.session.user)
+
+@frappe.whitelist(methods=["POST"])
+def update_call_session_status():
+    payload = frappe.request.get_json() or {}
+    return call_service.update_call_session_status(payload=payload)

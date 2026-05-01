@@ -1613,13 +1613,14 @@ class CallService:
         active_session = frappe.db.get_value(
             self.AGENT_DIALER_SESSION_LOG_DOCTYPE,
             {"user": user, "status": "ACTIVE"},
-            ["campaign_id", "name"],
+            ["campaign_id", "name", "active_at"],
             as_dict=True,
         )
         open_break = frappe.get_all(
             self.SESSION_BREAK_LOG_DOCTYPE,
             filters={"user": user, "end_time": ["is", "not set"]},
-            fields=["name"],
+            fields=["name", "start_time"],
+            order_by="start_time desc",
             limit_page_length=1,
         )
         cred = get_smartflo_credentials_for_frappe_user(user) or {}
@@ -1627,6 +1628,22 @@ class CallService:
             "default_campaign_id"
         )
         campaign_id = active_session.campaign_id if active_session else None
+
+        def _dt_for_client(val):
+            if val is None:
+                return None
+            if isinstance(val, datetime):
+                return val.isoformat(sep=" ", timespec="seconds")
+            return str(val)
+
+        session_started_at = None
+        if active_session and active_session.get("active_at"):
+            session_started_at = _dt_for_client(active_session.get("active_at"))
+
+        break_started_at = None
+        if open_break and open_break[0].get("start_time"):
+            break_started_at = _dt_for_client(open_break[0].get("start_time"))
+
         return {
             "is_valid": True,
             "on_break": bool(open_break),
@@ -1636,6 +1653,8 @@ class CallService:
             "status": "ACTIVE" if active_session else "INACTIVE",
             "defaultCampaignId": default_campaign_id,
             "default_campaign_id": default_campaign_id,
+            "session_started_at": session_started_at,
+            "break_started_at": break_started_at,
         }
 
     def _get_user_for_agent_email(self,agent_email):
@@ -2160,3 +2179,6 @@ def create_callback_event(
     expected_call_duration_minutes,
 ):
     return util_service.create_event_for_callback(lead_id, call_session_id, callback_datetime, callback_comments, remind_before_minutes, expected_call_duration_minutes)
+
+def update_call_session_status(payload: dict):
+    return _service._update_call_session_status(payload=payload)

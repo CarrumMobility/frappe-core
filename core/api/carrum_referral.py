@@ -580,6 +580,60 @@ def get_cumulative_referral_list_from_portal(
 	)
 
 
+def get_carrum_employee_referrals(
+	page=1,
+	limit=20,
+	reward_type="AGENT_REFERRAL",
+	agent_id=None,
+	base_url=None,
+	token=None,
+	referrer_id=None,
+):
+	"""
+	GET Carrum employee / hub-summary referral list (same HTTP behaviour as
+	``get_cumulative_referral_list_from_portal`` — inlined for CRM employee referrals).
+
+	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
+	``rewardType`` (default ``AGENT_REFERRAL``), ``page``, ``limit``, optional ``referrerId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	agent_key = (str(agent_id).strip() if agent_id is not None else "")
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+		"loggedInUserId":agent_key
+	}
+	if referrer_id:
+		params["referrerId"] = referrer_id
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/hub-summary",
+		params=params,
+		log_tag="hub-summary",
+	)
+
+
 def carrum_referral_breakdown(
 	page=1,
 	limit=20,

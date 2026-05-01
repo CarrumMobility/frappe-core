@@ -17,10 +17,32 @@ class LeadType:
 	LEAD = "LEAD"
 	DRIVER = "DRIVER"
 
+class CallDirection:
+	INBOUND = "INBOUND"
+	OUTBOUND = "OUTBOUND"
+
+class CallingMethod:
+	Dialer = "Dialer"
+	Click2Call = "Click2Call"
+
+class CallSessionStatus:
+	INITIATED = "INITIATED"
+	FAILED = "FAILED"
+	AGENT_CONNECTED = "AGENT_CONNECTED"
+	CUSTOMER_CONNECTED = "CUSTOMER_CONNECTED"
+	NOT_CONNECTED = "NOT_CONNECTED"
+	DISCONNECTED = "DISCONNECTED"
+	DISPOSED = "DISPOSED"
+	MISSED = "MISSED"
+
+
 class _EnumValues:
 	EventCallbackStatus = EventCallbackStatus
 	EventCallbackCategory = EventCallbackCategory
 	Roles = Roles
 	LeadType = LeadType
-
+	CallDirection = CallDirection
+	CallingMethod = CallingMethod
+	CallSessionStatus = CallSessionStatus
+	
 EnumValues = _EnumValues()

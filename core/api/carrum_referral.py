@@ -534,6 +534,7 @@ def get_cumulative_referral_list_from_portal(
 	agent_id=None,
 	base_url=None,
 	token=None,
+	referrer_id=None,
 ):
 	"""
 	GET cumulative referral list from Carrum.
@@ -567,6 +568,8 @@ def get_cumulative_referral_list_from_portal(
 		"page": page,
 		"limit": limit,
 	}
+	if(referrer_id):
+		params["referrerId"] = referrer_id
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -576,6 +579,58 @@ def get_cumulative_referral_list_from_portal(
 		log_tag="hub-summary",
 	)
 
+
+def carrum_referral_breakdown(
+	page=1,
+	limit=20,
+	reward_type="REFERRAL",
+	agent_id=None,
+	base_url=None,
+	token=None,
+	referrer_id=None,
+):
+	"""
+	GET referral breakdown list from Carrum (same HTTP behaviour as
+	``get_cumulative_referral_list_from_portal``; default ``rewardType`` is ``REFERRAL``).
+
+	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
+	``rewardType``, ``page``, ``limit``, and optional ``referrerId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	agent_key = (str(agent_id).strip() if agent_id is not None else "")
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+	}
+	if referrer_id:
+		params["referrerId"] = referrer_id
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/agent/{agent_key}",
+		params=params,
+		log_tag="hub-summary",
+	)
 
 
 def approve_referral_on_carrum_portal(

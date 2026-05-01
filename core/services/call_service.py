@@ -1920,10 +1920,11 @@ class CallService:
             row_name = call_status.name
 
         call_duration = payload.get("outbound_sec")
+        row = frappe.get_doc("Call Session", row_name)
+
         if call_duration is not None:
             row.set("duration", call_duration)
-
-        row = frappe.get_doc("Call Session", row_name)
+            
         pre_status = (row.get("status") or "").strip().upper()
         is_outbound = (row.get("direction") or "").strip().upper() == "OUTBOUND"
         had_agent_connection = pre_status in ("AGENT_CONNECTED", "CUSTOMER_CONNECTED")

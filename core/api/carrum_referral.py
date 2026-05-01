@@ -562,7 +562,7 @@ def get_cumulative_referral_list_from_portal(
 		}
 
 	params = {
-		"loggedInUserId": agent_key,
+		# "loggedInUserId": agent_key,
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
@@ -571,7 +571,7 @@ def get_cumulative_referral_list_from_portal(
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="GET",
-		path="/api/v1/referral-rewards/hub-summary",
+		path=f"/api/v1/referral-rewards/agent/{agent_key}",
 		params=params,
 		log_tag="hub-summary",
 	)

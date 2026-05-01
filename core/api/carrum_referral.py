@@ -634,7 +634,7 @@ def approve_referral_on_carrum_portal(
 	wallet_segment = quote(wallet_key, safe="")
 	return client.request(
 		method="POST",
-		path=f"/api/v1/referral-rewards/wallets/{wallet_segment}/approve",
+		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/approve",
 		params={"loggedInUserId": agent_key},
 		json=payload,
 		log_tag="approve-wallet-referral",

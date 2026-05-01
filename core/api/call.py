@@ -102,18 +102,21 @@ def get_dialer_break_status():
 def dialer_call_connected_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call connected webhook payload: {payload}")
     return call_service.dialer_call_connected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disconnected_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call disconnected webhook payload: {payload}")
     return call_service.dialer_call_disconnected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disposed_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call disposed webhook payload: {payload}")
     return call_service.dialer_call_disposed(user=user, payload=payload)
 
 @frappe.whitelist()

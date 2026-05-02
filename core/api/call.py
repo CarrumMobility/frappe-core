@@ -87,7 +87,8 @@ def start_dialer_session():
 
 @frappe.whitelist(methods=["POST"])
 def end_dialer_session():
-    return call_service.end_dialer_session(user=frappe.session.user)
+    payload = frappe.request.get_json() or {}
+    return call_service.end_dialer_session(user=frappe.session.user,payload=payload)
 
 @frappe.whitelist(methods=["POST"])
 def toggle_dialer_break():

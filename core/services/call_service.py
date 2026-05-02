@@ -1484,7 +1484,10 @@ class CallService:
             "reason": None
         }
 
-    def end_dialer_session(self, user: str):
+    def end_dialer_session(self, user: str, inactive_reason: str):
+        reason = (inactive_reason or "").strip()
+        if not reason:
+            raise ValueError("inactive_reason is required")
         data = frappe.db.get_value(
             self.AGENT_DIALER_SESSION_LOG_DOCTYPE,
             {"user": user, "status": "ACTIVE"},
@@ -1514,7 +1517,9 @@ class CallService:
             )
 
         log = frappe.get_doc(self.AGENT_DIALER_SESSION_LOG_DOCTYPE, data.name)
+            
         log.status = "INACTIVE"
+        log.inactive_reason = reason
         log.inactive_at = now
         log.save()
 
@@ -2216,8 +2221,11 @@ def start_dialer_session(user,payload: dict):
         raise ValueError("campaign_id is required")
     return _service.start_dialer_session(user,campaign_id)
 
-def end_dialer_session(user: str):
-    return _service.end_dialer_session(user)
+def end_dialer_session(user: str, payload):
+    if not isinstance(payload, dict):
+        payload = {}
+    inactive_reason = payload.get("inactive_reason") or payload.get("reason")
+    return _service.end_dialer_session(user, inactive_reason)
 
 
 def toggle_dialer_break(user: str, payload: dict):

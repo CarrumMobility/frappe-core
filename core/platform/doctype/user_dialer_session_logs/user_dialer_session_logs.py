@@ -19,5 +19,6 @@ class Userdialersessionlogs(Document):
 		inactive_at: DF.Datetime | None
 		status: DF.Literal["ACTIVE", "INACTIVE"]
 		user: DF.Link
+		inactive_reason: DF.Data | None
 	# end: auto-generated types
 	pass

@@ -125,6 +125,15 @@ def get_last_call():
     return call_service.get_last_call(user=frappe.session.user)
 
 @frappe.whitelist(methods=["POST"])
+def get_call_session_disposition_remarks():
+    payload = frappe.request.get_json() or {}
+    return call_service.get_call_session_disposition_remarks(
+        frappe.session.user,
+        payload,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
 def update_call_session():
     payload = frappe.request.get_json() or {}
     return call_service.update_call_session(payload)

@@ -2056,7 +2056,20 @@ class CallService:
         is_disposed = status_upper == EnumValues.CallSessionStatus.DISPOSED
         ui_status = _call_session_status_to_ui_bucket(status)
         lead_id = row.get("lead")
-        lead_name = frappe.db.get_value("CRM Lead", lead_id, "lead_name") if lead_id else None
+        lead_name = None
+        current_source = None
+        preferred_scheme = None
+        if lead_id:
+            lead_row = frappe.db.get_value(
+                "CRM Lead",
+                lead_id,
+                ["lead_name", "current_source", "preferred_scheme"],
+                as_dict=True,
+            )
+            if lead_row:
+                lead_name = lead_row.get("lead_name")
+                current_source = lead_row.get("current_source")
+                preferred_scheme = lead_row.get("preferred_scheme")
 
         call_id = row.get("agent_call_id")
         if call_id is not None:
@@ -2086,6 +2099,24 @@ class CallService:
             "is_disposed": is_disposed,
             "start_time": start_time,
             "calling_method": (row.get("calling_method") or "Dialer").strip(),
+            "source": current_source,
+            "preferred_scheme": preferred_scheme,
+        }
+
+    def get_call_session_disposition_remarks(self, user: str, payload: dict):
+        """Return saved disposition remarks draft for the dispose modal (agent must own the session)."""
+        call_session_id = (payload.get("call_session_id") or "").strip()
+        if not call_session_id:
+            return {"is_valid": False, "reason": "missing call_session_id"}
+        if not frappe.db.exists("Call Session", call_session_id):
+            return {"is_valid": False, "reason": "call session not found"}
+        agent = frappe.db.get_value("Call Session", call_session_id, "agent")
+        if not agent or agent != user:
+            return {"is_valid": False, "reason": "not permitted"}
+        rmk = frappe.db.get_value("Call Session", call_session_id, "disposition_remarks")
+        return {
+            "is_valid": True,
+            "disposition_remarks": "" if rmk is None else str(rmk),
         }
 
     def _update_call_session(self, payload:dict):
@@ -2222,6 +2253,10 @@ def create_callback_event(
     expected_call_duration_minutes,
 ):
     return util_service.create_event_for_callback(lead_id, call_session_id, callback_datetime, callback_comments, remind_before_minutes, expected_call_duration_minutes)
+
+def get_call_session_disposition_remarks(user: str, payload: dict):
+    return _service.get_call_session_disposition_remarks(user, payload)
+
 
 def update_call_session(payload: dict):
     return _service._update_call_session(payload)

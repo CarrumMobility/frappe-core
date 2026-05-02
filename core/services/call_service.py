@@ -14,7 +14,7 @@ import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from core.services.util_service import UtilService
-log = frappe.logger("core.services.call_service")
+log = frappe.logger("core_services_call_service")
 
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
@@ -1655,6 +1655,7 @@ class CallService:
             "default_campaign_id": default_campaign_id,
             "session_started_at": session_started_at,
             "break_started_at": break_started_at,
+            "test": True
         }
 
     def _get_user_for_agent_email(self,agent_email):
@@ -1674,7 +1675,6 @@ class CallService:
         if not start_date or not start_time:
             return None
         try:
-            # Smartflo format: "2/24/2026", "2:19:58"
             if isinstance(start_date, str) and "/" in start_date and isinstance(start_time, str):
                 date_obj = datetime.strptime(start_date.strip(), "%m/%d/%Y").date()
                 time_obj = datetime.strptime(start_time.strip(), "%H:%M:%S").time()
@@ -1893,6 +1893,7 @@ class CallService:
         row.save(ignore_permissions=True)
         frappe.db.commit()
         return {"is_valid": True}
+    
     def dialer_call_disconnected(self, user: str, payload: dict):
         match default_telephony_vendor:
             case "Smartflo":

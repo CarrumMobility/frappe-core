@@ -153,7 +153,7 @@ class UtilService:
                 "reference_docname": lead_id,
                 "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
                 "callback_status": EnumValues.EventCallbackStatus.SCHEDULED,
-                "start_on": ("<", get_datetime(today())),
+                "starts_on": ("<", get_datetime(today())),
             },
             pluck="name",
         )

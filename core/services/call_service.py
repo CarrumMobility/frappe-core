@@ -1236,6 +1236,8 @@ class CallService:
                     call_session_id=call_session_id,
                     scheduled_visit_date=doc.get("scheduled_visit_date"),
                     disposition_remarks=doc.get("disposition_remarks"),
+                    disposition_status=disposition_status,
+                    sub_disposition_status=sub_disposition
                 )
             except Exception:
                 frappe.log_error(
@@ -1410,6 +1412,8 @@ class CallService:
                         scheduled_visit_date=call_session_doc.get("scheduled_visit_date"),
                         disposition_remarks=call_session_doc.get("disposition_remarks"),
                         call_session_id=call_session_id,
+                        disposition_status=disposition_status,
+                        sub_disposition_status=sub_disposition_status
                     )
                 except Exception:
                     frappe.log_error(

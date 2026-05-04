@@ -100,6 +100,8 @@ class UtilService:
         scheduled_visit_date,
         disposition_remarks=None,
         call_session_id: str | None= None,
+        disposition_status: str | None = None,
+        sub_disposition_status: str | None = None
     ):
         """Keep an Event (category Visit Date) in sync with scheduled visit on Call Session."""
 
@@ -149,7 +151,18 @@ class UtilService:
         event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
         event_doc.set("reference_docname", lead_id)
         event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
-    
+
+        ds = (disposition_status or "").strip() if disposition_status is not None else ""
+        sub = (
+            (sub_disposition_status or "").strip()
+            if sub_disposition_status is not None
+            else ""
+        )
+        if ds:
+            event_doc.set("disposition_status", ds)
+        if sub:
+            event_doc.set("sub_disposition_status", sub)
+
         if call_session_id is not None:
             event_doc.set("reference_call_session", call_session_id)
         if remarks:

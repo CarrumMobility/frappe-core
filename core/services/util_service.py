@@ -79,6 +79,7 @@ class UtilService:
 
         return event_doc.name
 
+    
     def create_event_for_visit_date(
         self,
         lead_id,

@@ -68,10 +68,15 @@ def _lead_matches_crm_status_row(lead, row):
 
 def _apply_crm_lead_status_row(lead, row):
     primary, secondary = row
-    lead.db_set(
-        {"primary_status": primary, "secondary_status": secondary},
-        update_modified=True,
+    from crm.fcrm.doctype.crm_lead.crm_lead import (
+        get_crm_lead_status_name_for_primary_secondary,
     )
+
+    patch = {"primary_status": primary, "secondary_status": secondary}
+    pk = get_crm_lead_status_name_for_primary_secondary(primary, secondary)
+    if pk:
+        patch["status"] = pk
+    lead.db_set(patch, update_modified=True)
 
 
 def _portal_driver_detail_results(envelope):

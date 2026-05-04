@@ -45,6 +45,8 @@ class UtilService:
         callback_comments: str,
         remind_before_minutes: int,
         expected_call_duration_minutes: int,
+        disposition_status: str | None = None,
+        sub_disposition_status: str | None = None,
     ):
         call_at = get_datetime(callback_datetime)
         if not call_at:
@@ -64,17 +66,28 @@ class UtilService:
         event_doc = frappe.new_doc("Event")
 
         event_doc.set("subject", _crm_lead_event_subject(lead_id, "Callback scheduled"))
-        event_doc.set("event_category", "Callback")
+        event_doc.set("event_category", EnumValues.EventCallbackCategory.CALLBACK)
         event_doc.set("event_type", "Private")
         event_doc.set("status", "Open")
         event_doc.set("starts_on", starts_on)
         event_doc.set("call_at", call_at)
         event_doc.set("ends_on", ends_on)
-        event_doc.set("reference_doctype", "CRM Lead")
+        event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
         event_doc.set("reference_docname", lead_id)
         event_doc.set("reference_call_session", call_session_id)
         event_doc.set("description", callback_comments)
-        event_doc.set("callback_status", "Scheduled")
+        event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
+
+        ds = (disposition_status or "").strip() if disposition_status is not None else ""
+        sub = (
+            (sub_disposition_status or "").strip()
+            if sub_disposition_status is not None
+            else ""
+        )
+        if ds:
+            event_doc.set("disposition_status", ds)
+        if sub:
+            event_doc.set("sub_disposition_status", sub)
 
         event_doc.save(ignore_permissions=True)
 

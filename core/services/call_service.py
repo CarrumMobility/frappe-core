@@ -1263,8 +1263,10 @@ class CallService:
                 callback_datetime=callback_datetime,
                 callback_comments=callback_comments,
                 remind_before_minutes=remind_before_minutes,
-                expected_call_duration_minutes=expected_call_duration_minutes)
-
+                expected_call_duration_minutes=expected_call_duration_minutes,
+                disposition_status=disposition_status,
+                sub_disposition_status=sub_disposition,
+            )
         frappe.db.commit()
 
         frappe.publish_realtime(
@@ -1391,7 +1393,9 @@ class CallService:
                     callback_datetime=callback_datetime,
                     callback_comments=callback_comments,
                     remind_before_minutes=remind_before_minutes,
-                    expected_call_duration_minutes=expected_call_duration_minutes
+                    expected_call_duration_minutes=expected_call_duration_minutes,
+                    disposition_status=disposition_status,
+                    sub_disposition_status=sub_disposition_status,
                 )
 
             now = frappe.utils.now()

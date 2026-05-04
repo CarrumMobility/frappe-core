@@ -144,6 +144,19 @@ class UtilService:
         
         return event_doc
 
+    def mark_visit_date_events_as_completed(self, lead_id: str):
+        events = frappe.get_all(
+            EnumValues.ReferenceDocType.EVENT,
+            filters={
+                "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
+                "reference_docname": lead_id,
+            },
+        )
+
+        for event in events:
+            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, event.name)
+            event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)
+            event_doc.save(ignore_permissions=True)
 
     def block_desk_access(self):
         if frappe.session.user == "Administrator":

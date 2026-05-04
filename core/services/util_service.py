@@ -105,7 +105,7 @@ class UtilService:
             filters={
                 "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
                 "reference_docname": lead_id,
-                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
+                "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
                 "callback_status": EnumValues.EventCallbackStatus.SCHEDULED
             },
             pluck="name",

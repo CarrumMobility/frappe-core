@@ -35,7 +35,9 @@
         "hangup_event_log",
         "failure_reason",
         "is_visit_scheduled",
-        "scheduled_visit_date"
+        "scheduled_visit_date",
+        "lead_source_during_call",
+        "recording_url"
     ],
     "fields": [
         {
@@ -212,6 +214,16 @@
             "fieldname": "scheduled_visit_date",
             "fieldtype": "Date",
             "label": "Scheduled visit date"
+        },
+        {
+            "fieldname": "lead_source_during_call",
+            "fieldtype": "Data",
+            "label": "Lead source during call"
+        },
+        {
+            "fieldname": "recording_url",
+            "fieldtype": "Long Text",
+            "label": "Recording URL"
         }
     ],
     "grid_page_length": 50,

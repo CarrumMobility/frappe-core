@@ -120,6 +120,15 @@ def _call_session_lead_fields(call_session_record):
     return lead_id, lead_name, mobile_no, current_source, preferred_scheme
 
 
+def _set_lead_source_during_call_on_session(doc):
+    """Snapshot CRM Lead ``current_source`` onto Call Session at disposition time."""
+    lead_id = (doc.get("lead") or "").strip()
+    if not lead_id:
+        return
+    src = frappe.db.get_value("CRM Lead", lead_id, "current_source")
+    doc.set("lead_source_during_call", (src or "").strip() or None)
+
+
 _CALL_SESSION_UI_ON_CALL = frozenset(
     {EnumValues.CallSessionStatus.INITIATED, EnumValues.CallSessionStatus.AGENT_CONNECTED, EnumValues.CallSessionStatus.CUSTOMER_CONNECTED},
 )
@@ -883,6 +892,9 @@ class CallService:
         call_session_record.set("hangup_event_log", payload)
         call_session_record.set("hangup_event_id", event_id)
         call_session_record.set("hangup_at", _hangup_at_from_smartflo_payload(payload))
+        recording_url_nc = payload.get("recording_url")
+        if recording_url_nc:
+            call_session_record.set("recording_url", recording_url_nc)
         call_session_record.save(ignore_permissions=True)
 
         lead_for_nc = (call_session_record.get("lead") or "").strip()
@@ -1020,6 +1032,8 @@ class CallService:
         call_session_record_id = payload.get("custom_identifier")
         call_hangup_by = "LEAD" if payload.get('reason_key') == "Call Disconnected By Callee" else "AGENT"
         call_hangup_reason = payload.get("hangup_cause_description")
+        recording_url = payload.get("recording_url")
+
         if not call_session_record_id:
             return {"is_valid": False, "reason": "missing custom_identifier"}
 
@@ -1036,6 +1050,7 @@ class CallService:
         call_session_record.set("hangup_at", _hangup_at_from_smartflo_payload(payload))
         call_session_record.set("hangup_by", call_hangup_by)
         call_session_record.set("hangup_reason", call_hangup_reason)
+        call_session_record.set("recording_url", recording_url)
         if bill_sec is not None:
             call_session_record.set("duration", flt(bill_sec))
         if not (call_session_record.get("direction") or "").strip():
@@ -1066,6 +1081,7 @@ class CallService:
                 ),
                 "source": current_source,
                 "preferred_scheme": preferred_scheme,
+                "recording_url": recording_url,
             },
             user=target_user,
         )
@@ -1228,6 +1244,7 @@ class CallService:
         else:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
+        _set_lead_source_during_call_on_session(doc)
         doc.save(ignore_permissions=True)
         if doc.get("scheduled_visit_date") and doc.get("is_visit_scheduled"):
             try:
@@ -1373,6 +1390,7 @@ class CallService:
             else:
                 call_session_doc.set("is_visit_scheduled", 0)
                 call_session_doc.set("scheduled_visit_date", None)
+            _set_lead_source_during_call_on_session(call_session_doc)
             if lead_id:
                 try:
                     update_lead_from_call_disposition(
@@ -1925,6 +1943,8 @@ class CallService:
         if not row.get("disposed_at"):
             row.set("disposed_at", frappe.utils.now())
         row.set("status", EnumValues.CallSessionStatus.DISPOSED)
+        if not (row.get("lead_source_during_call") or "").strip():
+            _set_lead_source_during_call_on_session(row)
         row.save(ignore_permissions=True)
         frappe.db.commit()
         return {"is_valid": True}
@@ -1951,6 +1971,7 @@ class CallService:
             return {"is_valid": False, "reason": "missing call_id"}
 
         event_id = payload.get("uuid")
+        recording_url = payload.get("recording_url")
 
         row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
         lead = self._create_lead_if_not_exists(payload.get("call_to_number"))
@@ -1972,6 +1993,7 @@ class CallService:
             call_status.direction = call_direction
             call_status.status = EnumValues.CallSessionStatus.NOT_CONNECTED if call_direction == EnumValues.CallDirection.OUTBOUND else EnumValues.CallSessionStatus.MISSED
             call_status.insert(ignore_permissions=True)
+            call_status.recording_url = recording_url
             row_name = call_status.name
 
         call_duration = payload.get("outbound_sec")
@@ -1987,6 +2009,7 @@ class CallService:
         row.hangup_event_id = event_id
         row.hangup_event_log = payload
         row.hangup_at = frappe.utils.now()
+        row.recording_url = recording_url
         if pre_status in (EnumValues.CallSessionStatus.DISPOSED, EnumValues.CallSessionStatus.DISCONNECTED):
             pass
         elif had_agent_connection:
@@ -2030,6 +2053,7 @@ class CallService:
                 "calling_method": EnumValues.CallingMethod.Dialer,
                 "message": "Call Disconnected",
                 "direction": _call_session_direction_to_ui(row.get("direction")),
+                "recording_url": row.get("recording_url"),
             },
             user=target_user,
         )

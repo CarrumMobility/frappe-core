@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from time import sleep
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from core.constants.enums import EnumValues
-from crm.api.event import enqueue_complete_today_callback_followups_for_lead
+from crm.api.event import enqueue_complete_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from crm.utils import parse_phone_number
@@ -24,15 +24,15 @@ def _enqueue_apply_not_connected_dial_for_today_lead_callback(
     lead_name: str, lock_key: str | None = None
 ) -> None:
     """
-    Defer not-connected dial side effects to the default RQ worker (same target as
-    crm.api.event.apply_not_connected_dial_for_today_lead_callback) without importing
+    Defer outbound dial count side effects to the default RQ worker (same target as
+    crm.api.event.apply_event_day_dial_for_today_lead_callback) without importing
     a separate enqueue symbol from crm.api.event.
     """
     if not (lead_name or "").strip():
         return
     try:
         frappe.enqueue(
-            "crm.api.event.apply_not_connected_dial_for_today_lead_callback",
+            "crm.api.event.apply_event_day_dial_for_today_lead_callback",
             queue="default",
             enqueue_after_commit=True,
             lead_name=lead_name.strip(),
@@ -748,7 +748,7 @@ class CallService:
         direction_u = (call_session_record.get("direction") or "").strip().upper()
         lead_fu = (call_session_record.get("lead") or "").strip()
         if direction_u == EnumValues.CallDirection.OUTBOUND and lead_fu:
-            enqueue_complete_today_callback_followups_for_lead(lead_fu)
+            enqueue_complete_callback_followups_for_lead(lead_fu)
 
         target_user = call_session_record.get("agent")
         lead_id, lead_name, mobile_no, current_source, preferred_scheme = _call_session_lead_fields(call_session_record)
@@ -1831,7 +1831,7 @@ class CallService:
 
         new_call_session_doc.insert(ignore_permissions=True)
         if direction == EnumValues.CallDirection.OUTBOUND:
-            enqueue_complete_today_callback_followups_for_lead(lead.name)
+            enqueue_complete_callback_followups_for_lead(lead.name)
         frappe.db.commit()
 
         if target_user is not None:

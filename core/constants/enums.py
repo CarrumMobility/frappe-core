@@ -3,6 +3,7 @@ class EventCallbackStatus:
 	TRIGGERED = "Triggered"
 	COMPLETED = "Completed"
 	MISSED = "Missed"
+	OVERRIDE = "Override"
 
 
 class EventCallbackCategory:
@@ -36,6 +37,11 @@ class CallSessionStatus:
 	MISSED = "MISSED"
 
 
+class ReferenceDocType:
+	CRM_LEAD = "CRM Lead"
+	EVENT = "Event"
+
+
 class _EnumValues:
 	EventCallbackStatus = EventCallbackStatus
 	EventCallbackCategory = EventCallbackCategory
@@ -44,5 +50,6 @@ class _EnumValues:
 	CallDirection = CallDirection
 	CallingMethod = CallingMethod
 	CallSessionStatus = CallSessionStatus
+	ReferenceDocType = ReferenceDocType
 	
 EnumValues = _EnumValues()

@@ -3,6 +3,7 @@ from core.constants.enums import EnumValues
 from frappe.utils import flt, get_datetime, get_time, getdate
 import frappe
 from frappe.core.doctype.user.user import update_password as original_update_password
+from frappe.utils.data import today
 
 
 def _crm_lead_event_subject(lead_id: str, suffix: str) -> str:
@@ -145,16 +146,20 @@ class UtilService:
         return event_doc
 
     def mark_visit_date_events_as_completed(self, lead_id: str):
-        events = frappe.get_all(
+        event_names = frappe.get_all(
             EnumValues.ReferenceDocType.EVENT,
             filters={
                 "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
                 "reference_docname": lead_id,
+                "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
+                "callback_status": EnumValues.EventCallbackStatus.SCHEDULED,
+                "start_on": ("<", get_datetime(today())),
             },
+            pluck="name",
         )
 
-        for event in events:
-            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, event.name)
+        for event_name in event_names or []:
+            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, event_name)
             event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)
             event_doc.save(ignore_permissions=True)
 

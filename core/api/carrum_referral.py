@@ -295,7 +295,7 @@ def get_wallet_transactions_from_portal(
 	wallet_segment = quote(wallet_key, safe="")
 	return client.request(
 		method="GET",
-		path=f"/api/v1/referral-rewards/wallets/{wallet_segment}/transactions",
+		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/transactions",
 		params={"page": page, "limit": limit},
 		log_tag="wallet-transactions",
 	)

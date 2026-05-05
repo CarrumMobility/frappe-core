@@ -219,7 +219,7 @@ def send_agreement(leadId: str):
     phoneNo = lead.mobile_no
     driver_name = lead.lead_name
     aadhar_number = lead.aadhar_no
-    pan_card = lead.custom_pancard
+    pan_card = lead.pancard_number
     dl_number = lead.driving_license_number
     dl_issue_date = lead.custom_driving_license_issue_date
     dl_expiry_date = lead.custom_driving_license_expiry_date

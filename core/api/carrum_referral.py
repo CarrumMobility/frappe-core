@@ -987,3 +987,13 @@ def reject_referral_on_carrum_portal(
 		"data": payload_out,
 		"message": _("Referral request rejected"),
 	}
+
+
+def get_referral_scheme_list_from_portal(base_url=None, token=None):
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/configs/active",
+		# params={"userName": user_key},
+		log_tag="referral-config-list",
+	)

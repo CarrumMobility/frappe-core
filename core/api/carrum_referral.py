@@ -14,6 +14,7 @@ def create_lead_referral_on_portal(
 	refereeId,
 	referrerId,
 	hubId,
+	agentReferrerId=None,
 	base_url=None,
 	token=None,
 ):
@@ -39,7 +40,8 @@ def create_lead_referral_on_portal(
 		"referrerId": referrerId,
 		"hubId": hubId,
 	}
-
+	if(agentReferrerId):
+		payload["agentReferrerId"] = agentReferrerId
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",

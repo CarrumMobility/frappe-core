@@ -410,6 +410,29 @@ def get_lead_referred_by_details_from_portal(lead_id):
 	}
 
 
+def remove_lead_referrer_from_portal(lead_id, base_url=None, token=None):
+	"""
+	Remove referred-by mapping for a referee lead on Carrum.
+
+	Calls ``DELETE /api/v1/referral-rewards/referee/{lead_id}``.
+	"""
+	lead_key = (lead_id or "").strip() if lead_id is not None else ""
+	if not lead_key:
+		return {
+			"success": False,
+			"error": _("Lead id is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	lead_segment = quote(lead_key, safe="")
+	return client.request(
+		method="DELETE",
+		path=f"/api/v1/referral-rewards/referee/{lead_segment}",
+		log_tag="remove-referrer",
+	)
+
+
 def fetch_referee_milestones_from_carrum(
 	lead_id,
 	page=1,

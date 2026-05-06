@@ -1014,11 +1014,16 @@ def reject_referral_on_carrum_portal(
 	}
 
 
-def get_referral_scheme_list_from_portal(base_url=None, token=None):
+def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, base_url=None, token=None):
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	params = {}
+	if role_id is not None and str(role_id).strip():
+		params["roleId"] = str(role_id).strip()
+	if hub_id is not None and str(hub_id).strip():
+		params["hubId"] = str(hub_id).strip()
 	return client.request(
 		method="GET",
-		path=f"/api/v1/referral-rewards/configs/active",
-		# params={"userName": user_key},
+		path="/api/v1/referral-rewards/configs/active",
+		params=params,
 		log_tag="referral-config-list",
 	)

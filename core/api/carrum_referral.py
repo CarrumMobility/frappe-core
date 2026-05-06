@@ -410,13 +410,13 @@ def get_lead_referred_by_details_from_portal(lead_id):
 	}
 
 
-def remove_lead_referrer_from_portal(lead_id, base_url=None, token=None):
+def remove_lead_referrer_from_portal(referee_id=None, base_url=None, token=None):
 	"""
 	Remove referred-by mapping for a referee lead on Carrum.
 
 	Calls ``DELETE /api/v1/referral-rewards/referee/{lead_id}``.
 	"""
-	lead_key = (lead_id or "").strip() if lead_id is not None else ""
+	lead_key = (referee_id or "").strip() if referee_id is not None else ""
 	if not lead_key:
 		return {
 			"success": False,

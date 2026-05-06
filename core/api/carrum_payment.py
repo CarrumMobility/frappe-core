@@ -462,8 +462,7 @@ def add_other_payment(
     }
 
 
-@frappe.whitelist()
-def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
+def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None):
     body = _merge_request_body()
     lead_id = leadId or body.get("leadId") or body.get("lead_id")
     if not lead_id:
@@ -515,7 +514,7 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
         "weekType": "currentWeek",
         "s3Links": s3_links,
         "accountCreatorId": carrum_user_id,
-        "source":source 
+        "source": source,
     }
 
     if custom_account_id is not None:
@@ -526,21 +525,62 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
 
     url = f"{str(old_carrum_base_url).rstrip('/')}/api/v1/payment/add_cash_for_crm"
     headers = {"Authorization": old_token, "Content-Type": "application/json"}
-    response = requests.post(url, json=out, headers=headers, timeout=60)
-    
+
+    try:
+        response = requests.post(url, json=out, headers=headers, timeout=60)
+    except requests.RequestException:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"add_cash: HTTP request failed (lead_id={lead_id}, url={url})",
+        )
+        frappe.throw(
+            _("Could not reach payment service. Please try again or contact support.")
+        )
+
+    if not response.ok:
+        snippet = (response.text or "")[:8000]
+        frappe.log_error(
+            f"lead_id={lead_id}\nHTTP {response.status_code}\n{snippet}",
+            "add_cash: payment service non-OK response",
+        )
+
     try:
         data = response.json()
     except ValueError:
+        snippet = (response.text or "")[:8000]
+        frappe.log_error(
+            f"lead_id={lead_id}\n{snippet}",
+            "add_cash: invalid JSON from payment service",
+        )
         frappe.throw(_("Invalid JSON from payment service"))
 
     if data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Failed to add cash")
+        try:
+            payload_log = json.dumps(data, default=str)[:8000]
+        except Exception:
+            payload_log = str(data)
+        frappe.log_error(
+            f"lead_id={lead_id}\n{payload_log}",
+            "add_cash: payment API returned failure",
+        )
         return {
             "is_valid": False,
-            "reason": msg
+            "reason": msg,
         }
 
     return {"message": "success"}
+
+
+@frappe.whitelist()
+def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
+    try:
+        return _add_cash_execute(leadId, amount, paymentType, imageUrls)
+    except frappe.ValidationError:
+        raise
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "add_cash: unexpected error")
+        raise
 
 @frappe.whitelist()
 def webhook_capture():

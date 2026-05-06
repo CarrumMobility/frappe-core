@@ -13,6 +13,11 @@ class EventCallbackCategory:
 class Roles:
 	SYSTEM_USER = "System User"
 	GUEST = "Guest"
+	HUB_MANAGER = "Hub Manager"
+	TELECALLER = "Telecaller"
+	TELECALLER_LEAD = "Telecaller Lead"
+	ONBOARDING = "Onboarding"
+	DRIVER_MANAGER = "Driver Manager"
 
 class LeadType:
 	LEAD = "LEAD"
@@ -40,6 +45,8 @@ class CallSessionStatus:
 class ReferenceDocType:
 	CRM_LEAD = "CRM Lead"
 	EVENT = "Event"
+	ROLE = "Role"
+	CUSTOM_DOC_PERM = "Custom DocPerm"
 
 
 class _EnumValues:

@@ -1,5 +1,7 @@
 import base64
 import json
+from uuid import UUID
+from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.api.lead import unAssignSecondaryLeadFromLead
 from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
 from crm.utils import parse_phone_number
@@ -10,11 +12,11 @@ from frappe import _
 
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 
 class UpdateDriverDtoSchema(BaseModel):
-    """JSON body for ``update_driver`` (from CRM frontend)."""
+    """Request body for ``update_driver`` (CRM frontend sends a JSON object, not a string)."""
 
     scheme_id: Optional[str | int] = None
     scheme_type: Optional[str] = None
@@ -22,6 +24,7 @@ class UpdateDriverDtoSchema(BaseModel):
     tenure: Optional[int] = None
     emi_id: Optional[str] = None
     remove_emi: Optional[bool] = None
+    uber_id: Optional[UUID] = None
 
     @field_validator("scheme_type", "old_scheme_name", mode="before")
     @classmethod
@@ -37,8 +40,65 @@ class UpdateDriverDtoSchema(BaseModel):
             return None
         val = int(v)
         if val < 1 or val > 10:
-            raise ValueError("Tenure must be between 1 and 10")
+            raise ValueError(_("Tenure must be between 1 and 10"))
         return val
+
+    @field_validator("uber_id", mode="before")
+    @classmethod
+    def _normalize_uber_id(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, UUID):
+            return v
+        s = str(v).strip()
+        if not s:
+            return None
+        try:
+            return UUID(s)
+        except ValueError:
+            raise ValueError(_("Uber ID must be a valid UUID"))
+
+
+def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
+    """Shape Pydantic errors for API clients (field + message + type)."""
+    rows: list[dict] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        parts: list[str] = []
+        for p in loc:
+            if isinstance(p, str):
+                parts.append(p)
+            else:
+                parts.append(str(p))
+        field = parts[-1] if parts else "data"
+        msg = err.get("msg", "")
+        if not isinstance(msg, str):
+            msg = str(msg)
+        rows.append(
+            {
+                "field": field,
+                "code": str(err.get("type", "") or ""),
+                "message": msg,
+            }
+        )
+    return rows
+
+
+def _raise_update_driver_validation_error(exc: ValidationError) -> None:
+    v_errors = _format_update_driver_validation_errors(exc)
+    summary = (
+        v_errors[0]["message"]
+        if len(v_errors) == 1
+        else _("{0} validation issues").format(len(v_errors))
+    )
+    throw_custom_api_error(
+        summary,
+        api_code=CrmApiErrors.UPDATE_DRIVER_VALIDATION,
+        title=_("Driver update"),
+        details={"validation_errors": v_errors},
+        http_status_code=422,
+    )
+
 
 logger = frappe.logger("core::carrum_drivers")
 
@@ -221,12 +281,12 @@ def send_agreement(leadId: str):
     aadhar_number = lead.aadhar_no
     pan_card = lead.pancard_number
     dl_number = lead.driving_license_number
-    dl_issue_date = lead.custom_driving_license_issue_date
-    dl_expiry_date = lead.custom_driving_license_expiry_date
+    dl_issue_date = lead.driving_license_issue_date
+    dl_expiry_date = lead.driving_license_expiry_date
     email = lead.email
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
-    bank_ifsc_code = lead.custom_bank_ifsc_code
+    bank_ifsc_code = lead.bank_ifsc
     lead_hub_id = lead.hub_id
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
@@ -234,7 +294,7 @@ def send_agreement(leadId: str):
     current_state = lead.current_state
     
     current_pincode = lead.current_pincode
-    current_landmark = lead.custom_current_landmark
+    current_landmark = lead.current_landmark
     current_address = ""
     if current_address_line1:
         current_address += current_address_line1
@@ -416,6 +476,7 @@ def get_portal_driver_detail(account_id: str | None = None):
 
     try:
         response = re.get(url, headers=headers)
+        print(response)
     except re.exceptions.RequestException as e:
         logger.exception("get_portal_driver_detail request failed: %s", e)
         return {"success": False, "message": "Failed to get driver details"}
@@ -441,21 +502,39 @@ def get_portal_driver_detail(account_id: str | None = None):
     return {"success": True, "data": data}
 
 
+def _parse_update_driver_payload(data) -> UpdateDriverDtoSchema:
+    """Accept dict (preferred) or legacy JSON string from ``frappe.form_dict``."""
+    if data is None:
+        frappe.throw(_("data is required"))
+    if isinstance(data, dict):
+        if not data:
+            frappe.throw(_("data is required"))
+        try:
+            return UpdateDriverDtoSchema.model_validate(data)
+        except ValidationError as e:
+            _raise_update_driver_validation_error(e)
+    if isinstance(data, str):
+        raw = data.strip()
+        if not raw:
+            frappe.throw(_("data is required"))
+        try:
+            return UpdateDriverDtoSchema.model_validate_json(raw)
+        except ValidationError as e:
+            _raise_update_driver_validation_error(e)
+    frappe.throw(_("data must be a JSON object or string"))
+
+
 @frappe.whitelist()
-def update_driver(account_id: str, data: str | None = None):
+def update_driver(account_id: str, data: dict | str | None = None):
     """
     :param account_id: Carrum driver account id (CRM Lead Hub ID when aligned).
-    :param data: JSON string with ``scheme_id`` and optional ``scheme_type`` (forwarded to Carrum PUT).
+    :param data: JSON object (or legacy JSON string) with ``scheme_id`` and optional ``scheme_type`` (forwarded to Carrum PUT).
     """
     aid = (account_id or "").strip()
     if not aid:
         frappe.throw(_("Account ID is required"))
 
-    raw = (data or "").strip()
-    if not raw:
-        frappe.throw(_("data JSON is required"))
-
-    payload = UpdateDriverDtoSchema.model_validate_json(raw)
+    payload = _parse_update_driver_payload(data)
 
     base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
     if not base:
@@ -488,7 +567,10 @@ def update_driver(account_id: str, data: str | None = None):
     if payload.remove_emi is not None:
         body['remove_emi'] = payload.remove_emi
 
-    if "vendor" in payload.old_scheme_name or "double driver" in payload.old_scheme_name:
+    if payload.uber_id is not None:
+        body['driver_uber_id'] = str(payload.uber_id)
+
+    if "vendor" in (payload.old_scheme_name or "") or "double driver" in (payload.old_scheme_name or "") :
         lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
         if lead:
             unAssignSecondaryLeadFromLead(lead.name)
@@ -499,15 +581,13 @@ def update_driver(account_id: str, data: str | None = None):
     if not body:
         return {"success": True}
 
-    
+    print(body)
     url = f"{base}/api/v1/driver/update/{aid}?idType=account"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
     try:
-        print("====================body============================")
-        print(body)
-        print("====================body============================")
         response = re.put(url, headers=headers, json=body, timeout=60)
+        print(response.text)
     except re.exceptions.RequestException as e:
         logger.exception("update_driver request failed: %s", e)
         frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))

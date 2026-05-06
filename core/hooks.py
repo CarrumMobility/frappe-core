@@ -272,4 +272,7 @@ require_type_annotated_api_methods = True
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
-before_request = ["core.services.util_service.blockDeskAccess"]
+before_request = [
+	"core.services.util_service.blockDeskAccess",
+]
+after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

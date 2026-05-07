@@ -354,6 +354,7 @@ def send_agreement(leadId: str):
         frappe.throw(_("Could not reach Carrum"))
 
     try:
+        print(response.text)
         resp_body = response.json()
     except ValueError:
         frappe.throw(_("Invalid response from Carrum"))
@@ -629,9 +630,7 @@ def lead_creation_webhook():
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
-    #  {'leadId': '0b98f046-4d53-4991-980f-630f965f817b', 'displayId': 'AAAA1433', 'phone': '6900000002', 'source': 'crm_payment_link', 'firstName': 'Lead', 'lastName': None, 'createdBy': 'bb774554-fecb-48c3-9532-d51abcb79706', 'hubId': None}
     raw_display = data.get("displayId")
-    print("LEAD CREATION WEBHOOK")
 
     displayId = str(raw_display).strip().upper() if raw_display is not None else ""
     phone_raw =  data.get("phone")

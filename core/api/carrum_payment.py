@@ -137,13 +137,14 @@ def _maybe_update_lead_status_after_payment_capture(lead):
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
 
-    - If the lead already matches **Apply on FSD Conversion**, do nothing.
-    - If the lead matches **Vehicle Assignment** and both hub fee and SD ``remaining`` are 0,
-      move to the FSD row.
-    - If the lead matches **Apply on PSD Conversion** (partial SD) and SD ``remaining`` is 0,
-      move to the FSD row.
-    - Else if the lead matches **Vehicle Assignment** and hub fee ``remaining`` is 0,
-      move to the PSD row.
+    Enforced progression is strictly forward-only:
+    1) ``is_apply_on_driver_creation``
+    2) ``is_apply_on_psd_conversion`` (hub fee fully paid)
+    3) ``is_apply_on_fsd_conversion`` (full security deposit paid)
+    4) ``is_apply_on_vehicle_assignment``
+
+    This payment hook only progresses within payment stages (1 -> 2 -> 3).
+    It never moves backward, and it never changes a lead already at stage 4.
 
     If portal wallet data cannot be loaded, status is left unchanged.
     """
@@ -160,6 +161,9 @@ def _maybe_update_lead_status_after_payment_capture(lead):
     hub_rem = flt(hub_fee.get("remaining"))
     sd_rem = flt(sec_dep.get("remaining"))
 
+    driver_row = _fetch_crm_lead_status_primary_secondary(
+        {"is_apply_on_driver_creation": 1}
+    )
     fsd_row = _fetch_crm_lead_status_primary_secondary(
         {"is_apply_on_fsd_conversion": 1}
     )
@@ -170,33 +174,43 @@ def _maybe_update_lead_status_after_payment_capture(lead):
         {"is_apply_on_vehicle_assignment": 1}
     )
 
+    # Never modify from the terminal stage in this flow.
+    if va_row and _lead_matches_crm_status_row(lead, va_row):
+        return
+
+    is_hub_fee_cleared = hub_rem <= 0
+    is_security_deposit_cleared = sd_rem <= 0
+
+    # Stage 3: already at full SD conversion. Keep as-is (stage 4 comes from vehicle assignment).
     if fsd_row and _lead_matches_crm_status_row(lead, fsd_row):
         return
 
-    if (
-        va_row
-        and _lead_matches_crm_status_row(lead, va_row)
-        and fsd_row
-        and hub_rem == 0
-        and sd_rem == 0
-    ):
-        _apply_crm_lead_status_row(lead, fsd_row)
-        return
-
+    # Stage 2 -> 3
     if (
         psd_row
         and _lead_matches_crm_status_row(lead, psd_row)
         and fsd_row
-        and sd_rem == 0
+        and is_security_deposit_cleared
+    ):
+        _apply_crm_lead_status_row(lead, fsd_row)
+        return
+
+    # Stage 1 -> 2 or 1 -> 3 (if both dues are already cleared)
+    if (
+        driver_row
+        and _lead_matches_crm_status_row(lead, driver_row)
+        and fsd_row
+        and is_hub_fee_cleared
+        and is_security_deposit_cleared
     ):
         _apply_crm_lead_status_row(lead, fsd_row)
         return
 
     if (
-        va_row
-        and _lead_matches_crm_status_row(lead, va_row)
+        driver_row
+        and _lead_matches_crm_status_row(lead, driver_row)
         and psd_row
-        and hub_rem == 0
+        and is_hub_fee_cleared
     ):
         _apply_crm_lead_status_row(lead, psd_row)
 

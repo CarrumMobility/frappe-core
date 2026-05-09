@@ -685,86 +685,82 @@ def lead_creation_webhook():
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}
 
+
+def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: str):
+    """Map CRM Lead Status row onto lead: primary ← custom_primary_status, secondary ← lead_status, status ← name."""
+    row = frappe.db.get_value(
+        EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
+        status_filters,
+        ["custom_primary_status", "lead_status", "name"],
+    )
+    if not row or row[2] is None:
+        frappe.throw(not_found_message)
+    lead.primary_status = row[0]
+    lead.secondary_status = row[1]
+    lead.status = row[2]
+    lead.save(ignore_permissions=True)
+
+
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
-    payload = frappe.request.get_json()    # {'driverId': 'eb320a30-44ca-4b81-812c-c971cca3ce61', 'accountId': 'dc485de4-4cd6-41e7-94d5-6f617ea81c60', 'smallId': 'AAAA0017', 'previousStatus': 'created', 'newStatus': 'onboarded'}
-    accountId = payload.get("accountId")
-    lead = frappe.get_doc("CRM Lead", {"custom_account_id": accountId})
-    if not lead:
-        frappe.throw(_("Lead not found with account ID: {0}").format(accountId))
-        return
+    # {'driverId': ..., 'accountId': ..., 'smallId': ..., 'previousStatus': ..., 'newStatus': ...}
+    payload = frappe.request.get_json() or {}
+    account_id = payload.get("accountId")
+    if not account_id:
+        frappe.throw(_("accountId is required"))
 
-    newStatus = payload.get("newStatus")
-    if newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_apply_on_vehicle_assignment": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_apply_on_vehicle_assignment = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.PERMANENT_DROP:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_permanent_drop": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_permanent_drop = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TEMP_DROP:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_temp_drop": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
+    lead_name = frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": account_id}, "name"
+    )
+    if not lead_name:
+        frappe.throw(_("Lead not found with account ID: {0}").format(account_id))
 
-        else:
-            frappe.throw(_("Lead status not found with is_temp_drop = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_INITIATED:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_recovery_initiated": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_recovery_initiated = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_DONE:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_recovery_done": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_recovery_done = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.MAINTENANCE_DROP:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_maintenance_drop": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_maintenance_drop = 1"))
-    elif newStatus == EnumValues.OLD_SYSTEM_DRIVER_STATUS.DRIVER_RETURNED:
-        leadStatus = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD_STATUS, {"is_driver_returned": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.status = leadStatus
-            lead.save(ignore_permissions=True)
-            return {"message": "ok"}
-        else:
-            frappe.throw(_("Lead status not found with is_driver_returned = 1"))
+    lead = frappe.get_doc("CRM Lead", lead_name)
+
+    new_status = payload.get("newStatus")
+    if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_apply_on_vehicle_assignment": 1},
+            _("Lead status not found with is_apply_on_vehicle_assignment = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.PERMANENT_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_permanent_drop": 1},
+            _("Lead status not found with is_permanent_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TEMP_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_temp_drop": 1},
+            _("Lead status not found with is_temp_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_INITIATED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_initiated": 1},
+            _("Lead status not found with is_recovery_initiated = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_DONE:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_done": 1},
+            _("Lead status not found with is_recovery_done = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.MAINTENANCE_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_maintenance_drop": 1},
+            _("Lead status not found with is_maintenance_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.DRIVER_RETURNED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_driver_returned": 1},
+            _("Lead status not found with is_driver_returned = 1"),
+        )
     else:
-        frappe.throw(_("Unhandled status: {0}").format(newStatus))
+        frappe.throw(_("Unhandled status: {0}").format(new_status))
+
+    return {"message": "ok"}

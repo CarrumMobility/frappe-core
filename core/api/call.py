@@ -46,6 +46,7 @@ def submit_disposition():
       disposition_remarks — optional string
       disposition_timing — optional \"IMMEDIATE\" | \"LATE\" (Call Session; default IMMEDIATE)
       sub_disposition_status (or sub_disposition) — selected row's ``lead_status`` string (not doc name)
+      status_pk — optional ``CRM Lead Status`` document name (primary key) for the selected disposition row
       callback_datetime, callback_comments, remind_before_minutes,
       expected_call_duration_minutes — optional (Dialer / callbacks)
       is_visit_scheduled, scheduled_visit_date — optional (visit disposition)

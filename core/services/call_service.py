@@ -1116,10 +1116,11 @@ class CallService:
         disposition_timing = (
             str(disposition_timing_raw).strip().upper()
             if disposition_timing_raw
-            else "IMMEDIATE"
+            else EnumValues.DispositionTiming.IMMEDIATE
         )
-        if disposition_timing not in ("IMMEDIATE", "LATE"):
-            disposition_timing = "IMMEDIATE"
+        status_pk = str(data.get("status_pk") or "").strip() or None
+        if disposition_timing not in (EnumValues.DispositionTiming.IMMEDIATE, EnumValues.DispositionTiming.LATE):
+            disposition_timing = EnumValues.DispositionTiming.IMMEDIATE
 
         if not call_session_id or not calling_method:
             return {"is_valid": False, "reason": "missing required fields"}
@@ -1158,6 +1159,7 @@ class CallService:
                     disposition_timing=disposition_timing,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
+                    status_pk = status_pk
                 )
             case EnumValues.CallingMethod.Dialer:
                 return self._handle_dialer_submit_disposition(
@@ -1173,6 +1175,7 @@ class CallService:
                     expected_call_duration_minutes=expected_call_duration_minutes,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
+                    status_pk = status_pk
                 )
             case _:
                 return {
@@ -1194,6 +1197,7 @@ class CallService:
         disposition_timing: str,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
+        status_pk: str | None = None
     ):
         """Smartflo store-disposition + Call Session update (Click2Call)."""
         try:
@@ -1268,7 +1272,9 @@ class CallService:
                     disposition_status,
                     sub_disposition,
                     remarks,
+                    status_pk=status_pk
                 )
+
             except Exception:
                 frappe.log_error(
                     frappe.get_traceback(),
@@ -1316,6 +1322,7 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
+        status_pk: str | None = None
     ):
         match default_telephony_vendor:
             case "Smartflo":
@@ -1332,6 +1339,7 @@ class CallService:
                     expected_call_duration_minutes,
                     scheduled_visit_date,
                     is_visit_scheduled,
+                    status_pk = status_pk
                 )
             case _:
                 return {
@@ -1353,6 +1361,7 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
+        status_pk: str | None = None
     ):
         try:
             call_session_doc = frappe.get_doc("Call Session", call_session_id)
@@ -1398,6 +1407,7 @@ class CallService:
                         disposition_status,
                         sub_disposition_status,
                         remarks,
+                        status_pk
                     )
                 except Exception:
                     frappe.log_error(
@@ -1480,10 +1490,10 @@ class CallService:
             # handle dialer session start
             smartflo_client.handle_start_or_end_session_api(user,campaign_id,True)
         except Exception as e:
-            print(e)
             return {
                 "is_valid": False,
-                "reason": str(e)
+                "reason": str(e),
+                "step": "start_dialer_session"
             }
 
         

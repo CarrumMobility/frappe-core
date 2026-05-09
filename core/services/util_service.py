@@ -18,23 +18,26 @@ class UtilService:
     def __init__(self):
         pass
 
-    def get_lead_status_to_update(self, currentPrimaryStatus: str, currentSecondaryStatus: str, newPrimaryStatus: str, newSecondaryStatus: str):
-        if currentPrimaryStatus != "NEW" and newPrimaryStatus == "NEW":
-            return {
-                "primary_status": currentPrimaryStatus,
-                "secondary_status": currentSecondaryStatus,
-            }
+    # def get_lead_status_to_update(self, currentPrimaryStatus: str, currentSecondaryStatus: str, newPrimaryStatus: str, newSecondaryStatus: str, currentStatusPK: str):
+    #     if currentPrimaryStatus != "NEW" and newPrimaryStatus == "NEW":
+    #         return {
+    #             "primary_status": currentPrimaryStatus,
+    #             "secondary_status": currentSecondaryStatus,
+    #             "status": currentStatusPK,
+    #         }
 
-        if currentPrimaryStatus == "CONVERTED":
-            return {
-                "primary_status": currentPrimaryStatus,
-                "secondary_status": currentSecondaryStatus,
-            }
+    #     if currentPrimaryStatus == "CONVERTED":
+    #         return {
+    #             "primary_status": currentPrimaryStatus,
+    #             "secondary_status": currentSecondaryStatus,
+    #             "status": currentPrimaryStatus,
+    #         }
             
-        return {
-            "primary_status": newPrimaryStatus,
-            "secondary_status": newSecondaryStatus,
-        }
+    #     return {
+    #         "primary_status": newPrimaryStatus,
+    #         "secondary_status": newSecondaryStatus,
+    #         "status": newPrimaryStatus,
+    #     }
 
 
     def create_event_for_callback(
@@ -212,6 +215,10 @@ class UtilService:
 
         frappe.throw(frappe._("Password change is disabled"), title=frappe._("Permission Error"))
 
+    def is_status_change_locked_for_tc_oa(self, primary_status: str):
+        if primary_status in ["Drop","Converted"]:
+            return True
+        return False
 
 util_service = UtilService()
 blockDeskAccess = util_service.block_desk_access

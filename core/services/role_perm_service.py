@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import frappe
 
-from core.constants.enums import ReferenceDocType, Roles
+from core.constants.enums import EnumValues
 
 PERMISSION_FIELDS = {
 	"select",
@@ -46,23 +46,23 @@ class RolePermService:
 
 		self.roles = {
 			"hub_manager": {
-				"role_name": Roles.HUB_MANAGER,
+				"role_name": EnumValues.Roles.HUB_MANAGER,
 				"desk_access": 0,
 			},
 			"telecaller": {
-				"role_name": Roles.TELECALLER,
+				"role_name": EnumValues.Roles.TELECALLER,
 				"desk_access": 0,
 			},
 			"telecaller_lead": {
-				"role_name": Roles.TELECALLER_LEAD,
+				"role_name": EnumValues.Roles.TELECALLER_LEAD,
 				"desk_access": 0,
 			},
 			"onboarding": {
-				"role_name": Roles.ONBOARDING,
+				"role_name": EnumValues.Roles.ONBOARDING,
 				"desk_access": 0,
 			},
 			"driver_manager": {
-				"role_name": Roles.DRIVER_MANAGER,
+				"role_name": EnumValues.Roles.DRIVER_MANAGER,
 				"desk_access": 0,
 			},
 		}

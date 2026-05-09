@@ -1859,6 +1859,7 @@ class CallService:
             agent_call_id=call_id,
             status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
             agent_answered_at=timestamp,
+            connected_at=timestamp,
             agent_answer_event_id=event_id,
             agent_answer_event_log=payload,
             vendor_name=default_telephony_vendor,

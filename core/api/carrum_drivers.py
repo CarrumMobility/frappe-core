@@ -1,6 +1,6 @@
 import base64
 import json
-from crm.api.lead import unAssignSecondaryLeadFromLead
+from core.services.util_service import util_service
 from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
 from crm.utils import parse_phone_number
 import requests as re
@@ -492,7 +492,7 @@ def update_driver(account_id: str, data: str | None = None):
     if "vendor" in payload.old_scheme_name or "double driver" in payload.old_scheme_name:
         lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
         if lead:
-            unAssignSecondaryLeadFromLead(lead.name)
+            util_service.un_assign_secondary_lead_from_lead(lead.name)
         else:
             frappe.throw(_("Lead not found with account ID: {0}").format(aid))
 

@@ -1466,6 +1466,8 @@ class CallService:
             # handle dialer login first
             result = smartflo_client.handle_login_session_api(user,campaign_id)
             if not result.get("is_valid"):
+                if "already logged in" in result.get("reason").lower():
+                    pass
                 raise ValueError(result.get("reason"))
         except Exception as e:
             err = str(e)

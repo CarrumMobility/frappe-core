@@ -764,3 +764,43 @@ def driver_status_update_webhook():
         frappe.throw(_("Unhandled status: {0}").format(new_status))
 
     return {"message": "ok"}
+
+def raise_driver_return_request(
+    oldCarrumAccountId: str, identificationType: str, requestReason: str
+):
+    if not oldCarrumAccountId:
+        frappe.throw(_("oldCarrumAccountId is required"))
+
+    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
+    if not base:
+        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+
+    url = f"{base}/api/v1/management/reonboarding"
+    body = {
+        "old_account_id": oldCarrumAccountId,
+        "identification_key": identificationType,
+        "request_reason": requestReason,
+    }
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+    headers = {"Authorization": old_carrum_token, "Content-Type": "application/json"}
+    response = re.post(url, headers=headers, json=body, timeout=60)
+
+    try:
+        response_data = response.json()
+    except ValueError:
+        response_data = None
+
+    if not response.ok:
+        msg = response.text or str(response.status_code)
+        if isinstance(response_data, dict) and response_data.get("message"):
+            msg = response_data.get("message")
+        frappe.throw(_("Failed to raise driver return request: {0}").format(msg))
+
+    if not response_data:
+        frappe.throw(_("Invalid response from driver service"))
+
+    if response_data.get("status") == "success":
+        return True
+
+    err = response_data.get("message") or response_data.get("error") or _("Request was not successful")
+    frappe.throw(_("Failed to raise driver return request: {0}").format(err))

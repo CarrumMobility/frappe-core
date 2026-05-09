@@ -67,7 +67,13 @@ class _DispositionTiming:
 	LATE = "LATE"
 
 class _LEAD_ACTION_LIST:
-	RAISE_DRIVER_RETURN_REQUEST = "Raise Driver Return Request"
+	RAISE_DRIVER_REACTIVATION_REQUEST = "Raise Driver Reactivation Request"
+
+
+class _LEAD_ACTION_SLUG:
+	"""Stable API / UI ``action`` values for CRM Lead driver actions."""
+
+	RAISE_DRIVER_REACTIVATION_REQUEST = "raise_driver_reactivation_request"
 
 
 class _EnumValues:
@@ -82,5 +88,6 @@ class _EnumValues:
 	OLD_SYSTEM_DRIVER_STATUS = _OLD_SYSTEM_DRIVER_STATUS
 	DispositionTiming = _DispositionTiming
 	LEAD_ACTION_LIST = _LEAD_ACTION_LIST
+	LEAD_ACTION_SLUG = _LEAD_ACTION_SLUG
 
 EnumValues = _EnumValues()

@@ -1799,8 +1799,25 @@ class CallService:
     def dialer_call_connected(self, user: str, payload: dict):
         call_id = payload.get("call_id")
         event_id = payload.get("uuid")
-        to_number = payload.get("call_to_number")
+
+        direction = payload.get("direction")
+        if direction == "Dialer (outbound)":
+            direction = EnumValues.CallDirection.OUTBOUND
+        else:
+            direction = EnumValues.CallDirection.INBOUND
+
+        call_to_number = payload.get("call_to_number")
         caller_id_number = payload.get("caller_id_number")
+
+        lead_phone = None
+        did_number = None
+        if direction == EnumValues.CallDirection.OUTBOUND:
+            lead_phone = call_to_number
+            did_number = caller_id_number
+        else:
+            lead_phone = caller_id_number
+            did_number = call_to_number
+
         start_date = payload.get("start_date")
         start_time = payload.get("start_time")
         agent_list = payload.get("agent") or []
@@ -1812,43 +1829,35 @@ class CallService:
         target_user = self._get_user_for_agent_email(agent_email)
         timestamp = self._parse_call_timestamp(start_date, start_time)
 
-        lead = self._create_lead_if_not_exists(to_number)
+        lead = self._create_lead_if_not_exists(lead_phone)
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
                 frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
-                    to_number or ""
+                    call_to_number or ""
                 )
             )
         
-        DID_SOURCE_MAPPING = frappe.get_doc("Global Config", {
-            "key": "DID_SOURCE_MAPPING"
-        })
+        DID_SOURCE_MAPPING = frappe.get_doc("Global Config", {"key": "DID_SOURCE_MAPPING"})
         did_source_map = {}
         if DID_SOURCE_MAPPING:
             did_source_map = json.loads(DID_SOURCE_MAPPING.value)
 
-        newSource = did_source_map.get(caller_id_number) or did_source_map.get(to_number)
+        newSource = did_source_map.get(did_number)
         if newSource is not None:
             lead.set('current_source',newSource)
-            lead.save(ignore_permissions=True)
-        
-        direction = payload.get("direction")
-        if direction == "Dialer (outbound)":
-            direction = EnumValues.CallDirection.OUTBOUND
-        else:
-            direction = EnumValues.CallDirection.INBOUND
+            lead.save(ignore_permissions=True) 
 
         
         new_call_session_doc = frappe.new_doc(
-            "Call Session",
+            EnumValues.ReferenceDocType.CALL_SESSION,
             calling_method=EnumValues.CallingMethod.Dialer,
             direction=direction,
             agent=target_user,
             vendor_agent_id=agent_email,
             lead=lead.name,
-            lead_phone=to_number,
+            lead_phone=lead_phone,
             agent_call_id=call_id,
-            status="CUSTOMER_CONNECTED",
+            status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
             agent_answered_at=timestamp,
             agent_answer_event_id=event_id,
             agent_answer_event_log=payload,

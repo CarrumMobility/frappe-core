@@ -687,7 +687,6 @@ def lead_creation_webhook():
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
     payload = frappe.request.get_json()    # {'driverId': 'eb320a30-44ca-4b81-812c-c971cca3ce61', 'accountId': 'dc485de4-4cd6-41e7-94d5-6f617ea81c60', 'smallId': 'AAAA0017', 'previousStatus': 'created', 'newStatus': 'onboarded'}
-    # print(payload)
     accountId = payload.get("accountId")
     lead = frappe.get_doc("CRM Lead", {"custom_account_id": accountId})
     if not lead:
@@ -700,11 +699,24 @@ def driver_status_update_webhook():
         if leadStatus:
             lead.primary_status = leadStatus
             lead.secondary_status = leadStatus
+            lead.converted = 1
             lead.save(ignore_permissions=True)
         else:
             frappe.throw(_("Lead status not found with is_apply_on_vehicle_assignment = 1"))
     else:
-        return {
-            "message": "Unhandled status: {0}".format(newStatus)
-        }
+        return {"message": "Unhandled status: {0}".format(newStatus)}
+        # unHandledStatusList = ['created', 'to_onboard']
+        # if newStatus in unHandledStatusList:
+        #     return {"message": "Unhandled status: {0}".format(newStatus)}
+        # else:
+        #     leadStatus = frappe.db.get_value("CRM Lead Status", {"old_system_status": newStatus}, ["custom_primary_status", 'lead_status', 'name'], as_dict=True)
+        #     if leadStatus:
+        #         lead.primary_status = leadStatus.get("custom_primary_status")
+        #         lead.secondary_status = leadStatus.get("lead_status")
+        #         lead.status = leadStatus.get("lead_status")
+        #         lead.save(ignore_permissions=True)
+        #     else:
+        #         frappe.throw(_("Lead status not found with old_system_status = {0}").format(newStatus))
+
+
     return {"message": "ok"}

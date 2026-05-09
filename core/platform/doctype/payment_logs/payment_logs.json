@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:carrum_id",
+ "autoname": "prompt",
  "creation": "2026-04-07 14:32:34.979158",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -65,8 +65,9 @@
   },
   {
    "fieldname": "image",
-   "fieldtype": "Attach Image",
-   "label": "Image"
+   "fieldtype": "Long Text",
+   "label": "Payment proof images",
+   "description": "Comma-separated file URLs (proof of payment)."
   },
   {
    "fieldname": "lead",
@@ -89,7 +90,7 @@
  "modified_by": "Administrator",
  "module": "Platform",
  "name": "payment_logs",
- "naming_rule": "By fieldname",
+ "naming_rule": "Set by user",
  "owner": "Administrator",
  "permissions": [
   {

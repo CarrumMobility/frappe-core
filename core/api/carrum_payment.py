@@ -13,6 +13,36 @@ UTC = timezone.utc
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+def _payment_log_image_csv_from_payload(image_urls_raw):
+	"""
+	Normalize webhook ``imageUrls`` (list or str) to a comma-separated string for ``payment_logs.image``.
+	"""
+	if image_urls_raw is None:
+		return None
+	urls = []
+	if isinstance(image_urls_raw, str):
+		s = image_urls_raw.strip()
+		if not s:
+			return None
+		try:
+			parsed = json.loads(s)
+		except (ValueError, TypeError):
+			parsed = None
+		if isinstance(parsed, list):
+			urls = [str(u).strip() for u in parsed if str(u).strip()]
+		elif isinstance(parsed, str) and parsed.strip():
+			urls = [parsed.strip()]
+		else:
+			urls = [p.strip() for p in s.split(",") if p.strip()]
+	elif isinstance(image_urls_raw, (list, tuple)):
+		urls = [str(u).strip() for u in image_urls_raw if str(u).strip()]
+	else:
+		return None
+	if not urls:
+		return None
+	return ",".join(urls)
+
+
 def _parse_transaction_timestamp_utc_to_naive_ist(dt_raw):
     """
     Carrum webhooks send transaction time in UTC (ISO ending in Z, or naive UTC string).
@@ -621,13 +651,10 @@ def webhook_capture():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    existing_log = frappe.db.get_value(
-        "payment_logs", {"carrum_id": transactionId}, "name"
-    )
-    if existing_log:
+    if frappe.db.exists("payment_logs", transactionId):
         return {
             "message": "already captured",
-            "payment_log_id": existing_log,
+            "payment_log_id": transactionId,
         }
 
     lead_name = _resolve_lead_for_carrum_user_id(user_id)
@@ -657,26 +684,23 @@ def webhook_capture():
 
     raw_plain = json.loads(frappe.as_json(d))
 
-    image_url = None
-    if isinstance(imageUrls, list) and imageUrls:
-        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
-    elif isinstance(imageUrls, str) and imageUrls.strip():
-        image_url = imageUrls.strip()
+    image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-
-    paymentLog = frappe.new_doc("payment_logs")
-    paymentLog.set("amount", amount)
-    paymentLog.set("carrum_id", transactionId)
-    if image_url:
-        paymentLog.set("image", image_url)
-    paymentLog.set("lead", lead_id)
-    paymentLog.set("raw", raw_plain)
-    paymentLog.set("utr", utr)
-    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
-    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
-    paymentLog.set("transaction_date", transaction_date)
-    paymentLog.set("status", "Captured")
-    paymentLog.save()
+    pl_kwargs = {
+        "doctype": "payment_logs",
+        "__newname": transactionId,
+        "amount": amount,
+        "lead": lead_id,
+        "raw": raw_plain,
+        "utr": utr,
+        "sd_breakup_amount": sdBreakupAmount,
+        "settlement_breakup_amount": settlementBreakupAmount,
+        "transaction_date": transaction_date,
+        "status": "Captured",
+    }
+    if image_csv:
+        pl_kwargs["image"] = image_csv
+    frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",
@@ -705,14 +729,10 @@ def webhook_failed():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    existing_log = frappe.db.get_value(
-        "payment_logs", {"carrum_id": transactionId}, "name"
-    )
-
-    if existing_log:
+    if frappe.db.exists("payment_logs", transactionId):
         return {
             "message": "already saved",
-            "payment_log_id": existing_log,
+            "payment_log_id": transactionId,
         }
 
     lead_id = _resolve_lead_for_carrum_user_id(user_id)
@@ -733,25 +753,23 @@ def webhook_failed():
 
     raw_plain = json.loads(frappe.as_json(d))
 
-    image_url = None
-    if isinstance(imageUrls, list) and imageUrls:
-        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
-    elif isinstance(imageUrls, str) and imageUrls.strip():
-        image_url = imageUrls.strip()
+    image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-    paymentLog = frappe.new_doc("payment_logs")
-    paymentLog.set("amount", amount)
-    paymentLog.set("carrum_id", transactionId)
-    if image_url:
-        paymentLog.set("image", image_url)
-    paymentLog.set("lead", lead_id)
-    paymentLog.set("raw", raw_plain)
-    paymentLog.set("utr", utr)
-    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
-    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
-    paymentLog.set("transaction_date", transaction_date)
-    paymentLog.set("status", "Failed")
-    paymentLog.save()
+    pl_kwargs = {
+        "doctype": "payment_logs",
+        "__newname": transactionId,
+        "amount": amount,
+        "lead": lead_id,
+        "raw": raw_plain,
+        "utr": utr,
+        "sd_breakup_amount": sdBreakupAmount,
+        "settlement_breakup_amount": settlementBreakupAmount,
+        "transaction_date": transaction_date,
+        "status": "Failed",
+    }
+    if image_csv:
+        pl_kwargs["image"] = image_csv
+    frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",

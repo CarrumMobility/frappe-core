@@ -47,6 +47,7 @@ class ReferenceDocType:
 	EVENT = "Event"
 	ROLE = "Role"
 	CUSTOM_DOC_PERM = "Custom DocPerm"
+	CALL_SESSION = "Call Session"
 
 
 class _EnumValues:

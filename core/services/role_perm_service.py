@@ -71,13 +71,13 @@ class RolePermService:
 		return doctype[3:] if doctype.startswith("tab") else doctype
 
 	def _ensure_role(self, role_name: str, desk_access: int) -> str:
-		existing = frappe.db.exists(ReferenceDocType.ROLE, role_name)
+		existing = frappe.db.exists(EnumValues.ReferenceDocType.ROLE, role_name)
 		if existing:
-			if frappe.db.get_value(ReferenceDocType.ROLE, role_name, "desk_access") != desk_access:
-				frappe.db.set_value(ReferenceDocType.ROLE, role_name, "desk_access", desk_access, update_modified=False)
+			if frappe.db.get_value(EnumValues.ReferenceDocType.ROLE, role_name, "desk_access") != desk_access:
+				frappe.db.set_value(EnumValues.ReferenceDocType.ROLE, role_name, "desk_access", desk_access, update_modified=False)
 			return role_name
 
-		role_doc = frappe.new_doc(ReferenceDocType.ROLE)
+		role_doc = frappe.new_doc(EnumValues.ReferenceDocType.ROLE)
 		role_doc.role_name = role_name
 		role_doc.desk_access = desk_access
 		role_doc.insert(ignore_permissions=True)
@@ -99,13 +99,13 @@ class RolePermService:
 			"if_owner": 0,
 		}
 
-		custom_docperm_name = frappe.db.get_value(ReferenceDocType.CUSTOM_DOC_PERM, filter_args)
+		custom_docperm_name = frappe.db.get_value(EnumValues.ReferenceDocType.CUSTOM_DOC_PERM, filter_args)
 		custom_docperm = (
-			frappe.get_doc(ReferenceDocType.CUSTOM_DOC_PERM, custom_docperm_name)
+			frappe.get_doc(EnumValues.ReferenceDocType.CUSTOM_DOC_PERM, custom_docperm_name)
 			if custom_docperm_name
 			else frappe.get_doc(
 				{
-					"doctype": ReferenceDocType.CUSTOM_DOC_PERM,
+					"doctype": EnumValues.ReferenceDocType.CUSTOM_DOC_PERM,
 					"parent": normalized_doctype,
 					"parenttype": "DocType",
 					"parentfield": "permissions",

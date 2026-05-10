@@ -275,4 +275,4 @@ require_type_annotated_api_methods = True
 before_request = [
 	"core.services.util_service.blockDeskAccess",
 ]
-after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]
+# after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

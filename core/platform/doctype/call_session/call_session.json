@@ -1,0 +1,264 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2026-04-11 08:52:35.358943",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "calling_method",
+        "vendor_name",
+        "direction",
+        "lead",
+        "lead_phone",
+        "agent",
+        "vendor_agent_id",
+        "agent_call_id",
+        "status",
+        "agent_answered_at",
+        "lead_answered_at",
+        "disposed_at",
+        "disposition_raw",
+        "disposition_event_id",
+        "disposition_status",
+        "sub_disposition_status",
+        "disposition_remarks",
+        "disposition_timing",
+        "duration",
+        "hangup_by",
+        "hangup_reason",
+        "hangup_at",
+        "agent_answer_event_id",
+        "agent_answer_event_log",
+        "lead_answer_event_id",
+        "lead_answer_event_log",
+        "hangup_event_id",
+        "hangup_event_log",
+        "failure_reason",
+        "is_visit_scheduled",
+        "scheduled_visit_date",
+        "lead_source_during_call",
+        "recording_url"
+    ],
+    "fields": [
+        {
+            "fieldname": "calling_method",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Calling method",
+            "options": "\nDialer\nClick2Call",
+            "reqd": 1
+        },
+        {
+            "fieldname": "direction",
+            "fieldtype": "Select",
+            "label": "Direction",
+            "options": "\nINBOUND\nOUTBOUND",
+            "reqd": 1
+        },
+        {
+            "fieldname": "lead",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Lead",
+            "options": "CRM Lead",
+            "reqd": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "lead_phone",
+            "fieldtype": "Data",
+            "label": "Lead phone",
+            "reqd": 1
+        },
+        {
+            "fieldname": "agent",
+            "fieldtype": "Link",
+            "label": "Agent",
+            "options": "User"
+        },
+        {
+            "fieldname": "vendor_agent_id",
+            "fieldtype": "Data",
+            "label": "Vendor agent id"
+        },
+        {
+            "fieldname": "agent_call_id",
+            "fieldtype": "Data",
+            "label": "Agent call id"
+        },
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Status",
+            "options": "INITIATED\nFAILED\nAGENT_CONNECTED\nCUSTOMER_CONNECTED\nNOT_CONNECTED\nMISSED\nDISCONNECTED\nDISPOSED",
+            "reqd": 1
+        },
+        {
+            "fieldname": "agent_answered_at",
+            "fieldtype": "Datetime",
+            "label": "Agent answered at"
+        },
+        {
+            "fieldname": "disposed_at",
+            "fieldtype": "Datetime",
+            "label": "Disposed at"
+        },
+        {
+            "fieldname": "disposition_raw",
+            "fieldtype": "JSON",
+            "label": "Disposition (raw)"
+        },
+        {
+            "fieldname": "disposition_event_id",
+            "fieldtype": "Data",
+            "label": "Disposition event id",
+            "description": "Vendor webhook event uuid; used for idempotent dispose handling"
+        },
+        {
+            "fieldname": "disposition_status",
+            "fieldtype": "Data",
+            "label": "Disposition status"
+        },
+        {
+            "fieldname": "disposition_remarks",
+            "fieldtype": "Small Text",
+            "label": "Disposition remarks"
+        },
+        {
+            "fieldname": "disposition_timing",
+            "fieldtype": "Select",
+            "label": "Disposition timing",
+            "options": "\nIMMEDIATE\nLATE"
+        },
+        {
+            "fieldname": "duration",
+            "fieldtype": "Duration",
+            "label": "Duration"
+        },
+        {
+            "fieldname": "hangup_by",
+            "fieldtype": "Select",
+            "label": "Hangup by",
+            "options": "\nLEAD\nAGENT\nSYSTEM"
+        },
+        {
+            "fieldname": "hangup_reason",
+            "fieldtype": "Data",
+            "label": "Hangup reason"
+        },
+        {
+            "fieldname": "hangup_at",
+            "fieldtype": "Datetime",
+            "label": "Hangup at"
+        },
+        {
+            "fieldname": "agent_answer_event_id",
+            "fieldtype": "Data",
+            "label": "Agent answer event id"
+        },
+        {
+            "fieldname": "agent_answer_event_log",
+            "fieldtype": "JSON",
+            "label": "Agent answer event log"
+        },
+        {
+            "fieldname": "lead_answer_event_id",
+            "fieldtype": "Data",
+            "label": "lead answer event id"
+        },
+        {
+            "fieldname": "lead_answer_event_log",
+            "fieldtype": "JSON",
+            "label": "Lead answer event log"
+        },
+        {
+            "fieldname": "hangup_event_id",
+            "fieldtype": "Data",
+            "label": "Hangup event id"
+        },
+        {
+            "fieldname": "hangup_event_log",
+            "fieldtype": "JSON",
+            "label": "Hangup event log"
+        },
+        {
+            "fieldname": "vendor_name",
+            "fieldtype": "Select",
+            "label": "Vendor name",
+            "options": "\nSmartflo\nGirnar",
+            "reqd": 1
+        },
+        {
+            "fieldname": "failure_reason",
+            "fieldtype": "Text",
+            "label": "Failure reason"
+        },
+        {
+            "fieldname": "lead_answered_at",
+            "fieldtype": "Datetime",
+            "label": "Lead answered at"
+        },
+        {
+            "fieldname": "sub_disposition_status",
+            "fieldtype": "Data",
+            "label": "Sub disposition status"
+        },
+        {
+            "default": "0",
+            "fieldname": "is_visit_scheduled",
+            "fieldtype": "Check",
+            "label": "Is visit scheduled"
+        },
+        {
+            "fieldname": "scheduled_visit_date",
+            "fieldtype": "Date",
+            "label": "Scheduled visit date"
+        },
+        {
+            "fieldname": "lead_source_during_call",
+            "fieldtype": "Data",
+            "label": "Lead source during call"
+        },
+        {
+            "fieldname": "recording_url",
+            "fieldtype": "Long Text",
+            "label": "Recording URL"
+        }
+    ],
+    "grid_page_length": 50,
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2026-04-13 21:17:58.917878",
+    "modified_by": "Administrator",
+    "module": "Platform",
+    "name": "Call Session",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "read": 1,
+            "role": "Sales Manager"
+        },
+        {
+            "read": 1,
+            "role": "Sales User"
+        }
+    ],
+    "row_format": "Dynamic",
+    "rows_threshold_for_grid_search": 20,
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+}

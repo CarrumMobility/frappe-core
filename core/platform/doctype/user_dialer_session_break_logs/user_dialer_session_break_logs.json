@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-25 12:20:54.623379",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "break_code",
+  "start_time",
+  "end_time",
+  "user",
+  "user_dialer_session_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "break_code",
+   "fieldtype": "Data",
+   "label": "break_code"
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Datetime",
+   "label": "start_time"
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "end_time"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "user",
+   "options": "User"
+  },
+  {
+   "fieldname": "user_dialer_session_log",
+   "fieldtype": "Link",
+   "label": "User dialer session log",
+   "options": "User dialer session logs"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-12 22:45:46.580902",
+ "modified_by": "Administrator",
+ "module": "Platform",
+ "name": "User dialer session break logs",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

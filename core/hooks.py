@@ -137,34 +137,29 @@ website_route_rules = [
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Call Session": {
+		"on_update": "core.services.call_service.update_lead_last_call_date_time",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"core.tasks.all"
-# 	],
-# 	"daily": [
-# 		"core.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"core.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"core.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"core.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"all": ["core.services.call_service.reconcile_active_calls"],
+	"hourly": [],
+	"daily": [],
+	"weekly": [],
+	"daily_long": [],
+	"hourly_long": [],
+	"monthly_long": [],
+	"cron": {
+		# "*/1 * * * *": [],
+	},
+}
+
+
 
 # Testing
 # -------
@@ -177,8 +172,12 @@ website_route_rules = [
 
 override_doctype_class = {
 	"User": "core.override.user.CustomUser",
+	"File": "core.override.file.File",
+	"Event": "core.override.event.CustomEvent",
 }
 
+write_file=["core.s3_file_hooks.write_file"]
+delete_file_data_content=["core.s3_file_hooks.delete_file_data_content"]
 # Extend DocType Class
 # ------------------------------
 #
@@ -190,9 +189,10 @@ override_doctype_class = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "core.event.get_events"
-# }
+override_whitelisted_methods = {
+    "frappe.core.doctype.user.user.update_password": "core.services.util_service.blockPasswordChange",
+    "frappe.core.doctype.user.user.reset_password": "core.services.util_service.blockPasswordChange"
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -272,3 +272,7 @@ require_type_annotated_api_methods = True
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+before_request = [
+	"core.services.util_service.blockDeskAccess",
+]
+# after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

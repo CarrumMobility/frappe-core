@@ -1,6 +1,5 @@
-### Core
-
-core
+# Core
+This is core dependency around the frappe framework based repository, [Crm](https://github.com/CarrumMobility/frappe-crm), [Chatwoot Integration](https://github.com/CarrumMobility/frappe_chatwoot)
 
 ### Installation
 
@@ -12,29 +11,24 @@ bench get-app $URL_OF_THIS_REPO --branch main
 bench install-app core
 ```
 
-### Contributing
-
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
-
-```bash
-cd apps/core
-pre-commit install
+## Additional environment variables
+```python
+db_name: str,
+db_password:str,
+db_type: str,
+developer_mode: bool,
+encryption_key: str
+master_password: str
+chatwoot_account_id: int
+chatwoot_base_url: str
+carrum_base_url: str
+carrum_token: str
+aws_access_key_id: str
+aws_secret_access_key: str
+s3_bucket: str
+s3_bucket_prefix: str
+s3_file_storage_enabled: 0|1
+s3_region: str,
+login_url: str
+desk_url: str
 ```
-
-Pre-commit is configured to use the following tools for checking and formatting your code:
-
-- ruff
-- eslint
-- prettier
-- pyupgrade
-### CI
-
-This app can use GitHub Actions for CI. The following workflows are configured:
-
-- CI: Installs this app and runs unit tests on every push to `develop` branch.
-- Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
-
-
-### License
-
-mit

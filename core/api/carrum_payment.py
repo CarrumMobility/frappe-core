@@ -96,6 +96,23 @@ def _lead_matches_crm_status_row(lead, row):
     ) == (secondary or "")
 
 
+def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
+    """
+    Payment milestones (driver creation → PSD → FSD) apply when the lead is on the
+    configured **driver creation** CRM Lead Status row, or when the lead is still in
+    an **open** primary bucket (not ``Drop`` / ``Converted``).
+
+    Open-bucket leads often do not match ``driver_row`` (that row typically lives under
+    ``Converted``), so wallet-based progression would never run without this branch.
+    """
+    if driver_row and _lead_matches_crm_status_row(lead, driver_row):
+        return True
+    p = (getattr(lead, "primary_status", None) or "").strip()
+    if not p or p in ("Drop", "Converted"):
+        return False
+    return True
+
+
 def _apply_crm_lead_status_row(lead, row):
     primary, secondary = row
     from crm.fcrm.doctype.crm_lead.crm_lead import (
@@ -176,6 +193,9 @@ def maybe_update_lead_status_after_payment_capture(lead):
     This payment hook only progresses within payment stages (1 -> 2 -> 3).
     It never moves backward, and it never changes a lead already at stage 4.
 
+    Stage-1 eligibility includes leads in an **open** primary bucket (not ``Drop`` /
+    ``Converted``) even when their secondary does not yet match the driver-creation row.
+
     If portal wallet data cannot be loaded, status is left unchanged.
     """
     account_id = (getattr(lead, "custom_account_id", None) or "").strip()
@@ -228,7 +248,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
     # Stage 1 -> 2 or 1 -> 3 (if both dues are already cleared)
     if (
         driver_row
-        and _lead_matches_crm_status_row(lead, driver_row)
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
         and fsd_row
         and is_hub_fee_cleared
         and is_security_deposit_cleared
@@ -238,7 +258,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
 
     if (
         driver_row
-        and _lead_matches_crm_status_row(lead, driver_row)
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
         and psd_row
         and is_hub_fee_cleared
     ):

@@ -578,7 +578,6 @@ def update_driver(account_id: str, data: dict | str | None = None):
         else:
             frappe.throw(_("Lead not found with account ID: {0}").format(aid))
 
-
     if not body:
         return {"success": True}
 
@@ -614,6 +613,23 @@ def update_driver(account_id: str, data: dict | str | None = None):
                     first.get("message") if isinstance(first, dict) else str(first)
                 )
         frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
+
+    # Scheme / EMI changes can alter portal wallet balances; align CRM Lead status with
+    # PSD/FSD stages (same rules as payment capture — see maybe_update_lead_status_after_payment_capture).
+    _scheme_or_emi_keys = (
+        "scheme_id",
+        "scheme_type",
+        "tenure",
+        "emi_id",
+        "remove_emi",
+    )
+    if body and any(k in body for k in _scheme_or_emi_keys):
+        from core.api.carrum_payment import maybe_update_lead_status_after_payment_capture
+
+        lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
+        if lead_name:
+            lead = frappe.get_doc("CRM Lead", lead_name)
+            maybe_update_lead_status_after_payment_capture(lead)
 
     return {"success": True, "data": resp_body}
 

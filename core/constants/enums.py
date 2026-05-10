@@ -69,13 +69,15 @@ class _DispositionTiming:
 class _LEAD_ACTION_LIST:
 	RAISE_DRIVER_REACTIVATION_REQUEST = "Raise Driver Reactivation Request"
 	REMOVE_ONBOARDING_DROP = "Remove Onboarding Drop"
+	MERGE_LEAD = "Merge Lead"
 
 
 class _LEAD_ACTION_SLUG:
-	"""Stable API / UI ``action`` values for CRM Lead driver actions."""
+	"""Stable API / UI ``action`` values for CRM Lead actions (driver + lead)."""
 
 	RAISE_DRIVER_REACTIVATION_REQUEST = "raise_driver_reactivation_request"
 	REMOVE_ONBOARDING_DROP = "remove_onboarding_drop"
+	MERGE_LEAD = "merge_lead"
 
 
 class _EnumValues:

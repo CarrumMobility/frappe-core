@@ -162,7 +162,7 @@ def _wallet_data_for_lead_account(account_id):
     return wd if isinstance(wd, dict) else None
 
 
-def _maybe_update_lead_status_after_payment_capture(lead):
+def maybe_update_lead_status_after_payment_capture(lead):
     """
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
@@ -671,7 +671,7 @@ def webhook_capture():
     # CRM Lead ``primary_status`` / ``secondary_status`` align with **CRM Lead Status**
     # ``custom_primary_status`` / ``lead_status``. Transitions use Carrum portal wallet
     # (``get_portal_driver_detail`` → ``walletData``), same as the CRM payment summary UI.
-    _maybe_update_lead_status_after_payment_capture(lead)
+    maybe_update_lead_status_after_payment_capture(lead)
 
     paymentTag = d.get("paymentTag") or {}
     hubFeeTag = flt(paymentTag.get("hubFeeTag"))

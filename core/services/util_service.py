@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 from core.constants.enums import EnumValues
-from frappe.utils import flt, get_datetime, get_time, getdate
+from frappe.utils import get_datetime, getdate
 import frappe
+import requests
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import today
 
@@ -201,6 +202,69 @@ class UtilService:
                 return True
             else:
                 return False
+
+    def un_assign_secondary_lead_from_lead(self, lead_id: str):
+        """Clear ``primary_lead`` for all CRM Leads pointing at ``lead_id``."""
+        if not lead_id:
+            return {"cleared": 0}
+        children = frappe.get_all(
+            "CRM Lead",
+            filters={"primary_lead": lead_id},
+            pluck="name",
+        )
+        for name in children:
+            frappe.db.set_value("CRM Lead", name, "primary_lead", None)
+        return {"cleared": len(children), "names": children}
+
+    def raise_driver_return_request(
+        self,
+        old_carrum_account_id: str,
+        identification_type: str,
+        request_reason: str,
+    ):
+        """POST to legacy Carrum re-onboarding API (driver return / reactivation)."""
+        if not old_carrum_account_id:
+            frappe.throw(frappe._("oldCarrumAccountId is required"))
+
+        base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
+        if not base:
+            frappe.throw(
+                frappe._("Old Carrum base URL is not configured (old_carrum_base_url)")
+            )
+
+        url = f"{base}/api/v1/management/reonboarding"
+        body = {
+            "old_account_id": old_carrum_account_id,
+            "identification_key": identification_type,
+            "request_reason": request_reason,
+        }
+        token = frappe.conf.get("old_carrum_token")
+        headers = {"Authorization": token, "Content-Type": "application/json"}
+        response = requests.post(url, headers=headers, json=body, timeout=60)
+
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = None
+
+        if not response.ok:
+            msg = response.text or str(response.status_code)
+            if isinstance(response_data, dict) and response_data.get("message"):
+                msg = response_data.get("message")
+            frappe.throw(frappe._("Failed to raise driver return request: {0}").format(msg))
+
+        if not response_data:
+            frappe.throw(frappe._("Invalid response from driver service"))
+
+        if response_data.get("status") == "success":
+            return True
+
+        err = (
+            response_data.get("message")
+            or response_data.get("error")
+            or frappe._("Request was not successful")
+        )
+        frappe.throw(frappe._("Failed to raise driver return request: {0}").format(err))
 
 
 util_service = UtilService()

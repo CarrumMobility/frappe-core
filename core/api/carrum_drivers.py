@@ -3,11 +3,10 @@ import json
 from uuid import UUID
 from core.constants.enums import EnumValues
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
-from crm.api.lead import unAssignSecondaryLeadFromLead
 from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
+from core.services.util_service import util_service
 from crm.utils import parse_phone_number
 import requests as re
-
 import frappe
 from frappe import _
 
@@ -352,7 +351,7 @@ def send_agreement(leadId: str):
         response = re.post(url=url, headers=headers, json=payload, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception("send_agreement failed: %s", e)
-        frappe.throw(_("Could not reach Carrum"))
+        _.throw(_("Could not reach Carrum"))
 
     try:
         print(response.text)
@@ -575,7 +574,7 @@ def update_driver(account_id: str, data: dict | str | None = None):
     if "vendor" in (payload.old_scheme_name or "") or "double driver" in (payload.old_scheme_name or "") :
         lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
         if lead:
-            unAssignSecondaryLeadFromLead(lead.name)
+            util_service.un_assign_secondary_lead_from_lead(lead.name)
         else:
             frappe.throw(_("Lead not found with account ID: {0}").format(aid))
 

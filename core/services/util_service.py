@@ -194,14 +194,28 @@ class UtilService:
 
         frappe.throw(frappe._("Password change is disabled"), title=frappe._("Permission Error"))
 
-    def is_status_change_locked_for_tc_oa(self, primary_status: str,new_primary_status: str):
-        if primary_status not in ["Drop","Converted"]:
+    # Closed primary buckets — once a lead is here it can only move between these.
+    CLOSED_PRIMARY_STATUSES = frozenset({"Drop", "Converted"})
+
+    def is_status_change_locked_for_tc_oa(
+        self, primary_status: str, new_primary_status: str
+    ) -> bool:
+        """Return True when the primary-status transition must be **blocked**.
+
+        Rule: a lead in a closed bucket (``Drop`` / ``Converted``) can only move
+        between closed buckets. Any other transition is allowed.
+
+        - Open → anything: allowed (returns ``False``).
+        - Closed → closed (or unchanged): allowed (returns ``False``).
+        - Closed → open (e.g. ``Drop`` → ``Interested``): blocked (returns ``True``).
+        """
+        cur = (primary_status or "").strip()
+        new = (new_primary_status or "").strip()
+        if not new or new == cur:
+            return False
+        if cur in self.CLOSED_PRIMARY_STATUSES and new not in self.CLOSED_PRIMARY_STATUSES:
             return True
-        else:
-            if primary_status == new_primary_status:
-                return True
-            else:
-                return False
+        return False
 
     def un_assign_secondary_lead_from_lead(self, lead_id: str):
         """Clear ``primary_lead`` for all CRM Leads pointing at ``lead_id``."""

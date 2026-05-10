@@ -686,7 +686,12 @@ def lead_creation_webhook():
 
 
 def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: str):
-    """Map CRM Lead Status row onto lead: primary ← custom_primary_status, secondary ← lead_status, status ← name."""
+    """Map CRM Lead Status row onto lead: primary ← custom_primary_status, secondary ← lead_status, status ← name.
+
+    External driver-status webhooks are authoritative and may move a lead out of
+    a closed primary bucket (e.g. ``Drop`` → onboarded), so the agent-level
+    transition lock is bypassed here via ``flags.ignore_status_change_lock``.
+    """
     row = frappe.db.get_value(
         EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
         status_filters,
@@ -697,6 +702,7 @@ def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: 
     lead.primary_status = row[0]
     lead.secondary_status = row[1]
     lead.status = row[2]
+    lead.flags.ignore_status_change_lock = True
     lead.save(ignore_permissions=True)
 
 

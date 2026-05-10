@@ -96,11 +96,24 @@ def _lead_matches_crm_status_row(lead, row):
     ) == (secondary or "")
 
 
+def _lead_status_row_is_onboarding_drop(lead):
+    """True when the lead's linked **CRM Lead Status** has ``is_onboarding_drop``."""
+    pk = (getattr(lead, "status", None) or "").strip()
+    if not pk or not frappe.db.exists("CRM Lead Status", pk):
+        return False
+    return bool(
+        frappe.db.get_value("CRM Lead Status", pk, "is_onboarding_drop")
+    )
+
+
 def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
     """
     Payment milestones (driver creation → PSD → FSD) apply when the lead is on the
     configured **driver creation** CRM Lead Status row, or when the lead is still in
     an **open** primary bucket (not ``Drop`` / ``Converted``).
+
+    **Onboarding drop** (``Drop`` + linked status ``is_onboarding_drop``) is also
+    eligible: those leads should still move to PSD/FSD when wallet milestones clear.
 
     Open-bucket leads often do not match ``driver_row`` (that row typically lives under
     ``Converted``), so wallet-based progression would never run without this branch.
@@ -108,6 +121,8 @@ def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
     if driver_row and _lead_matches_crm_status_row(lead, driver_row):
         return True
     p = (getattr(lead, "primary_status", None) or "").strip()
+    if p == "Drop" and _lead_status_row_is_onboarding_drop(lead):
+        return True
     if not p or p in ("Drop", "Converted"):
         return False
     return True
@@ -194,7 +209,8 @@ def maybe_update_lead_status_after_payment_capture(lead):
     It never moves backward, and it never changes a lead already at stage 4.
 
     Stage-1 eligibility includes leads in an **open** primary bucket (not ``Drop`` /
-    ``Converted``) even when their secondary does not yet match the driver-creation row.
+    ``Converted``) even when their secondary does not yet match the driver-creation row,
+    and leads on **onboarding drop** (``Drop`` + ``CRM Lead Status.is_onboarding_drop``).
 
     If portal wallet data cannot be loaded, status is left unchanged.
     """

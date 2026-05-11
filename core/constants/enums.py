@@ -81,6 +81,13 @@ class _LEAD_ACTION_SLUG:
 	MERGE_LEAD = "merge_lead"
 	UNMERGE_LEAD = "unmerge_lead"
 
+class LeadStatus:
+	DROP = "Drop"
+	CONVERTED = "Converted"
+	NEW = "New"
+	NOT_ELIGIBLE= "Not Eligible"
+	INTERESTED = "Interested"
+	NOT_INTERESTED = "Not Interested"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus

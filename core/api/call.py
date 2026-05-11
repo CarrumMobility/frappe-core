@@ -1,8 +1,10 @@
 import frappe
 import core.services.call_service as call_service
+log = frappe.logger("core_api_call")
 
 @frappe.whitelist(methods=['POST'])
 def start_call(calling_method: str = None, leadId: str = None):
+    log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId}")
     user = frappe.session.user
     data = frappe.request.get_json(silent=True) or {}
     if not isinstance(data, dict):
@@ -27,6 +29,7 @@ def start_call(calling_method: str = None, leadId: str = None):
 
 @frappe.whitelist(methods=['POST'])
 def end_call(calling_method: str, call_id: str):
+    log.info(f"Ending call with calling_method: {calling_method} and call_id: {call_id}")
     user = frappe.session.user
     return call_service.end_call(calling_method, call_id, user)
 
@@ -43,6 +46,7 @@ def submit_disposition():
       disposition_remarks — optional string
       disposition_timing — optional \"IMMEDIATE\" | \"LATE\" (Call Session; default IMMEDIATE)
       sub_disposition_status (or sub_disposition) — selected row's ``lead_status`` string (not doc name)
+      status_pk — optional ``CRM Lead Status`` document name (primary key) for the selected disposition row
       callback_datetime, callback_comments, remind_before_minutes,
       expected_call_duration_minutes — optional (Dialer / callbacks)
       is_visit_scheduled, scheduled_visit_date — optional (visit disposition)
@@ -84,7 +88,8 @@ def start_dialer_session():
 
 @frappe.whitelist(methods=["POST"])
 def end_dialer_session():
-    return call_service.end_dialer_session(user=frappe.session.user)
+    payload = frappe.request.get_json() or {}
+    return call_service.end_dialer_session(user=frappe.session.user,payload=payload)
 
 @frappe.whitelist(methods=["POST"])
 def toggle_dialer_break():
@@ -99,21 +104,38 @@ def get_dialer_break_status():
 def dialer_call_connected_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call connected webhook payload: {payload}")
     return call_service.dialer_call_connected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disconnected_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call disconnected webhook payload: {payload}")
     return call_service.dialer_call_disconnected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disposed_webhook():
     payload = frappe.request.get_json() or {}
     user = frappe.session.user
+    log.info(f"Dialer call disposed webhook payload: {payload}")
     return call_service.dialer_call_disposed(user=user, payload=payload)
 
 @frappe.whitelist()
 def get_last_call():
     """Latest Call Session for the current user (Dialer / Click2Call); UI shape matches LastCallStatusModal."""
     return call_service.get_last_call(user=frappe.session.user)
+
+@frappe.whitelist(methods=["POST"])
+def get_call_session_disposition_remarks():
+    payload = frappe.request.get_json() or {}
+    return call_service.get_call_session_disposition_remarks(
+        frappe.session.user,
+        payload,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def update_call_session():
+    payload = frappe.request.get_json() or {}
+    return call_service.update_call_session(payload)

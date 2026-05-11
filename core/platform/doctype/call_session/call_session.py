@@ -47,6 +47,8 @@ class CallSession(Document):
 		sub_disposition_status: DF.Data | None
 		vendor_agent_id: DF.Data | None
 		vendor_name: DF.Literal["", "Smartflo", "Girnar"]
+		lead_source_during_call: DF.Data | None
+		recording_url: DF.LongText | None
 	# end: auto-generated types
 
 	@staticmethod

@@ -5,7 +5,7 @@
 from frappe.model.document import Document
 
 
-class PreferredLanguage(Document):
+class CoreTag(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 
@@ -14,6 +14,8 @@ class PreferredLanguage(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
-		lang_name: DF.Data
+		color: DF.Color | None
+		description: DF.SmallText | None
+		label: DF.Data | None
 	# end: auto-generated types
 	pass

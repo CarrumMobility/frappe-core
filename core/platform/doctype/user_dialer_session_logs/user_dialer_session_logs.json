@@ -9,7 +9,8 @@
   "campaign_id",
   "status",
   "active_at",
-  "inactive_at"
+  "inactive_at",
+  "inactive_reason"
  ],
  "fields": [
   {
@@ -45,6 +46,11 @@
    "fieldname": "inactive_at",
    "fieldtype": "Datetime",
    "label": "Inactive at"
+  },
+  {
+   "fieldname": "inactive_reason",
+   "fieldtype": "Data",
+   "label": "Inactive reason"
   }
  ],
  "grid_page_length": 50,

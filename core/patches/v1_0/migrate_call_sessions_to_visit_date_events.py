@@ -11,7 +11,8 @@ def execute():
 
 	sessions = frappe.db.sql(
 		"""
-		SELECT name, lead, scheduled_visit_date, disposition_remarks
+		SELECT name, lead, scheduled_visit_date, disposition_remarks,
+		       disposition_status, sub_disposition_status
 		FROM `tabCall Session`
 		WHERE IFNULL(is_visit_scheduled, 0) = 1
 		  AND scheduled_visit_date IS NOT NULL
@@ -28,10 +29,12 @@ def execute():
 			continue
 		try:
 			util.create_event_for_visit_date(
-				s.lead,
-				s.name,
-				s.scheduled_visit_date,
-				s.disposition_remarks,
+				lead_id=s.lead,
+				scheduled_visit_date=s.scheduled_visit_date,
+				disposition_remarks=s.disposition_remarks,
+				call_session_id=s.name,
+				disposition_status=s.disposition_status,
+				sub_disposition_status=s.sub_disposition_status,
 			)
 		except Exception:
 			frappe.log_error(

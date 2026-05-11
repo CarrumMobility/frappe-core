@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:carrum_id",
+ "autoname": "prompt",
  "creation": "2026-04-07 14:32:34.979158",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -14,7 +14,6 @@
   "settlement_breakup_amount",
   "image",
   "lead",
-  "carrum_id",
   "raw"
  ],
  "fields": [
@@ -66,8 +65,9 @@
   },
   {
    "fieldname": "image",
-   "fieldtype": "Attach Image",
-   "label": "Image"
+   "fieldtype": "Long Text",
+   "label": "Payment proof images",
+   "description": "Comma-separated file URLs (proof of payment)."
   },
   {
    "fieldname": "lead",
@@ -75,13 +75,6 @@
    "in_list_view": 1,
    "label": "Lead",
    "options": "CRM Lead"
-  },
-  {
-   "fieldname": "carrum_id",
-   "fieldtype": "Data",
-   "label": "Carrum Id",
-   "reqd": 1,
-   "unique": 1
   },
   {
    "fieldname": "raw",
@@ -97,7 +90,7 @@
  "modified_by": "Administrator",
  "module": "Platform",
  "name": "payment_logs",
- "naming_rule": "By fieldname",
+ "naming_rule": "Set by user",
  "owner": "Administrator",
  "permissions": [
   {

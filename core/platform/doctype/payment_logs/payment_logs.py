@@ -15,8 +15,7 @@ class payment_logs(Document):
 		from frappe.types import DF
 
 		amount: DF.Currency
-		carrum_id: DF.Data
-		image: DF.AttachImage | None
+		image: DF.Text | None
 		lead: DF.Link | None
 		raw: DF.JSON
 		sd_breakup_amount: DF.Currency

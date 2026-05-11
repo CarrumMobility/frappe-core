@@ -6,9 +6,8 @@ carrum_base_url = frappe.conf.get("old_carrum_base_url")
 carrum_token = frappe.conf.get('old_carrum_token')
 @frappe.whitelist()
 def get_scheme_list():
-    usr = frappe.session.user
-    userData = fetch_carrum_user_data_using_frappe_username(usr)
-    hubId = userData.get("defaultHub").get("id")
+    payload = frappe.request.get_json()
+    hubId = payload.get("hubId")
     if not hubId:
         return {
             "success": False

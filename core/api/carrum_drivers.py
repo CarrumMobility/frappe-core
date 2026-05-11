@@ -1,20 +1,22 @@
 import base64
 import json
-from crm.api.lead import unAssignSecondaryLeadFromLead
-from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN
+from uuid import UUID
+from core.constants.enums import EnumValues
+from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
+from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
+from core.services.util_service import util_service
 from crm.utils import parse_phone_number
 import requests as re
-
 import frappe
 from frappe import _
 
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 
 class UpdateDriverDtoSchema(BaseModel):
-    """JSON body for ``update_driver`` (from CRM frontend)."""
+    """Request body for ``update_driver`` (CRM frontend sends a JSON object, not a string)."""
 
     scheme_id: Optional[str | int] = None
     scheme_type: Optional[str] = None
@@ -22,6 +24,7 @@ class UpdateDriverDtoSchema(BaseModel):
     tenure: Optional[int] = None
     emi_id: Optional[str] = None
     remove_emi: Optional[bool] = None
+    uber_id: Optional[UUID] = None
 
     @field_validator("scheme_type", "old_scheme_name", mode="before")
     @classmethod
@@ -37,8 +40,65 @@ class UpdateDriverDtoSchema(BaseModel):
             return None
         val = int(v)
         if val < 1 or val > 10:
-            raise ValueError("Tenure must be between 1 and 10")
+            raise ValueError(_("Tenure must be between 1 and 10"))
         return val
+
+    @field_validator("uber_id", mode="before")
+    @classmethod
+    def _normalize_uber_id(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, UUID):
+            return v
+        s = str(v).strip()
+        if not s:
+            return None
+        try:
+            return UUID(s)
+        except ValueError:
+            raise ValueError(_("Uber ID must be a valid UUID"))
+
+
+def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
+    """Shape Pydantic errors for API clients (field + message + type)."""
+    rows: list[dict] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        parts: list[str] = []
+        for p in loc:
+            if isinstance(p, str):
+                parts.append(p)
+            else:
+                parts.append(str(p))
+        field = parts[-1] if parts else "data"
+        msg = err.get("msg", "")
+        if not isinstance(msg, str):
+            msg = str(msg)
+        rows.append(
+            {
+                "field": field,
+                "code": str(err.get("type", "") or ""),
+                "message": msg,
+            }
+        )
+    return rows
+
+
+def _raise_update_driver_validation_error(exc: ValidationError) -> None:
+    v_errors = _format_update_driver_validation_errors(exc)
+    summary = (
+        v_errors[0]["message"]
+        if len(v_errors) == 1
+        else _("{0} validation issues").format(len(v_errors))
+    )
+    throw_custom_api_error(
+        summary,
+        api_code=CrmApiErrors.UPDATE_DRIVER_VALIDATION,
+        title=_("Driver update"),
+        details={"validation_errors": v_errors},
+        http_status_code=422,
+    )
+
 
 logger = frappe.logger("core::carrum_drivers")
 
@@ -219,14 +279,14 @@ def send_agreement(leadId: str):
     phoneNo = lead.mobile_no
     driver_name = lead.lead_name
     aadhar_number = lead.aadhar_no
-    pan_card = lead.custom_pancard
+    pan_card = lead.pancard_number
     dl_number = lead.driving_license_number
-    dl_issue_date = lead.custom_driving_license_issue_date
-    dl_expiry_date = lead.custom_driving_license_expiry_date
+    dl_issue_date = lead.driving_license_issue_date
+    dl_expiry_date = lead.driving_license_expiry_date
     email = lead.email
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
-    bank_ifsc_code = lead.custom_bank_ifsc_code
+    bank_ifsc_code = lead.bank_ifsc
     lead_hub_id = lead.hub_id
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
@@ -234,7 +294,7 @@ def send_agreement(leadId: str):
     current_state = lead.current_state
     
     current_pincode = lead.current_pincode
-    current_landmark = lead.custom_current_landmark
+    current_landmark = lead.current_landmark
     current_address = ""
     if current_address_line1:
         current_address += current_address_line1
@@ -291,9 +351,10 @@ def send_agreement(leadId: str):
         response = re.post(url=url, headers=headers, json=payload, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception("send_agreement failed: %s", e)
-        frappe.throw(_("Could not reach Carrum"))
+        _.throw(_("Could not reach Carrum"))
 
     try:
+        print(response.text)
         resp_body = response.json()
     except ValueError:
         frappe.throw(_("Invalid response from Carrum"))
@@ -416,6 +477,7 @@ def get_portal_driver_detail(account_id: str | None = None):
 
     try:
         response = re.get(url, headers=headers)
+        print(response)
     except re.exceptions.RequestException as e:
         logger.exception("get_portal_driver_detail request failed: %s", e)
         return {"success": False, "message": "Failed to get driver details"}
@@ -441,21 +503,39 @@ def get_portal_driver_detail(account_id: str | None = None):
     return {"success": True, "data": data}
 
 
+def _parse_update_driver_payload(data) -> UpdateDriverDtoSchema:
+    """Accept dict (preferred) or legacy JSON string from ``frappe.form_dict``."""
+    if data is None:
+        frappe.throw(_("data is required"))
+    if isinstance(data, dict):
+        if not data:
+            frappe.throw(_("data is required"))
+        try:
+            return UpdateDriverDtoSchema.model_validate(data)
+        except ValidationError as e:
+            _raise_update_driver_validation_error(e)
+    if isinstance(data, str):
+        raw = data.strip()
+        if not raw:
+            frappe.throw(_("data is required"))
+        try:
+            return UpdateDriverDtoSchema.model_validate_json(raw)
+        except ValidationError as e:
+            _raise_update_driver_validation_error(e)
+    frappe.throw(_("data must be a JSON object or string"))
+
+
 @frappe.whitelist()
-def update_driver(account_id: str, data: str | None = None):
+def update_driver(account_id: str, data: dict | str | None = None):
     """
     :param account_id: Carrum driver account id (CRM Lead Hub ID when aligned).
-    :param data: JSON string with ``scheme_id`` and optional ``scheme_type`` (forwarded to Carrum PUT).
+    :param data: JSON object (or legacy JSON string) with ``scheme_id`` and optional ``scheme_type`` (forwarded to Carrum PUT).
     """
     aid = (account_id or "").strip()
     if not aid:
         frappe.throw(_("Account ID is required"))
 
-    raw = (data or "").strip()
-    if not raw:
-        frappe.throw(_("data JSON is required"))
-
-    payload = UpdateDriverDtoSchema.model_validate_json(raw)
+    payload = _parse_update_driver_payload(data)
 
     base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
     if not base:
@@ -488,26 +568,26 @@ def update_driver(account_id: str, data: str | None = None):
     if payload.remove_emi is not None:
         body['remove_emi'] = payload.remove_emi
 
-    if "vendor" in payload.old_scheme_name or "double driver" in payload.old_scheme_name:
+    if payload.uber_id is not None:
+        body['driver_uber_id'] = str(payload.uber_id)
+
+    if "vendor" in (payload.old_scheme_name or "") or "double driver" in (payload.old_scheme_name or "") :
         lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
         if lead:
-            unAssignSecondaryLeadFromLead(lead.name)
+            util_service.un_assign_secondary_lead_from_lead(lead.name)
         else:
             frappe.throw(_("Lead not found with account ID: {0}").format(aid))
-
 
     if not body:
         return {"success": True}
 
-    
+    print(body)
     url = f"{base}/api/v1/driver/update/{aid}?idType=account"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
     try:
-        print("====================body============================")
-        print(body)
-        print("====================body============================")
         response = re.put(url, headers=headers, json=body, timeout=60)
+        print(response.text)
     except re.exceptions.RequestException as e:
         logger.exception("update_driver request failed: %s", e)
         frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
@@ -534,6 +614,23 @@ def update_driver(account_id: str, data: str | None = None):
                 )
         frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
 
+    # Scheme / EMI changes can alter portal wallet balances; align CRM Lead status with
+    # PSD/FSD stages (same rules as payment capture — see maybe_update_lead_status_after_payment_capture).
+    _scheme_or_emi_keys = (
+        "scheme_id",
+        "scheme_type",
+        "tenure",
+        "emi_id",
+        "remove_emi",
+    )
+    if body and any(k in body for k in _scheme_or_emi_keys):
+        from core.api.carrum_payment import maybe_update_lead_status_after_payment_capture
+
+        lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
+        if lead_name:
+            lead = frappe.get_doc("CRM Lead", lead_name)
+            maybe_update_lead_status_after_payment_capture(lead)
+
     return {"success": True, "data": resp_body}
 
 @frappe.whitelist(methods=["POST"])
@@ -549,9 +646,7 @@ def lead_creation_webhook():
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
-    #  {'leadId': '0b98f046-4d53-4991-980f-630f965f817b', 'displayId': 'AAAA1433', 'phone': '6900000002', 'source': 'crm_payment_link', 'firstName': 'Lead', 'lastName': None, 'createdBy': 'bb774554-fecb-48c3-9532-d51abcb79706', 'hubId': None}
     raw_display = data.get("displayId")
-    print("LEAD CREATION WEBHOOK")
 
     displayId = str(raw_display).strip().upper() if raw_display is not None else ""
     phone_raw =  data.get("phone")
@@ -585,23 +680,14 @@ def lead_creation_webhook():
     if frappe.db.exists("CRM Lead", displayId):
         return "Lead already exists"
 
-    status_rows = frappe.get_all(
-        "CRM Lead Status",
-        pluck="name",
-        order_by="position asc, creation asc",
-        limit=1,
-    )
-    default_status = status_rows[0] if status_rows else None
-    if not default_status:
+    lead = frappe.new_doc("CRM Lead")
+    lead.flags.skip_crm_lead_auto_id = True
+    lead.mobile_no = mobile_no
+    if not apply_default_crm_lead_status_to_doc(lead):
         frappe.throw(
             _("No CRM Lead Status is configured. Add one in CRM Lead Status."),
             frappe.ValidationError,
         )
-
-    lead = frappe.new_doc("CRM Lead")
-    lead.flags.skip_crm_lead_auto_id = True
-    lead.mobile_no = mobile_no
-    lead.status = default_status
     lead.lead_type = "DRIVER"
     lead.lead_name = None
 
@@ -614,27 +700,128 @@ def lead_creation_webhook():
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}
 
+
+def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: str):
+    """Map CRM Lead Status row onto lead: primary ← custom_primary_status, secondary ← lead_status, status ← name.
+
+    External driver-status webhooks are authoritative and may move a lead out of
+    a closed primary bucket (e.g. ``Drop`` → onboarded), so the agent-level
+    transition lock is bypassed here via ``flags.ignore_status_change_lock``.
+    """
+    row = frappe.db.get_value(
+        EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
+        status_filters,
+        ["custom_primary_status", "lead_status", "name"],
+    )
+    if not row or row[2] is None:
+        frappe.throw(not_found_message)
+    lead.primary_status = row[0]
+    lead.secondary_status = row[1]
+    lead.status = row[2]
+    lead.flags.ignore_status_change_lock = True
+    lead.save(ignore_permissions=True)
+
+
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
-    payload = frappe.request.get_json()    # {'driverId': 'eb320a30-44ca-4b81-812c-c971cca3ce61', 'accountId': 'dc485de4-4cd6-41e7-94d5-6f617ea81c60', 'smallId': 'AAAA0017', 'previousStatus': 'created', 'newStatus': 'onboarded'}
-    # print(payload)
-    accountId = payload.get("accountId")
-    lead = frappe.get_doc("CRM Lead", {"custom_account_id": accountId})
-    if not lead:
-        frappe.throw(_("Lead not found with account ID: {0}").format(accountId))
-        return
+    # {'driverId': ..., 'accountId': ..., 'smallId': ..., 'previousStatus': ..., 'newStatus': ...}
+    payload = frappe.request.get_json() or {}
+    account_id = payload.get("accountId")
+    if not account_id:
+        frappe.throw(_("accountId is required"))
 
-    newStatus = payload.get("newStatus")
-    if newStatus == "onboarded":
-        leadStatus = frappe.db.get_value("CRM Lead Status", {"is_apply_on_vehicle_assignment": 1}, "custom_primary_status")
-        if leadStatus:
-            lead.primary_status = leadStatus
-            lead.secondary_status = leadStatus
-            lead.save(ignore_permissions=True)
-        else:
-            frappe.throw(_("Lead status not found with is_apply_on_vehicle_assignment = 1"))
+    lead_name = frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": account_id}, "name"
+    )
+    if not lead_name:
+        frappe.throw(_("Lead not found with account ID: {0}").format(account_id))
+
+    lead = frappe.get_doc("CRM Lead", lead_name)
+
+    new_status = payload.get("newStatus")
+    if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_apply_on_vehicle_assignment": 1},
+            _("Lead status not found with is_apply_on_vehicle_assignment = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.PERMANENT_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_permanent_drop": 1},
+            _("Lead status not found with is_permanent_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TEMP_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_temp_drop": 1},
+            _("Lead status not found with is_temp_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_INITIATED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_initiated": 1},
+            _("Lead status not found with is_recovery_initiated = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_DONE:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_done": 1},
+            _("Lead status not found with is_recovery_done = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.MAINTENANCE_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_maintenance_drop": 1},
+            _("Lead status not found with is_maintenance_drop = 1"),
+        )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.DRIVER_RETURNED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_driver_returned": 1},
+            _("Lead status not found with is_driver_returned = 1"),
+        )
     else:
-        return {
-            "message": "Unhandled status: {0}".format(newStatus)
-        }
+        frappe.throw(_("Unhandled status: {0}").format(new_status))
+
     return {"message": "ok"}
+
+def raise_driver_return_request(
+    oldCarrumAccountId: str, identificationType: str, requestReason: str
+):
+    if not oldCarrumAccountId:
+        frappe.throw(_("oldCarrumAccountId is required"))
+
+    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
+    if not base:
+        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+
+    url = f"{base}/api/v1/management/reonboarding"
+    body = {
+        "old_account_id": oldCarrumAccountId,
+        "identification_key": identificationType,
+        "request_reason": requestReason,
+    }
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+    headers = {"Authorization": old_carrum_token, "Content-Type": "application/json"}
+    response = re.post(url, headers=headers, json=body, timeout=60)
+
+    try:
+        response_data = response.json()
+    except ValueError:
+        response_data = None
+
+    if not response.ok:
+        msg = response.text or str(response.status_code)
+        if isinstance(response_data, dict) and response_data.get("message"):
+            msg = response_data.get("message")
+        frappe.throw(_("Failed to raise driver return request: {0}").format(msg))
+
+    if not response_data:
+        frappe.throw(_("Invalid response from driver service"))
+
+    if response_data.get("status") == "success":
+        return True
+
+    err = response_data.get("message") or response_data.get("error") or _("Request was not successful")
+    frappe.throw(_("Failed to raise driver return request: {0}").format(err))

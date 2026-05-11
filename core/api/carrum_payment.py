@@ -13,6 +13,36 @@ UTC = timezone.utc
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+def _payment_log_image_csv_from_payload(image_urls_raw):
+	"""
+	Normalize webhook ``imageUrls`` (list or str) to a comma-separated string for ``payment_logs.image``.
+	"""
+	if image_urls_raw is None:
+		return None
+	urls = []
+	if isinstance(image_urls_raw, str):
+		s = image_urls_raw.strip()
+		if not s:
+			return None
+		try:
+			parsed = json.loads(s)
+		except (ValueError, TypeError):
+			parsed = None
+		if isinstance(parsed, list):
+			urls = [str(u).strip() for u in parsed if str(u).strip()]
+		elif isinstance(parsed, str) and parsed.strip():
+			urls = [parsed.strip()]
+		else:
+			urls = [p.strip() for p in s.split(",") if p.strip()]
+	elif isinstance(image_urls_raw, (list, tuple)):
+		urls = [str(u).strip() for u in image_urls_raw if str(u).strip()]
+	else:
+		return None
+	if not urls:
+		return None
+	return ",".join(urls)
+
+
 def _parse_transaction_timestamp_utc_to_naive_ist(dt_raw):
     """
     Carrum webhooks send transaction time in UTC (ISO ending in Z, or naive UTC string).
@@ -66,12 +96,49 @@ def _lead_matches_crm_status_row(lead, row):
     ) == (secondary or "")
 
 
+def _lead_status_row_is_onboarding_drop(lead):
+    """True when the lead's linked **CRM Lead Status** has ``is_onboarding_drop``."""
+    pk = (getattr(lead, "status", None) or "").strip()
+    if not pk or not frappe.db.exists("CRM Lead Status", pk):
+        return False
+    return bool(
+        frappe.db.get_value("CRM Lead Status", pk, "is_onboarding_drop")
+    )
+
+
+def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
+    """
+    Payment milestones (driver creation → PSD → FSD) apply when the lead is on the
+    configured **driver creation** CRM Lead Status row, or when the lead is still in
+    an **open** primary bucket (not ``Drop`` / ``Converted``).
+
+    **Onboarding drop** (``Drop`` + linked status ``is_onboarding_drop``) is also
+    eligible: those leads should still move to PSD/FSD when wallet milestones clear.
+
+    Open-bucket leads often do not match ``driver_row`` (that row typically lives under
+    ``Converted``), so wallet-based progression would never run without this branch.
+    """
+    if driver_row and _lead_matches_crm_status_row(lead, driver_row):
+        return True
+    p = (getattr(lead, "primary_status", None) or "").strip()
+    if p == "Drop" and _lead_status_row_is_onboarding_drop(lead):
+        return True
+    if not p or p in ("Drop", "Converted"):
+        return False
+    return True
+
+
 def _apply_crm_lead_status_row(lead, row):
     primary, secondary = row
-    lead.db_set(
-        {"primary_status": primary, "secondary_status": secondary},
-        update_modified=True,
+    from crm.fcrm.doctype.crm_lead.crm_lead import (
+        get_crm_lead_status_name_for_primary_secondary,
     )
+
+    patch = {"primary_status": primary, "secondary_status": secondary}
+    pk = get_crm_lead_status_name_for_primary_secondary(primary, secondary)
+    if pk:
+        patch["status"] = pk
+    lead.db_set(patch, update_modified=True)
 
 
 def _portal_driver_detail_results(envelope):
@@ -127,18 +194,23 @@ def _wallet_data_for_lead_account(account_id):
     return wd if isinstance(wd, dict) else None
 
 
-def _maybe_update_lead_status_after_payment_capture(lead):
+def maybe_update_lead_status_after_payment_capture(lead):
     """
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
 
-    - If the lead already matches **Apply on FSD Conversion**, do nothing.
-    - If the lead matches **Vehicle Assignment** and both hub fee and SD ``remaining`` are 0,
-      move to the FSD row.
-    - If the lead matches **Apply on PSD Conversion** (partial SD) and SD ``remaining`` is 0,
-      move to the FSD row.
-    - Else if the lead matches **Vehicle Assignment** and hub fee ``remaining`` is 0,
-      move to the PSD row.
+    Enforced progression is strictly forward-only:
+    1) ``is_apply_on_driver_creation``
+    2) ``is_apply_on_psd_conversion`` (hub fee fully paid)
+    3) ``is_apply_on_fsd_conversion`` (full security deposit paid)
+    4) ``is_apply_on_vehicle_assignment``
+
+    This payment hook only progresses within payment stages (1 -> 2 -> 3).
+    It never moves backward, and it never changes a lead already at stage 4.
+
+    Stage-1 eligibility includes leads in an **open** primary bucket (not ``Drop`` /
+    ``Converted``) even when their secondary does not yet match the driver-creation row,
+    and leads on **onboarding drop** (``Drop`` + ``CRM Lead Status.is_onboarding_drop``).
 
     If portal wallet data cannot be loaded, status is left unchanged.
     """
@@ -155,6 +227,9 @@ def _maybe_update_lead_status_after_payment_capture(lead):
     hub_rem = flt(hub_fee.get("remaining"))
     sd_rem = flt(sec_dep.get("remaining"))
 
+    driver_row = _fetch_crm_lead_status_primary_secondary(
+        {"is_apply_on_driver_creation": 1}
+    )
     fsd_row = _fetch_crm_lead_status_primary_secondary(
         {"is_apply_on_fsd_conversion": 1}
     )
@@ -165,33 +240,43 @@ def _maybe_update_lead_status_after_payment_capture(lead):
         {"is_apply_on_vehicle_assignment": 1}
     )
 
+    # Never modify from the terminal stage in this flow.
+    if va_row and _lead_matches_crm_status_row(lead, va_row):
+        return
+
+    is_hub_fee_cleared = hub_rem <= 0
+    is_security_deposit_cleared = sd_rem <= 0
+
+    # Stage 3: already at full SD conversion. Keep as-is (stage 4 comes from vehicle assignment).
     if fsd_row and _lead_matches_crm_status_row(lead, fsd_row):
         return
 
-    if (
-        va_row
-        and _lead_matches_crm_status_row(lead, va_row)
-        and fsd_row
-        and hub_rem == 0
-        and sd_rem == 0
-    ):
-        _apply_crm_lead_status_row(lead, fsd_row)
-        return
-
+    # Stage 2 -> 3
     if (
         psd_row
         and _lead_matches_crm_status_row(lead, psd_row)
         and fsd_row
-        and sd_rem == 0
+        and is_security_deposit_cleared
+    ):
+        _apply_crm_lead_status_row(lead, fsd_row)
+        return
+
+    # Stage 1 -> 2 or 1 -> 3 (if both dues are already cleared)
+    if (
+        driver_row
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
+        and fsd_row
+        and is_hub_fee_cleared
+        and is_security_deposit_cleared
     ):
         _apply_crm_lead_status_row(lead, fsd_row)
         return
 
     if (
-        va_row
-        and _lead_matches_crm_status_row(lead, va_row)
+        driver_row
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
         and psd_row
-        and hub_rem == 0
+        and is_hub_fee_cleared
     ):
         _apply_crm_lead_status_row(lead, psd_row)
 
@@ -457,8 +542,7 @@ def add_other_payment(
     }
 
 
-@frappe.whitelist()
-def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
+def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None):
     body = _merge_request_body()
     lead_id = leadId or body.get("leadId") or body.get("lead_id")
     if not lead_id:
@@ -510,7 +594,7 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
         "weekType": "currentWeek",
         "s3Links": s3_links,
         "accountCreatorId": carrum_user_id,
-        "source":source 
+        "source": source,
     }
 
     if custom_account_id is not None:
@@ -521,21 +605,62 @@ def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
 
     url = f"{str(old_carrum_base_url).rstrip('/')}/api/v1/payment/add_cash_for_crm"
     headers = {"Authorization": old_token, "Content-Type": "application/json"}
-    response = requests.post(url, json=out, headers=headers, timeout=60)
-    
+
+    try:
+        response = requests.post(url, json=out, headers=headers, timeout=60)
+    except requests.RequestException:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"add_cash: HTTP request failed (lead_id={lead_id}, url={url})",
+        )
+        frappe.throw(
+            _("Could not reach payment service. Please try again or contact support.")
+        )
+
+    if not response.ok:
+        snippet = (response.text or "")[:8000]
+        frappe.log_error(
+            f"lead_id={lead_id}\nHTTP {response.status_code}\n{snippet}",
+            "add_cash: payment service non-OK response",
+        )
+
     try:
         data = response.json()
     except ValueError:
+        snippet = (response.text or "")[:8000]
+        frappe.log_error(
+            f"lead_id={lead_id}\n{snippet}",
+            "add_cash: invalid JSON from payment service",
+        )
         frappe.throw(_("Invalid JSON from payment service"))
 
     if data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Failed to add cash")
+        try:
+            payload_log = json.dumps(data, default=str)[:8000]
+        except Exception:
+            payload_log = str(data)
+        frappe.log_error(
+            f"lead_id={lead_id}\n{payload_log}",
+            "add_cash: payment API returned failure",
+        )
         return {
             "is_valid": False,
-            "reason": msg
+            "reason": msg,
         }
 
     return {"message": "success"}
+
+
+@frappe.whitelist()
+def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
+    try:
+        return _add_cash_execute(leadId, amount, paymentType, imageUrls)
+    except frappe.ValidationError:
+        raise
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "add_cash: unexpected error")
+        raise
 
 @frappe.whitelist()
 def webhook_capture():
@@ -562,13 +687,10 @@ def webhook_capture():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    existing_log = frappe.db.get_value(
-        "payment_logs", {"carrum_id": transactionId}, "name"
-    )
-    if existing_log:
+    if frappe.db.exists("payment_logs", transactionId):
         return {
             "message": "already captured",
-            "payment_log_id": existing_log,
+            "payment_log_id": transactionId,
         }
 
     lead_name = _resolve_lead_for_carrum_user_id(user_id)
@@ -585,7 +707,7 @@ def webhook_capture():
     # CRM Lead ``primary_status`` / ``secondary_status`` align with **CRM Lead Status**
     # ``custom_primary_status`` / ``lead_status``. Transitions use Carrum portal wallet
     # (``get_portal_driver_detail`` → ``walletData``), same as the CRM payment summary UI.
-    _maybe_update_lead_status_after_payment_capture(lead)
+    maybe_update_lead_status_after_payment_capture(lead)
 
     paymentTag = d.get("paymentTag") or {}
     hubFeeTag = flt(paymentTag.get("hubFeeTag"))
@@ -598,26 +720,23 @@ def webhook_capture():
 
     raw_plain = json.loads(frappe.as_json(d))
 
-    image_url = None
-    if isinstance(imageUrls, list) and imageUrls:
-        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
-    elif isinstance(imageUrls, str) and imageUrls.strip():
-        image_url = imageUrls.strip()
+    image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-
-    paymentLog = frappe.new_doc("payment_logs")
-    paymentLog.set("amount", amount)
-    paymentLog.set("carrum_id", transactionId)
-    if image_url:
-        paymentLog.set("image", image_url)
-    paymentLog.set("lead", lead_id)
-    paymentLog.set("raw", raw_plain)
-    paymentLog.set("utr", utr)
-    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
-    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
-    paymentLog.set("transaction_date", transaction_date)
-    paymentLog.set("status", "Captured")
-    paymentLog.save()
+    pl_kwargs = {
+        "doctype": "payment_logs",
+        "__newname": transactionId,
+        "amount": amount,
+        "lead": lead_id,
+        "raw": raw_plain,
+        "utr": utr,
+        "sd_breakup_amount": sdBreakupAmount,
+        "settlement_breakup_amount": settlementBreakupAmount,
+        "transaction_date": transaction_date,
+        "status": "Captured",
+    }
+    if image_csv:
+        pl_kwargs["image"] = image_csv
+    frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",
@@ -646,14 +765,10 @@ def webhook_failed():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    existing_log = frappe.db.get_value(
-        "payment_logs", {"carrum_id": transactionId}, "name"
-    )
-
-    if existing_log:
+    if frappe.db.exists("payment_logs", transactionId):
         return {
             "message": "already saved",
-            "payment_log_id": existing_log,
+            "payment_log_id": transactionId,
         }
 
     lead_id = _resolve_lead_for_carrum_user_id(user_id)
@@ -674,25 +789,23 @@ def webhook_failed():
 
     raw_plain = json.loads(frappe.as_json(d))
 
-    image_url = None
-    if isinstance(imageUrls, list) and imageUrls:
-        image_url = imageUrls[0] if isinstance(imageUrls[0], str) else None
-    elif isinstance(imageUrls, str) and imageUrls.strip():
-        image_url = imageUrls.strip()
+    image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-    paymentLog = frappe.new_doc("payment_logs")
-    paymentLog.set("amount", amount)
-    paymentLog.set("carrum_id", transactionId)
-    if image_url:
-        paymentLog.set("image", image_url)
-    paymentLog.set("lead", lead_id)
-    paymentLog.set("raw", raw_plain)
-    paymentLog.set("utr", utr)
-    paymentLog.set("sd_breakup_amount", sdBreakupAmount)
-    paymentLog.set("settlement_breakup_amount", settlementBreakupAmount)
-    paymentLog.set("transaction_date", transaction_date)
-    paymentLog.set("status", "Failed")
-    paymentLog.save()
+    pl_kwargs = {
+        "doctype": "payment_logs",
+        "__newname": transactionId,
+        "amount": amount,
+        "lead": lead_id,
+        "raw": raw_plain,
+        "utr": utr,
+        "sd_breakup_amount": sdBreakupAmount,
+        "settlement_breakup_amount": settlementBreakupAmount,
+        "transaction_date": transaction_date,
+        "status": "Failed",
+    }
+    if image_csv:
+        pl_kwargs["image"] = image_csv
+    frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",

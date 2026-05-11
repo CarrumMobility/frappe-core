@@ -5,7 +5,7 @@
 from frappe.model.document import Document
 
 
-class Userdialersessionlogs(Document):
+class Apihitlog(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 
@@ -14,11 +14,13 @@ class Userdialersessionlogs(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
-		active_at: DF.Datetime | None
-		campaign_id: DF.Data
-		inactive_at: DF.Datetime | None
-		status: DF.Literal["ACTIVE", "INACTIVE"]
-		user: DF.Link
-		inactive_reason: DF.Data | None
+		api_name: DF.Data | None
+		created_by: DF.Link | None
+		end_point: DF.Data | None
+		error_message: DF.Data | None
+		execution_time: DF.Float
+		request_payload: DF.JSON | None
+		response: DF.JSON | None
+		status_code: DF.Int
 	# end: auto-generated types
 	pass

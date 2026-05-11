@@ -14,6 +14,7 @@ def create_lead_referral_on_portal(
 	refereeId,
 	referrerId,
 	hubId,
+	agentReferrerId=None,
 	base_url=None,
 	token=None,
 ):
@@ -39,7 +40,8 @@ def create_lead_referral_on_portal(
 		"referrerId": referrerId,
 		"hubId": hubId,
 	}
-
+	if(agentReferrerId):
+		payload["agentReferrerId"] = agentReferrerId
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
@@ -116,102 +118,18 @@ def get_lead_referrals_from_carrum_portal(referrer_id):
 			"success": False,
 			"error": _("Referrer id is required"),
 		}
-
-	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
-	if not base_url:
-		return {
-			"success": False,
-			"error": _("Carrum base URL is not configured (carrum_base_url)"),
-		}
-
-	token = frappe.conf.get("carrum_token")
-	if not token:
-		return {
-			"success": False,
-			"error": _("Carrum token is not configured (carrum_token)"),
-		}
-
 	referrer_segment = quote(referrer_id, safe="")
-	url = f"{base_url}/api/v1/referral-rewards/referrer/{referrer_segment}"
-
-	headers = {
-		"Accept": "application/json",
-		"Authorization": token,
-	}
-
-	try:
-		response = requests.get(url, headers=headers, timeout=30)
-	except requests.exceptions.Timeout:
-		logger.error("Carrum referrer referrals timeout url=%s", url)
-		return {
-			"success": False,
-			"error": _("Request to referral service timed out"),
-		}
-	except requests.exceptions.ConnectionError as err:
-		logger.error("Carrum referrer referrals connection error: %s", err)
-		return {
-			"success": False,
-			"error": _("Could not connect to referral service"),
-		}
-	except requests.exceptions.RequestException as err:
-		logger.error("Carrum referrer referrals request error: %s", err)
-		return {
-			"success": False,
-			"error": _("Referral list request failed: {0}").format(str(err)),
-		}
-
-	try:
-		response.raise_for_status()
-	except requests.exceptions.HTTPError as err:
-		text = ""
-		status = getattr(err.response, "status_code", None)
-		if err.response is not None:
-			try:
-				text = (err.response.text or "")[:2000]
-			except Exception:
-				text = ""
-		logger.error(
-			"Carrum referrer referrals HTTP error status=%s body=%s",
-			status,
-			text,
-		)
-		return {
-			"success": False,
-			"status_code": status,
-			"error": str(err),
-			"response": text or None,
-		}
-
-	try:
-		data = response.json()
-	except ValueError:
-		logger.error(
-			"Carrum referrer referrals invalid JSON status=%s",
-			response.status_code,
-		)
-		return {
-			"success": False,
-			"status_code": response.status_code,
-			"error": _("Invalid JSON response from referral service"),
-			"response": (response.text or "")[:2000] or None,
-		}
-
-	if isinstance(data, list):
-		payload = data
-	elif isinstance(data, dict):
-		payload = data.get("data", data)
-	else:
-		payload = data
-
-	return {
-		"success": True,
-		"status_code": response.status_code,
-		"data": payload,
-	}
+	client = CarrumHttpClient(timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/referrer/{referrer_segment}",
+		log_tag="lead-referrals-referrer-list",
+	)
 
 
 def get_agent_referral_list(
 	agent_referrer_id,
+	referrerId=None,
 	page=1,
 	limit=20,
 	reward_type="AGENT_REFERRAL",
@@ -241,15 +159,62 @@ def get_agent_referral_list(
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	agent_segment = quote(agent_referrer_id, safe="")
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+	}
+	if referrerId:
+		params["referrerId"] = referrerId
 	return client.request(
 		method="GET",
 		path=f"/api/v1/referral-rewards/agent/{agent_segment}",
-		params={
-			"rewardType": reward_type,
-			"page": page,
-			"limit": limit,
-		},
+		params=params,
 		log_tag="agent-referral-list",
+	)
+
+
+def get_wallet_transactions_from_portal(
+	wallet_id,
+	page=1,
+	limit=20,
+	base_url=None,
+	token=None,
+):
+	"""
+	GET ``/api/v1/referral-rewards/wallets/{walletId}/transactions`` from Carrum.
+
+	Query: ``page``, ``limit``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	wallet_key = (str(wallet_id).strip() if wallet_id is not None else "") or ""
+	if not wallet_key:
+		return {
+			"success": False,
+			"error": _("Wallet id is required"),
+			"request_url": None,
+		}
+
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+	if limit > 100:
+		limit = 100
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	wallet_segment = quote(wallet_key, safe="")
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/transactions",
+		params={"page": page, "limit": limit},
+		log_tag="wallet-transactions",
 	)
 
 
@@ -358,6 +323,29 @@ def get_lead_referred_by_details_from_portal(lead_id):
 		"status_code": response.status_code,
 		"data": payload,
 	}
+
+
+def remove_lead_referrer_from_portal(referee_id=None, base_url=None, token=None):
+	"""
+	Remove referred-by mapping for a referee lead on Carrum.
+
+	Calls ``DELETE /api/v1/referral-rewards/referee/{lead_id}``.
+	"""
+	lead_key = (referee_id or "").strip() if referee_id is not None else ""
+	if not lead_key:
+		return {
+			"success": False,
+			"error": _("Lead id is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	lead_segment = quote(lead_key, safe="")
+	return client.request(
+		method="DELETE",
+		path=f"/api/v1/referral-rewards/referee/{lead_segment}",
+		log_tag="remove-referrer",
+	)
 
 
 def fetch_referee_milestones_from_carrum(
@@ -486,6 +474,7 @@ def get_cumulative_referral_list_from_portal(
 	agent_id=None,
 	base_url=None,
 	token=None,
+	referrer_id=None,
 ):
 	"""
 	GET cumulative referral list from Carrum.
@@ -514,61 +503,229 @@ def get_cumulative_referral_list_from_portal(
 		}
 
 	params = {
-		"loggedInUserId": agent_key,
+		# "loggedInUserId": agent_key,
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
 	}
+	if(referrer_id):
+		params["referrerId"] = referrer_id
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="GET",
-		path="/api/v1/referral-rewards/hub-summary",
+		path=f"/api/v1/referral-rewards/agent/{agent_key}",
 		params=params,
 		log_tag="hub-summary",
 	)
 
 
+def get_carrum_employee_referrals(
+	page=1,
+	limit=20,
+	reward_type="AGENT_REFERRAL",
+	agent_id=None,
+	base_url=None,
+	token=None,
+	referrer_id=None,
+):
+	"""
+	GET Carrum employee / hub-summary referral list (same HTTP behaviour as
+	``get_cumulative_referral_list_from_portal`` — inlined for CRM employee referrals).
+
+	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
+	``rewardType`` (default ``AGENT_REFERRAL``), ``page``, ``limit``, optional ``referrerId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	agent_key = (str(agent_id).strip() if agent_id is not None else "")
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+		"loggedInUserId":agent_key
+	}
+	if referrer_id:
+		params["referrerId"] = referrer_id
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/hub-summary",
+		params=params,
+		log_tag="hub-summary",
+	)
+
+
+def carrum_referral_breakdown(
+	page=1,
+	limit=20,
+	reward_type="REFERRAL",
+	agent_id=None,
+	base_url=None,
+	token=None,
+	referrer_id=None,
+):
+	"""
+	GET referral breakdown list from Carrum (same HTTP behaviour as
+	``get_cumulative_referral_list_from_portal``; default ``rewardType`` is ``REFERRAL``).
+
+	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
+	``rewardType``, ``page``, ``limit``, and optional ``referrerId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+
+	agent_key = (str(agent_id).strip() if agent_id is not None else "")
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	params = {
+		"rewardType": reward_type,
+		"page": page,
+		"limit": limit,
+	}
+	if referrer_id:
+		params["referrerId"] = referrer_id
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/agent/{agent_key}",
+		params=params,
+		log_tag="hub-summary",
+	)
+
 
 def approve_referral_on_carrum_portal(
+	amount=None,
+	remark=None,
+	wallet_id=None,
+	agent_id=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Wallet approval on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/wallets/{walletId}/approve`` with query
+	``loggedInUserId`` = ``agent_id``. JSON body: ``approvedAmount``, optional ``remarks``.
+
+	Returns:
+		Same framed dict as ``CarrumHttpClient.request``.
+	"""
+	amount_str = str(amount).strip() if amount is not None else ""
+	if not amount_str:
+		return {
+			"success": False,
+			"error": _("Approval amount is required"),
+			"request_url": None,
+		}
+
+	try:
+		approved_amount = float(amount_str)
+	except (TypeError, ValueError):
+		approved_amount = amount_str
+
+	remark_str = str(remark).strip() if remark is not None else ""
+
+	wallet_key = (str(wallet_id).strip() if wallet_id is not None else "") or ""
+	if not wallet_key:
+		return {
+			"success": False,
+			"error": _("Wallet id is required"),
+			"request_url": None,
+		}
+
+	agent_key = (str(agent_id).strip() if agent_id is not None else "") or ""
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id (loggedInUserId) is required"),
+			"request_url": None,
+		}
+
+	payload = {"amount": int(approved_amount)}
+	if remark_str:
+		payload["remarks"] = remark_str
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	wallet_segment = quote(wallet_key, safe="")
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/approve",
+		params={"loggedInUserId": agent_key},
+		json=payload,
+		log_tag="approve-wallet-referral",
+	)
+
+
+def approve_referral_by_referral_id_on_carrum_portal(
 	amount=None,
 	referral_id=None,
 	milestone=None,
 	remark=None,
 	rewardType="AGENT_REFERRAL",
 	user_name=None,
+	base_url=None,
+	token=None,
 ):
 	"""
-	POST approve request to the Carrum referral portal.
+	Per-referee approval: ``POST .../referral-rewards/{referralId}/approve?userName=...``.
 
-	URL: ``{carrum_base_url}/api/v1/referral-rewards/approve?userName=...``
-
-	Query:
-		``userName``: Frappe user name (defaults to ``frappe.session.user``).
-
-	JSON body (camelCase, aligned with other referral-rewards calls):
-		``refereeId``: CRM Lead / referee identifier (the ``referrer_id`` argument
-		here is kept for backwards compatibility with callers that pass the lead id).
-		``approvedAmount``: approval amount (string or number).
-		``milestoneId``: milestone to approve.
-		``remark``: optional note (included in JSON when non-empty).
-
-	Returns:
-		Same shape as ``create_referral_on_portal``: ``success``, ``data`` or ``error``,
-		``status_code``, optional ``response`` on HTTP errors.
+	Used by CRM lead-based referral approval (e.g. ``approve_referral_dummy``).
 	"""
-	referral_id = (referral_id or "").strip()
-	if not referral_id:
-		return {
-			"success": False,
-			"error": _("Referee id is required"),
-		}
-
 	amount_str = str(amount).strip() if amount is not None else ""
 	if not amount_str:
 		return {
 			"success": False,
 			"error": _("Approval amount is required"),
+			"request_url": None,
+		}
+
+	try:
+		approved_amount = float(amount_str)
+	except (TypeError, ValueError):
+		approved_amount = amount_str
+
+	remark_str = str(remark).strip() if remark is not None else ""
+
+	referral_key = (str(referral_id).strip() if referral_id is not None else "") or ""
+	if not referral_key:
+		return {
+			"success": False,
+			"error": _("Referee id is required"),
+			"request_url": None,
 		}
 
 	milestone_str = str(milestone).strip() if milestone is not None else ""
@@ -576,128 +733,46 @@ def approve_referral_on_carrum_portal(
 		return {
 			"success": False,
 			"error": _("Milestone id is required"),
+			"request_url": None,
 		}
 
-	user_name = (user_name  or "").strip()
-	if not user_name:
+	try:
+		milestone_days = int(float(milestone_str))
+	except (TypeError, ValueError):
+		return {
+			"success": False,
+			"error": _("Milestone must be a valid number"),
+			"request_url": None,
+		}
+
+	user_key = (str(user_name).strip() if user_name is not None else "") or ""
+	if not user_key:
+		user_key = (frappe.session.user or "").strip()
+	if not user_key:
 		return {
 			"success": False,
 			"error": _("User name is required"),
+			"request_url": None,
 		}
-
-	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
-	if not base_url:
-		return {
-			"success": False,
-			"error": _("Carrum base URL is not configured (carrum_base_url)"),
-		}
-
-	token = frappe.conf.get("carrum_token")
-	if not token:
-		return {
-			"success": False,
-			"error": _("Carrum token is not configured (carrum_token)"),
-		}
-
-	query = urlencode({"userName": user_name})
-	url = f"{base_url}/api/v1/referral-rewards/{referral_id}/approve?{query}"
-
-	try:
-		approved_amount = float(amount_str)
-	except (TypeError, ValueError):
-		approved_amount = amount_str
 
 	payload = {
 		"rewardType": rewardType,
 		"approvedAmount": approved_amount,
-		"milestoneDays": int(milestone_str),
+		"milestoneDays": milestone_days,
 	}
-	remark_str = str(remark).strip() if remark is not None else ""
 	if remark_str:
 		payload["remarks"] = remark_str
 
-	headers = {
-		"Content-Type": "application/json",
-		"Accept": "application/json",
-		"Authorization": token,
-	}
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	referral_segment = quote(referral_key, safe="")
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/{referral_segment}/approve",
+		params={"userName": user_key},
+		json=payload,
+		log_tag="approve-referral",
+	)
 
-	try:
-		response = requests.post(url, json=payload, headers=headers, timeout=30)
-	except requests.exceptions.Timeout:
-		logger.error("Carrum referral approve timeout url=%s", url)
-		return {
-			"success": False,
-			"error": _("Request to referral portal timed out"),
-		}
-	except requests.exceptions.ConnectionError as err:
-		logger.error("Carrum referral approve connection error: %s", err)
-		return {
-			"success": False,
-			"error": _("Could not connect to referral portal"),
-		}
-	except requests.exceptions.RequestException as err:
-		logger.error("Carrum referral approve request error: %s", err)
-		return {
-			"success": False,
-			"error": _("Referral portal request failed: {0}").format(str(err)),
-		}
-
-	try:
-		response.raise_for_status()
-	except requests.exceptions.HTTPError as err:
-		text = ""
-		status = getattr(err.response, "status_code", None)
-		if err.response is not None:
-			try:
-				text = (err.response.text or "")[:2000]
-			except Exception:
-				text = ""
-		logger.error(
-			"Carrum referral approve HTTP error status=%s body=%s",
-			status,
-			text,
-		)
-		return {
-			"success": False,
-			"status_code": status,
-			"error": str(err),
-			"response": text or None,
-		}
-
-	if response.status_code == 204 or not (response.text or "").strip():
-		return {
-			"success": True,
-			"status_code": response.status_code,
-			"data": {"message": _("Referral approved")},
-			"message": _("Referral approved"),
-		}
-
-	try:
-		data = response.json()
-	except ValueError:
-		logger.error(
-			"Carrum referral approve invalid JSON status=%s",
-			response.status_code,
-		)
-		return {
-			"success": False,
-			"status_code": response.status_code,
-			"error": _("Invalid JSON response from referral portal"),
-			"response": (response.text or "")[:2000] or None,
-		}
-
-	if isinstance(data, dict):
-		payload_out = data.get("data", data)
-	else:
-		payload_out = data
-
-	return {
-		"success": True,
-		"status_code": response.status_code,
-		"data": payload_out,
-		"message": _("Referral approved"),
-	}
 
 
 
@@ -722,7 +797,7 @@ def reject_referral_on_carrum_portal(
 		``remark``: optional note (included when non-empty).
 
 	Returns:
-		Same shape as ``approve_referral_on_carrum_portal``.
+		Same framed dict as ``CarrumHttpClient.request``.
 	"""
 	referral_id = (referral_id or "").strip()
 	if not referral_id:
@@ -852,3 +927,18 @@ def reject_referral_on_carrum_portal(
 		"data": payload_out,
 		"message": _("Referral request rejected"),
 	}
+
+
+def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, base_url=None, token=None):
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	params = {}
+	if role_id is not None and str(role_id).strip():
+		params["roleId"] = str(role_id).strip()
+	if hub_id is not None and str(hub_id).strip():
+		params["hubId"] = str(hub_id).strip()
+	return client.request(
+		method="GET",
+		path="/api/v1/referral-rewards/configs/active",
+		params=params,
+		log_tag="referral-config-list",
+	)

@@ -15,6 +15,27 @@ def _crm_lead_event_subject(lead_id: str, suffix: str) -> str:
 	return f"({lead_id}): ({suffix})"
 
 
+def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
+	"""Set ``crm_lead_name`` and ``preferred_scheme`` from CRM Lead (custom Event fields)."""
+	lead_id = (lead_id or "").strip()
+	if not lead_id or not frappe.db.exists("CRM Lead", lead_id):
+		return
+	row = frappe.db.get_value(
+		"CRM Lead",
+		lead_id,
+		["lead_name", "preferred_scheme"],
+		as_dict=True,
+	)
+	if not row:
+		return
+	ln = (row.get("lead_name") or "").strip()
+	ps = (row.get("preferred_scheme") or "").strip()
+	if ln:
+		event_doc.set("crm_lead_name", ln)
+	if ps:
+		event_doc.set("preferred_scheme", ps)
+
+
 class UtilService:
     def __init__(self):
         pass
@@ -29,6 +50,7 @@ class UtilService:
         expected_call_duration_minutes: int,
         disposition_status: str | None = None,
         sub_disposition_status: str | None = None,
+        disposition_remarks: str | None = None,
     ):
         call_at = get_datetime(callback_datetime)
         if not call_at:
@@ -59,6 +81,21 @@ class UtilService:
         event_doc.set("reference_call_session", call_session_id)
         event_doc.set("description", callback_comments)
         event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
+
+        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
+        dr = (
+            str(disposition_remarks).strip()
+            if disposition_remarks is not None and str(disposition_remarks).strip()
+            else ""
+        )
+        cc = (
+            str(callback_comments).strip()
+            if callback_comments is not None and str(callback_comments).strip()
+            else ""
+        )
+        ev_rmk = dr or cc
+        if ev_rmk:
+            event_doc.set("disposition_remarks", ev_rmk)
 
         ds = (disposition_status or "").strip() if disposition_status is not None else ""
         sub = (
@@ -170,6 +207,8 @@ class UtilService:
             event_doc.set("reference_call_session", call_session_id)
         if remarks:
             event_doc.set("description", remarks)
+            event_doc.set("disposition_remarks", remarks)
+        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         event_doc.save(ignore_permissions=True)
         
         return event_doc

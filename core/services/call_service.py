@@ -1291,6 +1291,7 @@ class CallService:
                 expected_call_duration_minutes=expected_call_duration_minutes,
                 disposition_status=disposition_status,
                 sub_disposition_status=sub_disposition,
+                disposition_remarks=remarks,
             )
         frappe.db.commit()
 
@@ -1426,6 +1427,7 @@ class CallService:
                     expected_call_duration_minutes=expected_call_duration_minutes,
                     disposition_status=disposition_status,
                     sub_disposition_status=sub_disposition_status,
+                    disposition_remarks=remarks,
                 )
 
             now = frappe.utils.now()
@@ -2313,8 +2315,17 @@ def create_callback_event(
     callback_comments,
     remind_before_minutes,
     expected_call_duration_minutes,
+    disposition_remarks=None,
 ):
-    return util_service.create_event_for_callback(lead_id, call_session_id, callback_datetime, callback_comments, remind_before_minutes, expected_call_duration_minutes)
+    return util_service.create_event_for_callback(
+        lead_id,
+        call_session_id,
+        callback_datetime,
+        callback_comments,
+        remind_before_minutes,
+        expected_call_duration_minutes,
+        disposition_remarks=disposition_remarks,
+    )
 
 def get_call_session_disposition_remarks(user: str, payload: dict):
     return _service.get_call_session_disposition_remarks(user, payload)

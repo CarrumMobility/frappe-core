@@ -232,13 +232,61 @@ class UtilService:
 
     def raise_driver_return_request(
         self,
-        old_carrum_account_id: str,
         identification_type: str,
-        request_reason: str,
+        request_reason: str | None = None,
+        old_carrum_account_id: str | None = None,
+        new_account_id: str | None = None,
+        identification_key: str | None = None,
+        identification_value: str | None = None,
     ):
-        """POST to legacy Carrum re-onboarding API (driver return / reactivation)."""
-        if not old_carrum_account_id:
-            frappe.throw(frappe._("oldCarrumAccountId is required"))
+        """POST to Carrum re-onboarding API (driver return / reactivation / duplicate identity).
+
+        ``field_update`` matches ``POST .../management/reonboarding`` with ``identification_key``
+        plus the same key as field value (e.g. ``driving_licence_number``), and ``new_account_id``.
+        CRM Lead fieldnames map to API: ``driving_license_number`` → ``driving_licence_number``,
+        ``aadhar_no`` → ``aadhar_number``, ``pancard_number`` → ``pancard_number``.
+        """
+        body: dict = {}
+
+        if identification_type == "reactivation":
+            if not old_carrum_account_id:
+                frappe.throw(frappe._("oldCarrumAccountId is required"))
+            body = {
+                "old_account_id": old_carrum_account_id,
+                "identification_key": identification_type,
+                "request_reason": request_reason or "",
+            }
+        elif identification_type == "field_update":
+            if not new_account_id:
+                frappe.throw(frappe._("new_account_id is required"))
+            if not identification_value:
+                frappe.throw(frappe._("identification_value is required"))
+            ik = (identification_key or "").strip()
+            crm_to_api = {
+                "driving_license_number": "driving_licence_number",
+                "aadhar_no": "aadhar_number",
+                "pancard_number": "pancard_number",
+                "driving_licence_number": "driving_licence_number",
+                "aadhar_number": "aadhar_number",
+            }
+            api_key = crm_to_api.get(ik)
+            if not api_key:
+                frappe.throw(
+                    frappe._("Unsupported identification_key for re-onboarding: {0}").format(
+                        ik or "(empty)"
+                    )
+                )
+            body = {
+                "identification_key": api_key,
+                "new_account_id": new_account_id,
+                api_key: identification_value,
+            }
+            if request_reason:
+                body["request_reason"] = request_reason
+        else:
+            frappe.throw(
+                frappe._("Invalid identification type: {0}").format(identification_type)
+            )
 
         base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
         if not base:
@@ -247,13 +295,11 @@ class UtilService:
             )
 
         url = f"{base}/api/v1/management/reonboarding"
-        body = {
-            "old_account_id": old_carrum_account_id,
-            "identification_key": identification_type,
-            "request_reason": request_reason,
-        }
-        token = frappe.conf.get("old_carrum_token")
-        headers = {"Authorization": token, "Content-Type": "application/json"}
+        token = (frappe.conf.get("old_carrum_token") or "").strip()
+        if not token:
+            frappe.throw(frappe._("Old Carrum token is not configured (old_carrum_token)"))
+        auth = token if token.lower().startswith("carrum ") else f"carrum {token}"
+        headers = {"Authorization": auth, "Content-Type": "application/json", "Accept": "*/*"}
         response = requests.post(url, headers=headers, json=body, timeout=60)
 
         try:

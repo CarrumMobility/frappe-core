@@ -113,9 +113,30 @@ class UtilService:
             event_doc.set("callback_status", EnumValues.EventCallbackStatus.OVERRIDE)
             event_doc.save(ignore_permissions=True)
 
-        visit_d = getdate(svd)
-        starts_on = get_datetime(f"{visit_d} 00:00:00")
-        ends_on = starts_on + timedelta(days=1) - timedelta(seconds=1)
+        visit_dt = get_datetime(svd)
+        if not visit_dt:
+            frappe.throw(
+                frappe._("Invalid scheduled visit date or time"),
+                title=frappe._("Visit"),
+            )
+        # ``YYYY-MM-DD`` only: keep legacy all-day visit window on the calendar.
+        t = svd.strip()
+        is_date_only = (
+            len(t) == 10
+            and t[4:5] == "-"
+            and t[7:8] == "-"
+            and " " not in t
+            and "t" not in t.lower()
+        )
+        if is_date_only:
+            visit_d = getdate(svd)
+            starts_on = get_datetime(f"{visit_d} 00:00:00")
+            ends_on = starts_on + timedelta(days=1) - timedelta(seconds=1)
+            call_at = starts_on
+        else:
+            call_at = visit_dt
+            starts_on = visit_dt
+            ends_on = visit_dt + timedelta(hours=1)
         remarks = (
             str(disposition_remarks).strip()
             if disposition_remarks is not None and str(disposition_remarks).strip()
@@ -128,7 +149,7 @@ class UtilService:
         event_doc.set("event_type", "Private")
         event_doc.set("status", "Open")
         event_doc.set("starts_on", starts_on)
-        event_doc.set("call_at", starts_on)
+        event_doc.set("call_at", call_at)
         event_doc.set("ends_on", ends_on)
         event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
         event_doc.set("reference_docname", lead_id)

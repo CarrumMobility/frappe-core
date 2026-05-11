@@ -81,6 +81,13 @@ class _LEAD_ACTION_SLUG:
 	MERGE_LEAD = "merge_lead"
 	UNMERGE_LEAD = "unmerge_lead"
 
+class _LeadStatus:
+	DROP = "Drop"
+	CONVERTED = "Converted"
+	NEW = "New"
+	NOT_ELIGIBLE= "Not Eligible"
+	INTERESTED = "Interested"
+	NOT_INTERESTED = "Not Interested"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
@@ -95,5 +102,6 @@ class _EnumValues:
 	DispositionTiming = _DispositionTiming
 	LEAD_ACTION_LIST = _LEAD_ACTION_LIST
 	LEAD_ACTION_SLUG = _LEAD_ACTION_SLUG
+	LeadStatus = _LeadStatus
 
 EnumValues = _EnumValues()

@@ -42,7 +42,7 @@ class CallSession(Document):
 		lead_answer_event_log: DF.JSON | None
 		lead_answered_at: DF.Datetime | None
 		lead_phone: DF.Data
-		scheduled_visit_date: DF.Date | None
+		scheduled_visit_date: DF.Datetime | None
 		status: DF.Literal["INITIATED", "FAILED", "AGENT_CONNECTED", "CUSTOMER_CONNECTED", "MISSED", "DISCONNECTED", "DISPOSED"]
 		sub_disposition_status: DF.Data | None
 		vendor_agent_id: DF.Data | None

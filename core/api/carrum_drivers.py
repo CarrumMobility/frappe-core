@@ -781,6 +781,12 @@ def driver_status_update_webhook():
             {"is_driver_returned": 1},
             _("Lead status not found with is_driver_returned = 1"),
         )
+    elif new_status ==  EnumValues.OLD_SYSTEM_DRIVER_STATUS.INACTIVE:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_inactive": 1},
+            _("Lead status not found with is_inactive = 1"),
+        )
     else:
         frappe.throw(_("Unhandled status: {0}").format(new_status))
 

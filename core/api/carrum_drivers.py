@@ -477,7 +477,6 @@ def get_portal_driver_detail(account_id: str | None = None):
 
     try:
         response = re.get(url, headers=headers)
-        print(response)
     except re.exceptions.RequestException as e:
         logger.exception("get_portal_driver_detail request failed: %s", e)
         return {"success": False, "message": "Failed to get driver details"}
@@ -724,7 +723,6 @@ def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: 
 
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
-    # {'driverId': ..., 'accountId': ..., 'smallId': ..., 'previousStatus': ..., 'newStatus': ...}
     payload = frappe.request.get_json() or {}
     account_id = payload.get("accountId")
     if not account_id:

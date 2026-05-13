@@ -8,6 +8,7 @@ from core.constants.enums import EnumValues
 from crm.api.event import enqueue_complete_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
+from crm.fcrm.doctype.crm_notification.crm_notification import notify_user
 from crm.utils import parse_phone_number
 import frappe
 import core.integrations.smartflo.client as smartflo_client
@@ -70,6 +71,42 @@ def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
         lead.save(ignore_permissions=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "set_lead_telecaller_on_dispose")
+
+
+def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
+    """In-app CRM notification for assigned telecaller on inbound missed dialer call."""
+    try:
+        tc = (telecaller_user or "").strip()
+        if not tc or not frappe.db.exists("User", tc):
+            return
+        lead_name = (getattr(lead, "name", None) or "").strip()
+        if not lead_name:
+            return
+        display = (getattr(lead, "lead_name", None) or lead.get("lead_name") or lead_name or "").strip()
+        # System-originated so notify_user does not drop when session user == telecaller (owner == assigned_to).
+        owner = "Administrator"
+        msg = frappe._("You have a missed call from {0}").format(display or lead_name)
+        notification_text = f"""
+            <div class="mb-2 leading-5 text-ink-gray-5">
+                <span>{frappe._("Missed call")}</span>
+                <span class="font-medium text-ink-gray-9">{frappe.utils.escape_html(display or lead_name)}</span>
+            </div>
+        """
+        notify_user(
+            {
+                "owner": owner,
+                "assigned_to": tc,
+                "notification_type": "Assignment",
+                "message": msg,
+                "notification_text": notification_text,
+                "reference_doctype": "CRM Lead",
+                "reference_docname": lead_name,
+                "redirect_to_doctype": "CRM Lead",
+                "redirect_to_docname": lead_name,
+            }
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "notify_telecaller_missed_call_dialer_disconnect")
 
 
 def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
@@ -2007,18 +2044,29 @@ class CallService:
             )
 
         call_direction = EnumValues.CallDirection.OUTBOUND if payload.get("direction") == "Dialer (outbound)" else EnumValues.CallDirection.INBOUND
+
+        session_status_value = (
+            EnumValues.CallSessionStatus.NOT_CONNECTED
+            if call_direction == EnumValues.CallDirection.OUTBOUND
+            else EnumValues.CallSessionStatus.MISSED
+        )
+        lead_telecaller = (getattr(lead, "telecaller", None) or "").strip() or None
+
+        if session_status_value == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
+            _notify_telecaller_missed_call(lead, lead_telecaller)
+
         if not row_name:
-            call_status = frappe.new_doc("Call Session")
-            call_status.agent_call_id = call_id
-            call_status.vendor_name = "Smartflo"
-            call_status.calling_method = "Dialer"
-            call_status.lead = lead.name
-            call_status.lead_phone = lead.get("mobile_no") or ""
-            call_status.direction = call_direction
-            call_status.status = EnumValues.CallSessionStatus.NOT_CONNECTED if call_direction == EnumValues.CallDirection.OUTBOUND else EnumValues.CallSessionStatus.MISSED
-            call_status.insert(ignore_permissions=True)
-            call_status.recording_url = recording_url
-            row_name = call_status.name
+            new_session = frappe.new_doc("Call Session")
+            new_session.agent_call_id = call_id
+            new_session.vendor_name = "Smartflo"
+            new_session.calling_method = "Dialer"
+            new_session.lead = lead_telecaller or lead.name
+            new_session.lead_phone = lead.get("mobile_no") or ""
+            new_session.direction = call_direction
+            new_session.status = session_status_value
+            new_session.insert(ignore_permissions=True)
+            new_session.recording_url = recording_url
+            row_name = new_session.name
 
         call_duration = payload.get("outbound_sec")
         row = frappe.get_doc("Call Session", row_name)

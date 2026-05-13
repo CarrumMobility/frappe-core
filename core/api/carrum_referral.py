@@ -218,7 +218,7 @@ def get_wallet_transactions_from_portal(
 	)
 
 
-def get_lead_referred_by_details_from_portal(lead_id):
+def get_lead_referred_by_details_from_portal(lead_id, base_url=None, token=None):
 	"""
 	GET referee referral details from Carrum (referrer context for a referee lead).
 
@@ -226,103 +226,27 @@ def get_lead_referred_by_details_from_portal(lead_id):
 
 	``lead_id`` is the path segment Carrum expects (typically CRM Lead name or account id).
 
+	``base_url`` / ``token`` default to ``frappe.conf`` when omitted (see ``CarrumHttpClient``).
+
 	Returns:
-		dict with ``success``, ``status_code``, ``data`` (parsed payload or nested ``data``),
-		or ``error`` / ``response`` on failure.
+		Same framed dict as ``CarrumHttpClient.request``: ``success``, ``status_code``, ``data``,
+		``request_url`` on success; ``error`` / ``response`` on failure.
 	"""
 	lead_id = (lead_id or "").strip()
 	if not lead_id:
 		return {
 			"success": False,
 			"error": _("Lead id is required"),
-		}
-
-	base_url = (frappe.conf.get("carrum_base_url") or "").strip().rstrip("/")
-	if not base_url:
-		return {
-			"success": False,
-			"error": _("Carrum base URL is not configured (carrum_base_url)"),
-		}
-
-	token = frappe.conf.get("carrum_token")
-	if not token:
-		return {
-			"success": False,
-			"error": _("Carrum token is not configured (carrum_token)"),
+			"request_url": None,
 		}
 
 	lead_segment = quote(lead_id, safe="")
-	url = f"{base_url}/api/v1/referral-rewards/referee/{lead_segment}"
-
-	headers = {
-		"Accept": "application/json",
-		"Authorization": token,
-	}
-
-	try:
-		response = requests.get(url, headers=headers, timeout=30)
-	except requests.exceptions.Timeout:
-		logger.error("Carrum referee detail timeout url=%s", url)
-		return {
-			"success": False,
-			"error": _("Request to referral service timed out"),
-		}
-	except requests.exceptions.ConnectionError as err:
-		logger.error("Carrum referee detail connection error: %s", err)
-		return {
-			"success": False,
-			"error": _("Could not connect to referral service"),
-		}
-	except requests.exceptions.RequestException as err:
-		logger.error("Carrum referee detail request error: %s", err)
-		return {
-			"success": False,
-			"error": _("Referral detail request failed: {0}").format(str(err)),
-		}
-
-	try:
-		response.raise_for_status()
-	except requests.exceptions.HTTPError as err:
-		text = ""
-		status = getattr(err.response, "status_code", None)
-		if err.response is not None:
-			try:
-				text = (err.response.text or "")[:2000]
-			except Exception:
-				text = ""
-		logger.error(
-			"Carrum referee detail HTTP error status=%s body=%s",
-			status,
-			text,
-		)
-		return {
-			"success": False,
-			"status_code": status,
-			"error": str(err),
-			"response": text or None,
-		}
-
-	try:
-		data = response.json()
-	except ValueError:
-		logger.error("Carrum referee detail invalid JSON status=%s", response.status_code)
-		return {
-			"success": False,
-			"status_code": response.status_code,
-			"error": _("Invalid JSON response from referral service"),
-			"response": (response.text or "")[:2000] or None,
-		}
-
-	if isinstance(data, dict):
-		payload = data.get("data", data)
-	else:
-		payload = data
-
-	return {
-		"success": True,
-		"status_code": response.status_code,
-		"data": payload,
-	}
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path=f"/api/v1/referral-rewards/referee/{lead_segment}",
+		log_tag="referee-referred-by-details",
+	)
 
 
 def remove_lead_referrer_from_portal(referee_id=None, base_url=None, token=None):

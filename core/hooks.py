@@ -273,6 +273,8 @@ require_type_annotated_api_methods = True
 # ignore_translatable_strings_from = []
 
 before_request = [
+	"core.services.site_home_redirect.maybe_redirect_site_root_to_external_url",
+	"core.services.site_home_redirect.maybe_redirect_site_login_to_external_url",
 	"core.services.util_service.blockDeskAccess",
 ]
 # after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

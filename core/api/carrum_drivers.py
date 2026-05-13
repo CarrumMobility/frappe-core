@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import date, datetime
 from uuid import UUID
 from core.constants.enums import EnumValues
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
@@ -57,6 +58,20 @@ class UpdateDriverDtoSchema(BaseModel):
             return UUID(s)
         except ValueError:
             raise ValueError(_("Uber ID must be a valid UUID"))
+
+
+def _date_to_json_value(val):
+    """Coerce Date/datetime/str to YYYY-MM-DD (or None) for ``requests`` JSON bodies."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, str):
+        s = val.strip()
+        return s or None
+    if isinstance(val, datetime):
+        return val.date().isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    return str(val).strip() or None
 
 
 def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
@@ -327,8 +342,8 @@ def send_agreement(leadId: str):
         "aadhar_number": aadhar_number,
         "pan_card": pan_card,
         "dl_number": dl_number,
-        "dl_issue_date": dl_issue_date,
-        "dl_expiry_date": dl_expiry_date,
+        "dl_issue_date": _date_to_json_value(dl_issue_date),
+        "dl_expiry_date": _date_to_json_value(dl_expiry_date),
         "driver_email": email,
         "driver_bank_account_number": bank_account_number,
         "driver_small_id": lead_pk,
@@ -351,7 +366,7 @@ def send_agreement(leadId: str):
         response = re.post(url=url, headers=headers, json=payload, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception("send_agreement failed: %s", e)
-        _.throw(_("Could not reach Carrum"))
+        frappe.throw(_("Could not reach Carrum"))
 
     try:
         print(response.text)

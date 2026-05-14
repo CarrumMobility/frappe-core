@@ -2036,6 +2036,8 @@ class CallService:
 
         row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
         lead = self._create_lead_if_not_exists(payload.get("call_to_number"))
+        campaign_name = payload.get("campaign_name")
+        campaign_id = payload.get("campaign_id")
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
                 frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
@@ -2063,6 +2065,8 @@ class CallService:
             new_session.lead = lead_telecaller or lead.name
             new_session.lead_phone = lead.get("mobile_no") or ""
             new_session.direction = call_direction
+            new_session.campaign_name= campaign_name
+            new_session.campaign_id = campaign_id
             new_session.status = session_status_value
             new_session.insert(ignore_permissions=True)
             new_session.recording_url = recording_url

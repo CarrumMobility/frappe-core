@@ -224,6 +224,16 @@
             "fieldname": "recording_url",
             "fieldtype": "Long Text",
             "label": "Recording URL"
+        },
+        {
+            "fieldname": "campaign_name",
+            "field_type": "Data",
+            "label": "Campaign name"
+        },
+        {
+            "fieldname": "campaign_id",
+            "field_type": "Data",
+            "label": "Campaign id"
         }
     ],
     "grid_page_length": 50,
@@ -260,5 +270,6 @@
     "rows_threshold_for_grid_search": 20,
     "sort_field": "modified",
     "sort_order": "DESC",
-    "states": []
+    "states": [],
+    "track_changes": 1
 }

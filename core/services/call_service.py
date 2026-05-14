@@ -46,6 +46,19 @@ def _enqueue_apply_not_connected_dial_for_today_lead_callback(
         )
 
 
+def _disposition_datetime_or_none(value):
+    """Normalize API datetime strings for Call Session Datetime fields; empty/invalid -> None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return get_datetime(s)
+    except Exception:
+        return None
+
+
 def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
     """Set ``CRM Lead.telecaller`` to the disposing agent.
 
@@ -1264,24 +1277,27 @@ class CallService:
         #     body["disposition_code"] = str(disposition_code)
         # if sub_disposition is not None:
         #     body["sub_disposition_status"] = sub_disposition
-
-        lead_id = doc.get("lead")
-
-        doc.set("disposition_status", disposition_status or None)
-        doc.set("disposition_remarks", remarks or None)
-        doc.set("sub_disposition_status", sub_disposition or None)
-        doc.set("status", EnumValues.CallSessionStatus.DISPOSED)
-        doc.set("disposed_at", frappe.utils.now())
-        doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
         svd = (
             str(scheduled_visit_date).strip()
             if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
             else ""
         )
+        lead_id = doc.get("lead")
+        callback_dt = _disposition_datetime_or_none(callback_datetime)
+        visit_dt = _disposition_datetime_or_none(svd) if svd else None
+
+        doc.set("disposition_status", disposition_status or None)
+        doc.set("disposition_remarks", remarks or None)
+        doc.set("sub_disposition_status", sub_disposition or None)
+        doc.set("status", EnumValues.CallSessionStatus.DISPOSED)
+        doc.set("lead_callback_datetime", callback_dt)
+        doc.set("disposed_at", frappe.utils.now())
+        doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
+    
         want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
         if svd and want_visit:
             doc.set("is_visit_scheduled", 1)
-            doc.set("scheduled_visit_date", svd)
+            doc.set("scheduled_visit_date", visit_dt or svd)
         else:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
@@ -1318,11 +1334,11 @@ class CallService:
                     "update_lead_from_call_disposition_click2call",
                 )
             _set_lead_telecaller(lead_id, doc.get("agent"))
-        if callback_datetime:
+        if callback_dt:
             util_service.create_event_for_callback(
                 lead_id=lead_id,
                 call_session_id=call_session_id,
-                callback_datetime=callback_datetime,
+                callback_datetime=callback_dt,
                 callback_comments=callback_comments,
                 remind_before_minutes=remind_before_minutes,
                 expected_call_duration_minutes=expected_call_duration_minutes,
@@ -1431,12 +1447,15 @@ class CallService:
                 else ""
             )
             want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
+            visit_dt = _disposition_datetime_or_none(svd) if svd else None
             if svd and want_visit:
                 call_session_doc.set("is_visit_scheduled", 1)
-                call_session_doc.set("scheduled_visit_date", svd)
+                call_session_doc.set("scheduled_visit_date", visit_dt or svd)
             else:
                 call_session_doc.set("is_visit_scheduled", 0)
                 call_session_doc.set("scheduled_visit_date", None)
+            callback_dt = _disposition_datetime_or_none(callback_datetime)
+            call_session_doc.set("lead_callback_datetime", callback_dt)
             _set_lead_source_during_call_on_session(call_session_doc)
             if lead_id:
                 try:
@@ -1454,11 +1473,11 @@ class CallService:
                     )
                 _set_lead_telecaller(lead_id, call_session_doc.get("agent"))
 
-            if callback_datetime:
+            if callback_dt:
                 util_service.create_event_for_callback(
                     lead_id=lead_id,
                     call_session_id=call_session_id,
-                    callback_datetime=callback_datetime,
+                    callback_datetime=callback_dt,
                     callback_comments=callback_comments,
                     remind_before_minutes=remind_before_minutes,
                     expected_call_duration_minutes=expected_call_duration_minutes,
@@ -2062,7 +2081,8 @@ class CallService:
             new_session.agent_call_id = call_id
             new_session.vendor_name = "Smartflo"
             new_session.calling_method = "Dialer"
-            new_session.lead = lead_telecaller or lead.name
+            new_session.lead = lead.name
+            new_session.agent = lead_telecaller or None
             new_session.lead_phone = lead.get("mobile_no") or ""
             new_session.direction = call_direction
             new_session.campaign_name= campaign_name

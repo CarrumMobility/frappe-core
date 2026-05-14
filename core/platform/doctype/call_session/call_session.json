@@ -227,13 +227,18 @@
         },
         {
             "fieldname": "campaign_name",
-            "field_type": "Data",
+            "fieldtype": "Data",
             "label": "Campaign name"
         },
         {
             "fieldname": "campaign_id",
-            "field_type": "Data",
+            "fieldtype": "Data",
             "label": "Campaign id"
+        },
+        {
+            "fieldname": "lead_callback_datetime",
+            "fieldtype": "Datetime",
+            "label": "Lead callback datetime"
         }
     ],
     "grid_page_length": 50,

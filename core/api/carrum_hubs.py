@@ -23,7 +23,7 @@ def get_business_type_list():
             "message": "Carrum hub id not found"
         }
 
-    hubId = "779db382-859d-48ee-ba17-d90ffa91cf24"
+    hubId = hubId
 
     url = f"{carrum_base_url}/api/v1/hub/hub_details/{hubId}"
     response = re.get(url, headers={"Authorization": carrum_token})

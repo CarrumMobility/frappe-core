@@ -16,7 +16,7 @@ class AgentPerformance(Document):
 
 		agent_id: DF.Link
 		agent_name: DF.Data
-		break_talktime_duration: DF.Duration | None
+		break_duration: DF.Duration | None
 		click2call_ring_time: DF.Duration | None
 		click2call_talktime_duration: DF.Duration | None
 		date: DF.Date
@@ -35,3 +35,8 @@ class AgentPerformance(Document):
 		walkin_count: DF.Int
 	# end: auto-generated types
 	pass
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+	

@@ -77,9 +77,9 @@
    "label": "Dialer talktime duration"
   },
   {
-   "fieldname": "break_talktime_duration",
+   "fieldname": "break_duration",
    "fieldtype": "Duration",
-   "label": "Break talktime duration"
+   "label": "Break duration"
   },
   {
    "fieldname": "click2call_talktime_duration",

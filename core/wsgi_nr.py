@@ -1,23 +1,24 @@
 """
 New Relic WSGI wrapper for Frappe / gunicorn.
 
-Gunicorn entry point: core.wsgi_nr:application
+Gunicorn entry point (via newrelic-admin):
+    newrelic-admin run-program gunicorn ... core.wsgi_nr:application
 
-This replaces the `newrelic-admin run-program` approach which does not
-reliably instrument web transactions on modern gunicorn (>= 22).
+Why both newrelic-admin AND WSGIApplicationWrapper?
+- newrelic-admin: instruments Python's logging module so NR log forwarding
+  captures application logs (not just gunicorn lifecycle logs).
+- WSGIApplicationWrapper: explicitly wraps the WSGI callable to create web
+  transactions — required because gunicorn >= 22 changed internals and
+  NR's automatic gunicorn hook no longer reliably wraps the app.
 
-The agent is initialised here — via environment variables only (no .ini
-file required). All config (license key, app name, log forwarding, etc.)
-is sourced from environment variables injected by Docker Compose from the
-EC2 .env file, which is populated from AWS Secrets Manager on every deploy.
+All config (license key, app name, log forwarding, etc.) is sourced from
+environment variables injected by Docker Compose / .env file.
 """
-import os
 
 import newrelic.agent
 
-# Initialise the agent from environment variables.
-# Must happen before importing frappe so the agent can patch all frameworks
-# (SQL, Redis, requests, etc.) before they are first imported.
+# initialize() is idempotent — safe to call even when newrelic-admin
+# has already initialised the agent (the second call is a no-op).
 newrelic.agent.initialize()
 
 # Import Frappe's WSGI callable AFTER NR is initialised so that all

@@ -1890,6 +1890,8 @@ class CallService:
 
         start_date = payload.get("start_date")
         start_time = payload.get("start_time")
+        campaign_name = payload.get("campaign_name")
+        campaign_id = payload.get("campaign_id")
         agent_list = payload.get("agent") or []
         if isinstance(agent_list, dict):
             agent_email = agent_list.get("email")
@@ -1929,6 +1931,8 @@ class CallService:
             agent_call_id=call_id,
             status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
             agent_answered_at=timestamp,
+            campaign_name=campaign_name,
+            campaign_id=campaign_id,
             lead_answered_at=timestamp,
             agent_answer_event_id=event_id,
             agent_answer_event_log=payload,

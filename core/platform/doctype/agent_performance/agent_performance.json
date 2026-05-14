@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-05-14 09:25:01.264065",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "agent_id",
+  "agent_name",
+  "date",
+  "login_duration",
+  "login_idle_duration",
+  "dialer_session_duration",
+  "dialer_ring_duration",
+  "dialer_talktime_duration",
+  "break_talktime_duration",
+  "click2call_talktime_duration",
+  "dispose_duration",
+  "dialer_session_browser_mismatch_duration",
+  "click2call_ring_time",
+  "total_dialer_connects",
+  "total_mannual_attempts",
+  "total_mannual_connects",
+  "psd_count",
+  "fsd_count",
+  "walkin_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "agent_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Agent Id",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agent name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "login_duration",
+   "fieldtype": "Duration",
+   "label": "Login duration"
+  },
+  {
+   "fieldname": "login_idle_duration",
+   "fieldtype": "Duration",
+   "label": "Login idle duration"
+  },
+  {
+   "fieldname": "dialer_session_duration",
+   "fieldtype": "Duration",
+   "label": "Dialer session duration"
+  },
+  {
+   "fieldname": "dialer_ring_duration",
+   "fieldtype": "Duration",
+   "label": "Dialer ring duration"
+  },
+  {
+   "fieldname": "dialer_talktime_duration",
+   "fieldtype": "Duration",
+   "label": "Dialer talktime duration"
+  },
+  {
+   "fieldname": "break_talktime_duration",
+   "fieldtype": "Duration",
+   "label": "Break talktime duration"
+  },
+  {
+   "fieldname": "click2call_talktime_duration",
+   "fieldtype": "Duration",
+   "label": "Click2Call talktime duration"
+  },
+  {
+   "fieldname": "dispose_duration",
+   "fieldtype": "Duration",
+   "label": "Dispose duration"
+  },
+  {
+   "fieldname": "dialer_session_browser_mismatch_duration",
+   "fieldtype": "Duration",
+   "label": "Dialer session browser mismatch duration"
+  },
+  {
+   "fieldname": "click2call_ring_time",
+   "fieldtype": "Duration",
+   "label": "Click2call ring time"
+  },
+  {
+   "fieldname": "total_dialer_connects",
+   "fieldtype": "Int",
+   "label": "Total dialer connects"
+  },
+  {
+   "fieldname": "total_mannual_attempts",
+   "fieldtype": "Int",
+   "label": "Total mannual attempts"
+  },
+  {
+   "fieldname": "total_mannual_connects",
+   "fieldtype": "Int",
+   "label": "Total mannual connects"
+  },
+  {
+   "fieldname": "psd_count",
+   "fieldtype": "Int",
+   "label": "PSD count"
+  },
+  {
+   "fieldname": "fsd_count",
+   "fieldtype": "Int",
+   "label": "Fsd count"
+  },
+  {
+   "fieldname": "walkin_count",
+   "fieldtype": "Int",
+   "label": "Walk-in count"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-14 09:46:58.093935",
+ "modified_by": "Administrator",
+ "module": "Platform",
+ "name": "Agent Performance",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Telecaller",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

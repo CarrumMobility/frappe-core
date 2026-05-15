@@ -71,7 +71,7 @@
     "fieldname": "dialer_session_idle_time",
     "fieldtype": "Duration",
     "label": "Dialer session idle time"
-  }
+  },
   {
    "fieldname": "dialer_talktime_duration",
    "fieldtype": "Duration",

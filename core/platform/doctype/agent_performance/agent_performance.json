@@ -13,19 +13,22 @@
   "last_heartbeat_time",
   "login_idle_duration",
   "dialer_session_duration",
-  "dialer_ring_duration",
+  "dialer_session_count",
   "dialer_talktime_duration",
   "break_duration",
+  "break_count",
   "click2call_talktime_duration",
   "dispose_duration",
-  "dialer_session_browser_mismatch_duration",
   "click2call_ring_time",
   "total_dialer_connects",
   "total_mannual_attempts",
   "total_mannual_connects",
   "psd_count",
   "fsd_count",
-  "walkin_count"
+  "walkin_count",
+  "today_schedules_followup",
+  "today_scheduled_followup",
+  "today_completed_scheduled_followup"
  ],
  "fields": [
   {
@@ -93,11 +96,6 @@
    "label": "Dispose duration"
   },
   {
-   "fieldname": "dialer_session_browser_mismatch_duration",
-   "fieldtype": "Duration",
-   "label": "Dialer session browser mismatch duration"
-  },
-  {
    "fieldname": "click2call_ring_duration",
    "fieldtype": "Duration",
    "label": "Click2call ring duration"
@@ -143,19 +141,29 @@
     "label": "Hub Name"
   },
   {
-    "fieldname": "today_new_followup_count",
+    "fieldname": "schedules_followup",
     "fieldtype": "Int",
-    "label": "Today new followup count"
+    "label": "Schedules followup"
   },
   {
-    "fieldname": "today_scheduled_followup_count",
+    "fieldname": "scheduled_followup",
     "fieldtype": "Int",
-    "label": "Today scheduled followup count"
+    "label": "Scheduled followup"
   },
   {
-    "fieldname": "today_completed_followup_count",
+    "fieldname": "completed_scheduled_followup",
     "fieldtype": "Int",
-    "label": "Today completed followup count"
+    "label": "Completed scheduled followup"
+  },
+  {
+    "fieldname": "dialer_session_count",
+    "fieldtype": "Int",
+    "label": "Today dialer session count"
+  },
+  {
+    "fieldname": "break_count",
+    "fieldtype": "Int",
+    "label": "Break count"
   }
  ],
  "grid_page_length": 50,

@@ -129,14 +129,30 @@ class AgentPerformanceService:
         )
 
         dialer_talktime_duration = 0
+        total_dialer_connects = 0
+        total_click2call_attempts = 0
+        total_click2call_connects = 0
+        total_unique_attempt_phones = set()
+        total_unique_connect_phones = set()
         click2call_talktime_duration = 0
         click2call_ring_duration = 0
         for call_session in call_sessions:
+            total_unique_attempt_phones.add(call_session.phone_number)
+
+            if call_session.connected_at is not None:
+                total_unique_connect_phones.add(call_session.phone_number)
+
             if call_session.calling_method == "Dialer":
+                total_dialer_connects += 1
                 dialer_talktime_duration += _duration_field_to_seconds(
                     call_session.duration
                 )
+
             else:
+                total_click2call_attempts += 1
+                if call_session.connected_at is not None:
+                    total_click2call_connects += 1
+
                 click2call_talktime_duration += _duration_field_to_seconds(
                     call_session.duration
                 )
@@ -144,20 +160,78 @@ class AgentPerformanceService:
                     call_session.ring_duration
                 )
 
-        session_duration = self._calculate_session_duration(user_id)
-        break_duration = self._calculate_break_duration(user_id)
+        session_duration,dialer_session_count = self._calculate_dialer_session_duration_count(user_id)
+        break_duration, break_count = self._calculate_break_duration_count(user_id)
+        
+        today_schedules_followup = self._calculate_today_schedules_followup_count(user_id)
+        today_scheduled_followup = self._calculate_today_scheduled_followup_count(user_id)
+        today_completed_scheduled_followup = self._calculate_today_completed_scheduled_followup_count(user_id)
 
-        agent_performance_doc.dialer_session_duration = session_duration
         agent_performance_doc.dialer_talktime_duration = dialer_talktime_duration
         agent_performance_doc.click2call_talktime_duration = click2call_talktime_duration
         agent_performance_doc.click2call_ring_duration = click2call_ring_duration
+
+        agent_performance_doc.total_dialer_connects = total_dialer_connects
+        agent_performance_doc.total_click2call_attempts = total_click2call_attempts
+        agent_performance_doc.total_click2call_connects = total_click2call_connects
+        agent_performance_doc.total_unique_attempts = len(total_unique_attempt_phones)
+        agent_performance_doc.total_unique_connects = len(total_unique_connect_phones)
+
+        agent_performance_doc.schedules_followup = today_schedules_followup
+        agent_performance_doc.scheduled_followup = today_scheduled_followup
+        agent_performance_doc.completed_scheduled_followup = today_completed_scheduled_followup
+
+        agent_performance_doc.dialer_session_duration = session_duration
+        agent_performance_doc.dialer_session_count = dialer_session_count
         agent_performance_doc.break_duration = break_duration
+        agent_performance_doc.break_count = break_count
+
         agent_performance_doc.save(ignore_permissions=True)
 
+    def _calculate_today_schedules_followup_count(self, user_id: str) -> int:
+        today = frappe.utils.today()
+        today_midnight = frappe.utils.get_datetime(today)
+        today_end = today_midnight + timedelta(days=1)
+        return frappe.db.count(
+            "Event",
+            filters={
+                "owner": user_id,
+                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
+                "creation": ("between", [today_midnight, today_end]),
+            }
+        )
 
+    def _calculate_today_scheduled_followup_count(self, user_id: str) -> int:
+        today = frappe.utils.today()
+        today_midnight = frappe.utils.get_datetime(today)
+        today_end = today_midnight + timedelta(days=1)
+        return frappe.db.count(
+            "Event",
+            filters={
+                "owner": user_id,
+                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
+                "call_at": ("between", [today_midnight, today_end]),
+                "callback_status": EnumValues.EventCallbackStatus.SCHEDULED
+            }
+        )
 
-    def _calculate_session_duration(self, user_id: str) -> int:
+    def _calculate_today_completed_scheduled_followup_count(self, user_id: str) -> int:
+        today = frappe.utils.today()
+        today_midnight = frappe.utils.get_datetime(today)
+        today_end = today_midnight + timedelta(days=1)
+        return frappe.db.count(
+            "Event",
+            filters={
+                "owner": user_id,
+                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
+                "call_at": ("between", [today_midnight, today_end]),
+                "callback_status": EnumValues.EventCallbackStatus.COMPLETED
+            }
+        )
+
+    def _calculate_dialer_session_duration_count(self, user_id: str) -> tuple[int, int]:
         session_duration = 0
+        session_count = 0
         today = frappe.utils.today()
         now = frappe.utils.now_datetime()
         today_midnight = frappe.utils.get_datetime(today)
@@ -214,10 +288,12 @@ class AgentPerformanceService:
                 duration_seconds = (end_time - start_time).total_seconds()
                 session_duration += max(0, duration_seconds)
 
-        return session_duration
+        session_count = len(all_logs)
+        return session_duration, session_count
 
-    def _calculate_break_duration(self, user_id: str) -> int:
+    def _calculate_break_duration_count(self, user_id: str) -> tuple[int, int]:
         break_duration = 0
+        break_count = 0
         today = frappe.utils.today()
         now = frappe.utils.now_datetime()
         today_midnight = frappe.utils.get_datetime(today)
@@ -271,7 +347,7 @@ class AgentPerformanceService:
                 duration_seconds = (end_time - start_time).total_seconds()
                 break_duration += max(0, duration_seconds)
 
-        return break_duration
+        return break_duration, break_count
 
     def cron_task_update_today_agent_performance_data(self) -> None:
         """Every 5 minutes: ensure today's row exists (idempotent)."""

@@ -131,6 +131,31 @@
    "fieldname": "walkin_count",
    "fieldtype": "Int",
    "label": "Walk-in count"
+  },
+  {
+    "fieldname": "hubId",
+    "fieldtype": "Data",
+    "label": "Hub Id"
+  },
+  {
+    "fieldname": "hubName",
+    "fieldtype": "Data",
+    "label": "Hub Name"
+  },
+  {
+    "fieldname": "today_new_followup_count",
+    "fieldtype": "Int",
+    "label": "Today new followup count"
+  },
+  {
+    "fieldname": "today_scheduled_followup_count",
+    "fieldtype": "Int",
+    "label": "Today scheduled followup count"
+  },
+  {
+    "fieldname": "today_completed_followup_count",
+    "fieldtype": "Int",
+    "label": "Today completed followup count"
   }
  ],
  "grid_page_length": 50,

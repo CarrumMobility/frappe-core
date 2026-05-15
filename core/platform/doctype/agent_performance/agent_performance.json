@@ -10,11 +10,12 @@
   "agent_name",
   "date",
   "login_duration",
+  "last_heartbeat_time",
   "login_idle_duration",
   "dialer_session_duration",
   "dialer_ring_duration",
   "dialer_talktime_duration",
-  "break_talktime_duration",
+  "break_duration",
   "click2call_talktime_duration",
   "dispose_duration",
   "dialer_session_browser_mismatch_duration",
@@ -57,9 +58,9 @@
    "label": "Login duration"
   },
   {
-   "fieldname": "login_idle_duration",
-   "fieldtype": "Duration",
-   "label": "Login idle duration"
+    "fieldname": "last_heartbeat_time",
+    "fieldtype": "Datetime",
+    "label": "Last heartbeat time"
   },
   {
    "fieldname": "dialer_session_duration",
@@ -67,10 +68,10 @@
    "label": "Dialer session duration"
   },
   {
-   "fieldname": "dialer_ring_duration",
-   "fieldtype": "Duration",
-   "label": "Dialer ring duration"
-  },
+    "fieldname": "dialer_session_idle_time",
+    "fieldtype": "Duration",
+    "label": "Dialer session idle time"
+  }
   {
    "fieldname": "dialer_talktime_duration",
    "fieldtype": "Duration",
@@ -97,9 +98,9 @@
    "label": "Dialer session browser mismatch duration"
   },
   {
-   "fieldname": "click2call_ring_time",
+   "fieldname": "click2call_ring_duration",
    "fieldtype": "Duration",
-   "label": "Click2call ring time"
+   "label": "Click2call ring duration"
   },
   {
    "fieldname": "total_dialer_connects",
@@ -107,14 +108,14 @@
    "label": "Total dialer connects"
   },
   {
-   "fieldname": "total_mannual_attempts",
+   "fieldname": "total_manual_attempts",
    "fieldtype": "Int",
-   "label": "Total mannual attempts"
+   "label": "Total manual attempts"
   },
   {
-   "fieldname": "total_mannual_connects",
+   "fieldname": "total_manual_connects",
    "fieldtype": "Int",
-   "label": "Total mannual connects"
+   "label": "Total manual connects"
   },
   {
    "fieldname": "psd_count",

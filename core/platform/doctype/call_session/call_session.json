@@ -24,6 +24,7 @@
         "disposition_remarks",
         "disposition_timing",
         "duration",
+        "ring_duration",
         "hangup_by",
         "hangup_reason",
         "hangup_at",

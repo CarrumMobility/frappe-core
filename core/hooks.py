@@ -155,7 +155,13 @@ scheduler_events = {
 	"hourly_long": [],
 	"monthly_long": [],
 	"cron": {
-		# "*/1 * * * *": [],
+		# every day at IST time 12:05 AM, GMT time 06:35 PM (previous day)
+    	# "35 18 * * *": ["core.services.agent_performance.agent_performance_service.cron_task_update_agent_performance"],
+
+    	# every 5 minutes
+    	"*/5 * * * *": [
+        	"core.services.agent_performance.agent_performance_service.cron_task_update_today_telecaller_agents_performance_5_minute"
+    	],
 	},
 }
 

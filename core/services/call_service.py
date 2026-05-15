@@ -195,6 +195,25 @@ def _duration_seconds_from_value(duration_val):
         return None
 
 
+def _ring_duration_seconds_from_smartflo_agent_ring_time(payload: dict | None):
+    """Parse Smartflo ``agent_ring_time`` into seconds for Call Session ``ring_duration``."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("agent_ring_time")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.startswith("$"):
+        return None
+    try:
+        sec = flt(s)
+    except Exception:
+        return None
+    if sec < 0:
+        return None
+    return sec
+
+
 def _call_session_status_to_ui_bucket(status: str | None) -> str:
     s = (status or "").strip().upper()
     if s == "DISPOSED":
@@ -945,6 +964,9 @@ class CallService:
         recording_url_nc = payload.get("recording_url")
         if recording_url_nc:
             call_session_record.set("recording_url", recording_url_nc)
+        ring_seconds = _ring_duration_seconds_from_smartflo_agent_ring_time(payload)
+        if ring_seconds is not None:
+            call_session_record.set("ring_duration", ring_seconds)
         call_session_record.save(ignore_permissions=True)
 
         lead_for_nc = (call_session_record.get("lead") or "").strip()
@@ -1103,6 +1125,9 @@ class CallService:
         call_session_record.set("recording_url", recording_url)
         if bill_sec is not None:
             call_session_record.set("duration", flt(bill_sec))
+        ring_seconds = _ring_duration_seconds_from_smartflo_agent_ring_time(payload)
+        if ring_seconds is not None:
+            call_session_record.set("ring_duration", ring_seconds)
         if not (call_session_record.get("direction") or "").strip():
             call_session_record.set(
                 "direction",
@@ -1940,6 +1965,7 @@ class CallService:
         )
 
         new_call_session_doc.insert(ignore_permissions=True)
+        
         if direction == EnumValues.CallDirection.OUTBOUND:
             enqueue_complete_callback_followups_for_lead(lead.name)
         frappe.db.commit()

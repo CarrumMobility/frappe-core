@@ -48,6 +48,8 @@ class _ReferenceDocType:
 	CUSTOM_DOC_PERM = "Custom DocPerm"
 	CALL_SESSION = "Call Session"
 	CRM_LEAD_STATUS = "CRM Lead Status"
+	AGENT_PERFORMANCE = "Agent Performance"
+	USER = "User"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'

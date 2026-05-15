@@ -51,6 +51,8 @@ class CallSession(Document):
 		recording_url: DF.LongText | None
 		campaign_name: DF.Data | None
 		campaign_id: DF.Data | None
+		lead_callback_datetime: DF.Datetime | None
+		ring_duration: DF.Duration | None
 	# end: auto-generated types
 
 	@staticmethod

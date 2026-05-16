@@ -169,7 +169,10 @@ class AgentPerformanceService:
 
         agent_performance_doc.dialer_talktime_duration = dialer_talktime_duration
         agent_performance_doc.click2call_talktime_duration = click2call_talktime_duration
-        agent_performance_doc.click2call_ring_duration = click2call_ring_duration
+        if hasattr(agent_performance_doc, "click2call_ring_time"):
+            agent_performance_doc.click2call_ring_time = click2call_ring_duration
+        else:
+            agent_performance_doc.click2call_ring_duration = click2call_ring_duration
 
         agent_performance_doc.total_dialer_connects = total_dialer_connects
         agent_performance_doc.total_click2call_attempts = total_click2call_attempts
@@ -347,6 +350,7 @@ class AgentPerformanceService:
                 duration_seconds = (end_time - start_time).total_seconds()
                 break_duration += max(0, duration_seconds)
 
+        break_count = len(all_logs)
         return break_duration, break_count
 
     def cron_task_update_today_agent_performance_data(self) -> None:
@@ -373,3 +377,6 @@ class AgentPerformanceService:
             self.handle_update_agent_performance_on_heartbeat(doc)
 
 agent_performance_service = AgentPerformanceService()
+
+def cron_task_update_today_telecaller_agents_performance_5_minute():
+    agent_performance_service.cron_task_update_today_telecaller_agents_performance_5_minute()

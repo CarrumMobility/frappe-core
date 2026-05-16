@@ -160,7 +160,7 @@ scheduler_events = {
 
     	# every 5 minutes
     	"*/5 * * * *": [
-        	"core.services.agent_performance.agent_performance_service.cron_task_update_today_telecaller_agents_performance_5_minute"
+        	"core.services.agent_performance.cron_task_update_today_telecaller_agents_performance_5_minute"
     	],
 	},
 }

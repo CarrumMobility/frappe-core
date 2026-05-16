@@ -23,10 +23,15 @@ class AgentPerformance(Document):
 		dialer_session_duration: DF.Duration | None # done capturing
 		dialer_talktime_duration: DF.Duration | None # done capturing
 		dispose_duration: DF.Duration | None
-		fsd_count: DF.Int
-		login_duration: DF.Duration | None # done capturing
-		login_idle_duration: DF.Duration | None # done capturing
+
 		psd_count: DF.Int
+		fsd_count: DF.Int
+
+		new_walkin_schedules: DF.Int
+		scheduled_walkin: DF.Int 
+		completed_scheduled_walkin: DF.Int
+
+		login_duration: DF.Duration | None # done capturing
 
 		total_dialer_connects: DF.Int # done capturing
 		total_click2call_attempts: DF.Int # capturing
@@ -34,11 +39,12 @@ class AgentPerformance(Document):
 
 		total_unique_attempts: DF.Int # capturing
 		total_unique_connects: DF.Int # capturing
+		total_unique_interests: DF.Int 
 
-		walkin_count: DF.Int 
 		schedules_followup: DF.Int # done capturing
 		scheduled_followup: DF.Int # done capturing
 		completed_scheduled_followup: DF.Int # done capturing
+
 		dialer_session_count: DF.Int # done capturing
 		break_count: DF.Int # done capturing
 

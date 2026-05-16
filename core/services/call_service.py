@@ -1547,14 +1547,14 @@ class CallService:
             )
         )
 
-    def start_dialer_session(self, user:str, campaign_id: str):
+    def start_dialer_session(self, user:str, campaign_id: str, campaign_name: str):
         match default_telephony_vendor:
             case "Smartflo":
-                return self._handle_smartflo_start_dialer_session(user,campaign_id)
+                return self._handle_smartflo_start_dialer_session(user,campaign_id, campaign_name)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
-    def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str):
+    def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str, campaign_name: str):
         try:
             # handle dialer login first
             result = smartflo_client.handle_login_session_api(user,campaign_id)
@@ -1594,6 +1594,7 @@ class CallService:
                 "user": user,
                 "status": "ACTIVE",
                 "campaign_id": campaign_id,
+                "campaign_name": campaign_name,
                 "active_at": frappe.utils.now(),
             }
         )
@@ -1665,8 +1666,9 @@ class CallService:
             "reason": None
         }
 
-    def start_dialer_break(self, user: str, break_code: str):
+    def start_dialer_break(self, user: str, break_code: str, break_name: str = ""):
         code = (break_code or "").strip()
+        name = (break_name or "").strip()
         if not code:
             raise ValueError("break_code is required")
 
@@ -1690,6 +1692,7 @@ class CallService:
         doc = frappe.new_doc(self.SESSION_BREAK_LOG_DOCTYPE)
         doc.set("user", user)
         doc.set("break_code", code)
+        doc.set("break_name", name)
         doc.set("start_time", frappe.utils.now())
         doc.set("user_dialer_session_log", data.name)
         doc.insert()
@@ -2373,11 +2376,14 @@ def update_lead_last_call_date_time(doc, method):
         update_modified=False,
     )
 
-def start_dialer_session(user,payload: dict):
-    campaign_id = payload.get("campaign_id")
+def start_dialer_session(user, payload: dict):
+    if not isinstance(payload, dict):
+        payload = {}
+    campaign_id = (payload.get("campaign_id") or "").strip()
     if not campaign_id:
         raise ValueError("campaign_id is required")
-    return _service.start_dialer_session(user,campaign_id)
+    campaign_name = (payload.get("campaign_name") or "").strip()
+    return _service.start_dialer_session(user, campaign_id, campaign_name)
 
 def end_dialer_session(user: str, payload):
     if not isinstance(payload, dict):
@@ -2387,10 +2393,13 @@ def end_dialer_session(user: str, payload):
 
 
 def toggle_dialer_break(user: str, payload: dict):
+    if not isinstance(payload, dict):
+        payload = {}
     break_type = (payload.get("break_type") or "").strip()
     break_code = payload.get("break_code")
     if break_type == "start":
-        return _service.start_dialer_break(user, break_code)
+        break_name = (payload.get("break_name") or "").strip()
+        return _service.start_dialer_break(user, break_code, break_name)
     if break_type == "end":
         return _service.end_dialer_break(user)
     raise ValueError("Invalid break_type; expected 'start' or 'end'")

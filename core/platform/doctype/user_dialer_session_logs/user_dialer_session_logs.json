@@ -6,7 +6,9 @@
  "engine": "InnoDB",
  "field_order": [
   "user",
+  "user_name",
   "campaign_id",
+  "campaign_name",
   "status",
   "active_at",
   "inactive_at",
@@ -27,6 +29,12 @@
    "in_list_view": 1,
    "label": "Campaign id",
    "reqd": 1
+  },
+  {
+   "fieldname": "campaign_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Campaign name"
   },
   {
    "default": "ACTIVE",

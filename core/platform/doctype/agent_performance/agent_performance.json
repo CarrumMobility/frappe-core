@@ -11,7 +11,6 @@
   "date",
   "login_duration",
   "last_heartbeat_time",
-  "login_idle_duration",
   "dialer_session_duration",
   "dialer_session_count",
   "dialer_talktime_duration",
@@ -21,14 +20,19 @@
   "dispose_duration",
   "click2call_ring_time",
   "total_dialer_connects",
-  "total_mannual_attempts",
-  "total_mannual_connects",
+  "total_click2call_attempts",
+  "total_click2call_connects",
+  "total_unique_attempts",
+  "total_unique_connects",
+  "total_unique_interests",
   "psd_count",
   "fsd_count",
-  "walkin_count",
-  "today_schedules_followup",
-  "today_scheduled_followup",
-  "today_completed_scheduled_followup"
+  "new_walkin_schedules",
+  "scheduled_walkin",
+  "completed_scheduled_walkin",
+  "schedules_followup",
+  "scheduled_followup",
+  "completed_scheduled_followup"
  ],
  "fields": [
   {
@@ -96,7 +100,7 @@
    "label": "Dispose duration"
   },
   {
-   "fieldname": "click2call_ring_duration",
+   "fieldname": "click2call_ring_time",
    "fieldtype": "Duration",
    "label": "Click2call ring duration"
   },
@@ -106,12 +110,12 @@
    "label": "Total dialer connects"
   },
   {
-   "fieldname": "total_manual_attempts",
+   "fieldname": "total_click2call_attempts",
    "fieldtype": "Int",
    "label": "Total manual attempts"
   },
   {
-   "fieldname": "total_manual_connects",
+   "fieldname": "total_click2call_connects",
    "fieldtype": "Int",
    "label": "Total manual connects"
   },
@@ -156,6 +160,21 @@
     "label": "Completed scheduled followup"
   },
   {
+    "fieldname": "new_walkin_schedules",
+    "fieldtype": "Int",
+    "label": "New walkin schedules"
+  },
+  {
+    "fieldname": "scheduled_walkin",
+    "fieldtype": "Int",
+    "label": "Scheduled walkin"
+  },
+  {
+    "fieldname": "completed_scheduled_walkin",
+    "fieldtype": "Int",
+    "label": "Completed scheduled walkin"
+  },
+  {
     "fieldname": "dialer_session_count",
     "fieldtype": "Int",
     "label": "Today dialer session count"
@@ -164,6 +183,21 @@
     "fieldname": "break_count",
     "fieldtype": "Int",
     "label": "Break count"
+  },
+  {
+    "fieldname": "total_unique_attempts",
+    "fieldtype": "Int",
+    "label": "Total unique attempts"
+  },
+  {
+    "fieldname": "total_unique_connects",
+    "fieldtype": "Int",
+    "label": "Total unique connects"
+  },
+  {
+    "fieldname": "total_unique_interests",
+    "fieldtype": "Int",
+    "label": "Total unique interests"
   }
  ],
  "grid_page_length": 50,

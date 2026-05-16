@@ -18,6 +18,7 @@ MOCK_AGENTS = [
 ]
 
 AGENT_PERFORMANCE_DOCTYPE = "Agent Performance"
+CALL_SESSION_DOCTYPE = "Call Session"
 
 _PERFORMANCE_FETCH_FIELDS = [
     "name",
@@ -27,20 +28,53 @@ _PERFORMANCE_FETCH_FIELDS = [
     "hubId",
     "hubName",
     "login_duration",
+    "dialer_session_duration",
     "dialer_talktime_duration",
     "click2call_talktime_duration",
     "break_duration",
+    "break_count",
     "dispose_duration",
+    "click2call_ring_time",
     "click2call_ring_duration",
     "total_dialer_connects",
+    "total_click2call_attempts",
+    "total_click2call_connects",
+    "total_unique_attempts",
+    "total_unique_connects",
+    "total_unique_interests",
     "total_manual_attempts",
     "total_manual_connects",
     "total_mannual_attempts",
     "total_mannual_connects",
+    "dialer_session_count",
+    "schedules_followup",
+    "scheduled_followup",
+    "completed_scheduled_followup",
+    "new_walkin_schedules",
+    "scheduled_walkin",
+    "completed_scheduled_walkin",
     "psd_count",
     "fsd_count",
     "walkin_count",
 ]
+
+# Metrics that open the breakup drawer when a value cell is clicked
+CLICKABLE_METRICS = frozenset(
+    {
+        "dialer_session_duration",
+        "break_duration",
+        "total_attempts",
+        "total_connects",
+        "schedules_followup",
+        "followup_done",
+        "new_walkin_schedules",
+        "walkin_done",
+        "psd_count",
+        "fsd_count",
+    }
+)
+
+_PLACEHOLDER_PCT_69 = 69.0
 
 
 def _agent_performance_table_ready() -> bool:
@@ -77,6 +111,11 @@ def _format_doc_date(value) -> str:
 
 def _normalize_db_row(row: dict) -> dict:
     """Map Agent Performance doc row to internal analytics doc (field names used by metrics)."""
+    ring_raw = row.get("click2call_ring_time")
+    if ring_raw is None:
+        ring_raw = row.get("click2call_ring_duration")
+    c2c_attempts = _int_field(row, "total_click2call_attempts")
+    c2c_connects = _int_field(row, "total_click2call_connects")
     return {
         "date": _format_doc_date(row.get("date")),
         "agent_id": (row.get("agent_id") or "").strip(),
@@ -85,25 +124,29 @@ def _normalize_db_row(row: dict) -> dict:
         "hub_name": (row.get("hubName") or "").strip(),
         "city": (row.get("hubName") or "").strip(),
         "login_duration": _duration_to_seconds(row.get("login_duration")),
+        "dialer_session_duration": _duration_to_seconds(row.get("dialer_session_duration")),
         "dialer_talktime_duration": _duration_to_seconds(row.get("dialer_talktime_duration")),
         "click2call_talktime_duration": _duration_to_seconds(row.get("click2call_talktime_duration")),
         "break_duration": _duration_to_seconds(row.get("break_duration")),
+        "break_count": _int_field(row, "break_count"),
         "dispose_duration": _duration_to_seconds(row.get("dispose_duration")),
-        "click2call_ring_duration": _duration_to_seconds(row.get("click2call_ring_duration")),
+        "click2call_ring_time": _duration_to_seconds(ring_raw),
+        "dialer_session_count": _int_field(row, "dialer_session_count"),
         "total_dialer_connects": _int_field(row, "total_dialer_connects"),
-        "total_manual_attempts": _int_field(
-            row,
-            "total_manual_attempts",
-            "total_mannual_attempts",
-        ),
-        "total_manual_connects": _int_field(
-            row,
-            "total_manual_connects",
-            "total_mannual_connects",
-        ),
-        "walkin_count": _int_field(row, "walkin_count"),
+        "total_click2call_attempts": c2c_attempts,
+        "total_click2call_connects": c2c_connects,
+        "total_unique_attempts": _int_field(row, "total_unique_attempts"),
+        "total_unique_connects": _int_field(row, "total_unique_connects"),
+        "total_unique_interests": _int_field(row, "total_unique_interests"),
+        "schedules_followup": _int_field(row, "schedules_followup"),
+        "scheduled_followup": _int_field(row, "scheduled_followup"),
+        "completed_scheduled_followup": _int_field(row, "completed_scheduled_followup"),
+        "new_walkin_schedules": _int_field(row, "new_walkin_schedules"),
+        "scheduled_walkin": _int_field(row, "scheduled_walkin"),
+        "completed_scheduled_walkin": _int_field(row, "completed_scheduled_walkin"),
         "psd_count": _int_field(row, "psd_count"),
         "fsd_count": _int_field(row, "fsd_count"),
+        "walkin_count": _int_field(row, "walkin_count"),
     }
 
 
@@ -399,6 +442,12 @@ MOCK_AGENT_PERFORMANCE_DOCS: list[dict] = []
 for date_idx, base in enumerate(BASE_DOCS_BY_DATE):
     for agent_idx, agent in enumerate(MOCK_AGENTS):
         factor = 0.85 + agent_idx * 0.08 + (date_idx % 3) * 0.03
+        dialer_connects = max(1, round(base["total_dialer_connects"] * factor))
+        c2c_attempts = max(0, round(base.get("total_click2call_attempts", base["total_manual_attempts"]) * factor))
+        c2c_connects = max(0, round(base.get("total_click2call_connects", base["total_manual_connects"]) * factor))
+        unique_connects = max(1, round(c2c_connects * 0.94))
+        unique_attempts = max(1, round((dialer_connects + c2c_attempts) * 0.92))
+        unique_interests = max(0, round(unique_connects * 0.12))
         MOCK_AGENT_PERFORMANCE_DOCS.append(
             {
                 **base,
@@ -406,13 +455,30 @@ for date_idx, base in enumerate(BASE_DOCS_BY_DATE):
                 "agent_name": agent["name"],
                 "city": agent["city"],
                 "login_duration": round(base["login_duration"] * factor),
+                "dialer_session_duration": round(
+                    base.get("dialer_session_duration", base["login_duration"] * 0.6) * factor
+                ),
                 "dialer_talktime_duration": round(base["dialer_talktime_duration"] * factor),
+                "click2call_talktime_duration": round(base.get("click2call_talktime_duration", 0) * factor),
                 "break_duration": round(base["break_duration"] * factor),
+                "break_count": max(1, round(3 + agent_idx + date_idx % 2)),
                 "dispose_duration": round(base["dispose_duration"] * factor),
-                "click2call_ring_duration": round(base["click2call_ring_duration"] * factor),
-                "total_dialer_connects": max(1, round(base["total_dialer_connects"] * factor)),
-                "total_manual_attempts": max(0, round(base["total_manual_attempts"] * factor)),
-                "total_manual_connects": max(0, round(base["total_manual_connects"] * factor)),
+                "click2call_ring_time": round(
+                    base.get("click2call_ring_time", base.get("click2call_ring_duration", 0)) * factor
+                ),
+                "dialer_session_count": max(1, round(2 + agent_idx)),
+                "total_dialer_connects": dialer_connects,
+                "total_click2call_attempts": c2c_attempts,
+                "total_click2call_connects": c2c_connects,
+                "total_unique_attempts": unique_attempts,
+                "total_unique_connects": unique_connects,
+                "total_unique_interests": unique_interests,
+                "schedules_followup": max(0, round(4 + date_idx % 3)),
+                "scheduled_followup": max(0, round(3 + agent_idx)),
+                "completed_scheduled_followup": max(0, round(2 + date_idx % 2)),
+                "new_walkin_schedules": max(0, round(base.get("walkin_count", 0) + 1)),
+                "scheduled_walkin": max(0, round(2 + agent_idx)),
+                "completed_scheduled_walkin": max(0, round(1 + date_idx % 2)),
                 "walkin_count": max(0, round(base["walkin_count"] * factor)),
                 "psd_count": max(0, round(base["psd_count"] * factor)),
                 "fsd_count": max(0, round(base["fsd_count"] * factor)),
@@ -466,17 +532,53 @@ def _parse_agent_ids(agent_ids) -> list[str]:
     return []
 
 
-def _format_cell_value(value, fmt: str) -> str:
+def _is_empty_metric_value(value, fmt: str) -> bool:
+    """True when the cell should show '—' and must not open breakup."""
     if value is None or value == "":
+        return True
+    if fmt == "number":
+        return int(flt(value) or 0) == 0
+    if fmt == "duration":
+        return _duration_to_seconds(value) == 0
+    if fmt == "duration_with_count":
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return int(value[1] or 0) == 0
+        return _duration_to_seconds(value) == 0
+    if fmt == "percent":
+        return float(value or 0) == 0
+    if fmt == "ratio":
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            return int(value[0] or 0) == 0 and int(value[1] or 0) == 0
+        return False
+    if fmt == "text":
+        return not str(value).strip()
+    return str(value).strip() in ("0", "0.0", "00:00:00")
+
+
+def _format_cell_value(value, fmt: str) -> str:
+    if _is_empty_metric_value(value, fmt):
         return "—"
     if fmt == "duration":
+        return _format_duration(value)
+    if fmt == "duration_with_count":
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            duration_sec, count = value[0], value[1]
+            return f"{_format_duration(duration_sec)} ({int(count or 0)})"
         return _format_duration(value)
     if fmt == "percent":
         n = float(value)
         rounded = round(n * 10) / 10
         text = f"{int(rounded)}" if rounded % 1 == 0 else f"{rounded:.1f}"
         return f"{text}%"
+    if fmt == "ratio":
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            return f"{value[0]}/{value[1]}"
+        return str(value)
     return str(value)
+
+
+def _ratio_pair(doc: dict, num_key: str, den_key: str) -> tuple[int, int]:
+    return (_int_field(doc, num_key), _int_field(doc, den_key))
 
 
 def _bucket_key(iso_date: str, granularity: str) -> str:
@@ -503,6 +605,37 @@ def _format_bucket_label(bucket_key: str, granularity: str) -> str:
     return bucket_key
 
 
+_DURATION_AVG_KEYS = (
+    "login_duration",
+    "dialer_session_duration",
+    "dialer_talktime_duration",
+    "click2call_talktime_duration",
+    "break_duration",
+    "dispose_duration",
+    "click2call_ring_time",
+)
+
+_COUNT_SUM_KEYS = (
+    "total_dialer_connects",
+    "total_click2call_attempts",
+    "total_click2call_connects",
+    "total_unique_attempts",
+    "total_unique_connects",
+    "total_unique_interests",
+    "schedules_followup",
+    "scheduled_followup",
+    "completed_scheduled_followup",
+    "new_walkin_schedules",
+    "scheduled_walkin",
+    "completed_scheduled_walkin",
+    "psd_count",
+    "fsd_count",
+    "walkin_count",
+)
+
+_COUNT_AVG_KEYS = ("dialer_session_count", "break_count")
+
+
 def _merge_docs(docs: list[dict]) -> dict:
     if not docs:
         return {}
@@ -512,37 +645,17 @@ def _merge_docs(docs: list[dict]) -> dict:
     merged = dict(docs[0])
     count = len(docs)
     for doc in docs[1:]:
-        merged["login_duration"] = merged.get("login_duration", 0) + doc.get("login_duration", 0)
-        merged["dialer_talktime_duration"] = merged.get("dialer_talktime_duration", 0) + doc.get(
-            "dialer_talktime_duration", 0
-        )
-        merged["click2call_talktime_duration"] = merged.get("click2call_talktime_duration", 0) + doc.get(
-            "click2call_talktime_duration", 0
-        )
-        merged["break_duration"] = merged.get("break_duration", 0) + doc.get("break_duration", 0)
-        merged["dispose_duration"] = merged.get("dispose_duration", 0) + doc.get("dispose_duration", 0)
-        merged["click2call_ring_duration"] = merged.get("click2call_ring_duration", 0) + doc.get(
-            "click2call_ring_duration", 0
-        )
-        merged["total_dialer_connects"] = merged.get("total_dialer_connects", 0) + doc.get(
-            "total_dialer_connects", 0
-        )
-        merged["total_manual_attempts"] = merged.get("total_manual_attempts", 0) + doc.get(
-            "total_manual_attempts", 0
-        )
-        merged["total_manual_connects"] = merged.get("total_manual_connects", 0) + doc.get(
-            "total_manual_connects", 0
-        )
-        merged["walkin_count"] = merged.get("walkin_count", 0) + doc.get("walkin_count", 0)
-        merged["psd_count"] = merged.get("psd_count", 0) + doc.get("psd_count", 0)
-        merged["fsd_count"] = merged.get("fsd_count", 0) + doc.get("fsd_count", 0)
+        for key in _DURATION_AVG_KEYS:
+            merged[key] = merged.get(key, 0) + doc.get(key, 0)
+        for key in _COUNT_SUM_KEYS:
+            merged[key] = merged.get(key, 0) + doc.get(key, 0)
+        for key in _COUNT_AVG_KEYS:
+            merged[key] = merged.get(key, 0) + doc.get(key, 0)
 
-    merged["login_duration"] = round(merged["login_duration"] / count)
-    merged["dialer_talktime_duration"] = round(merged["dialer_talktime_duration"] / count)
-    merged["click2call_talktime_duration"] = round(merged["click2call_talktime_duration"] / count)
-    merged["break_duration"] = round(merged["break_duration"] / count)
-    merged["dispose_duration"] = round(merged["dispose_duration"] / count)
-    merged["click2call_ring_duration"] = round(merged["click2call_ring_duration"] / count)
+    for key in _DURATION_AVG_KEYS:
+        merged[key] = round(merged.get(key, 0) / count)
+    for key in _COUNT_AVG_KEYS:
+        merged[key] = round(merged.get(key, 0) / count)
     return merged
 
 
@@ -563,37 +676,80 @@ def _bucket_agent_docs(agent_docs: list[dict], granularity: str) -> list[tuple[s
     return result
 
 
+def _talktime_seconds(d: dict) -> int:
+    return (d.get("dialer_talktime_duration") or 0) + (d.get("click2call_talktime_duration") or 0)
+
+
+def _total_connects(d: dict) -> int:
+    return (d.get("total_dialer_connects") or 0) + (d.get("total_click2call_connects") or 0)
+
+
+def _total_attempts(d: dict) -> int:
+    return (d.get("total_dialer_connects") or 0) + (d.get("total_click2call_attempts") or 0)
+
+
+def _interest_pct(d: dict) -> float:
+    interests = d.get("total_unique_interests") or 0
+    connects = d.get("total_unique_connects") or 0
+    if not connects:
+        return 0.0
+    return (interests / connects) * 100
+
+
 def _metric_definitions():
+    def _sep(name: str):
+        return {
+            "metric_name": name,
+            "label": "",
+            "row_type": "separator",
+            "group": "separator",
+            "format": "text",
+            "section_end": True,
+        }
+
     return [
         {
             "metric_name": "login_duration",
             "label": "Avg daily login",
             "group": "time_metrics",
             "format": "duration",
-            "section_end": False,
             "get_value": lambda d: d.get("login_duration"),
         },
         {
-            "metric_name": "dialer_talktime_duration",
+            "metric_name": "dialer_session_duration",
+            "label": "Avg dialer session duration",
+            "group": "time_metrics",
+            "format": "duration_with_count",
+            "clickable": True,
+            "get_value": lambda d: (
+                d.get("dialer_session_duration") or 0,
+                d.get("dialer_session_count") or 0,
+            ),
+        },
+        {
+            "metric_name": "talktime",
             "label": "Avg daily talktime",
             "group": "time_metrics",
             "format": "duration",
-            "get_value": lambda d: (d.get("dialer_talktime_duration") or 0)
-            + (d.get("click2call_talktime_duration") or 0),
+            "get_value": _talktime_seconds,
         },
         {
             "metric_name": "break_duration",
             "label": "Avg daily pause",
             "group": "time_metrics",
-            "format": "duration",
-            "get_value": lambda d: d.get("break_duration"),
+            "format": "duration_with_count",
+            "clickable": True,
+            "get_value": lambda d: (
+                d.get("break_duration") or 0,
+                d.get("break_count") or 0,
+            ),
         },
         {
-            "metric_name": "click2call_ring_duration",
+            "metric_name": "click2call_ring_time",
             "label": "Avg daily ring",
             "group": "time_metrics",
             "format": "duration",
-            "get_value": lambda d: d.get("click2call_ring_duration"),
+            "get_value": lambda d: d.get("click2call_ring_time"),
         },
         {
             "metric_name": "dispose_duration",
@@ -609,104 +765,60 @@ def _metric_definitions():
             "format": "duration",
             "section_end": True,
             "get_value": lambda d: (
-                round(
-                    (
-                        (d.get("dialer_talktime_duration") or 0)
-                        + (d.get("click2call_talktime_duration") or 0)
-                    )
-                    / (
-                        (d.get("total_dialer_connects") or 0)
-                        + (d.get("total_manual_connects") or 0)
-                    )
-                )
-                if (d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)
-                else 0
+                round(_talktime_seconds(d) / _total_connects(d)) if _total_connects(d) else 0
             ),
         },
+        _sep("_separator_attempts"),
         {
             "metric_name": "total_attempts",
             "label": "Total attempts",
             "group": "attempt_metrics",
             "format": "number",
-            "get_value": lambda d: (d.get("total_dialer_connects") or 0)
-            + (d.get("total_manual_attempts") or 0),
+            "clickable": True,
+            "get_value": _total_attempts,
         },
         {
             "metric_name": "unique_attempts",
             "label": "Unique attempts",
             "group": "attempt_metrics",
             "format": "number",
-            "get_value": lambda d: round(
-                ((d.get("total_dialer_connects") or 0) + (d.get("total_manual_attempts") or 0)) * 0.92
-            ),
+            "get_value": lambda d: d.get("total_unique_attempts") or 0,
         },
         {
             "metric_name": "total_connects",
             "label": "Total connects",
             "group": "attempt_metrics",
             "format": "number",
-            "get_value": lambda d: (d.get("total_dialer_connects") or 0)
-            + (d.get("total_manual_connects") or 0),
+            "clickable": True,
+            "get_value": _total_connects,
         },
         {
             "metric_name": "unique_connects",
             "label": "Unique connects",
             "group": "attempt_metrics",
             "format": "number",
-            "get_value": lambda d: round(
-                ((d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)) * 0.94
-            ),
+            "get_value": lambda d: d.get("total_unique_connects") or 0,
         },
         {
             "metric_name": "unique_interests",
             "label": "Unique interests",
             "group": "conversion_metrics",
             "format": "number",
-            "get_value": lambda d: max(
-                0,
-                round(
-                    ((d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)) * 0.12
-                ),
-            ),
+            "get_value": lambda d: d.get("total_unique_interests") or 0,
         },
         {
             "metric_name": "interest_pct",
             "label": "Interest %",
             "group": "conversion_metrics",
             "format": "percent",
-            "get_value": lambda d: (
-                (
-                    max(
-                        0,
-                        round(
-                            (
-                                (d.get("total_dialer_connects") or 0)
-                                + (d.get("total_manual_connects") or 0)
-                            )
-                            * 0.12
-                        ),
-                    )
-                    / (
-                        (d.get("total_dialer_connects") or 0)
-                        + (d.get("total_manual_connects") or 0)
-                    )
-                    * 100
-                )
-                if (d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)
-                else 0
-            ),
+            "get_value": _interest_pct,
         },
         {
-            "metric_name": "unique_date_confirm",
-            "label": "Unique date confirm",
+            "metric_name": "unique_date_confirm_pct",
+            "label": "Unique date confirm %",
             "group": "conversion_metrics",
-            "format": "number",
-            "get_value": lambda d: max(
-                0,
-                round(
-                    ((d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)) * 0.05
-                ),
-            ),
+            "format": "percent",
+            "get_value": lambda d: _PLACEHOLDER_PCT_69,
         },
         {
             "metric_name": "date_confirm_pct",
@@ -714,47 +826,59 @@ def _metric_definitions():
             "group": "conversion_metrics",
             "format": "percent",
             "section_end": True,
-            "get_value": lambda d: (
-                (
-                    max(
-                        0,
-                        round(
-                            (
-                                (d.get("total_dialer_connects") or 0)
-                                + (d.get("total_manual_connects") or 0)
-                            )
-                            * 0.05
-                        ),
-                    )
-                    / (
-                        (d.get("total_dialer_connects") or 0)
-                        + (d.get("total_manual_connects") or 0)
-                    )
-                    * 100
-                )
-                if (d.get("total_dialer_connects") or 0) + (d.get("total_manual_connects") or 0)
-                else 0
+            "get_value": lambda d: _PLACEHOLDER_PCT_69,
+        },
+        _sep("_separator_schedules"),
+        {
+            "metric_name": "schedules_followup",
+            "label": "New followup schedules",
+            "group": "schedule_metrics",
+            "format": "number",
+            "clickable": True,
+            "get_value": lambda d: d.get("schedules_followup") or 0,
+        },
+        {
+            "metric_name": "followup_done",
+            "label": "Followup done",
+            "group": "schedule_metrics",
+            "format": "ratio",
+            "clickable": True,
+            "get_value": lambda d: _ratio_pair(
+                d, "completed_scheduled_followup", "scheduled_followup"
             ),
         },
         {
-            "metric_name": "walkin_count",
-            "label": "Walk-in done",
-            "group": "walkin_metrics",
+            "metric_name": "new_walkin_schedules",
+            "label": "New walkin schedules",
+            "group": "schedule_metrics",
             "format": "number",
-            "get_value": lambda d: d.get("walkin_count") or 0,
+            "clickable": True,
+            "get_value": lambda d: d.get("new_walkin_schedules") or 0,
+        },
+        {
+            "metric_name": "walkin_done",
+            "label": "Walkin done",
+            "group": "schedule_metrics",
+            "format": "ratio",
+            "clickable": True,
+            "get_value": lambda d: _ratio_pair(
+                d, "completed_scheduled_walkin", "scheduled_walkin"
+            ),
         },
         {
             "metric_name": "psd_count",
             "label": "PSD count",
-            "group": "psd_metrics",
+            "group": "schedule_metrics",
             "format": "number",
+            "clickable": True,
             "get_value": lambda d: d.get("psd_count") or 0,
         },
         {
             "metric_name": "fsd_count",
             "label": "FSD count",
-            "group": "psd_metrics",
+            "group": "schedule_metrics",
             "format": "number",
+            "clickable": True,
             "get_value": lambda d: d.get("fsd_count") or 0,
         },
         {
@@ -762,22 +886,7 @@ def _metric_definitions():
             "label": "Interest to PSD %",
             "group": "conversion_metrics",
             "format": "percent",
-            "get_value": lambda d: (
-                ((d.get("psd_count") or 0) / interests * 100)
-                if (
-                    interests := max(
-                        0,
-                        round(
-                            (
-                                (d.get("total_dialer_connects") or 0)
-                                + (d.get("total_manual_connects") or 0)
-                            )
-                            * 0.12
-                        ),
-                    )
-                )
-                else 0
-            ),
+            "get_value": lambda d: _PLACEHOLDER_PCT_69,
         },
     ]
 
@@ -809,18 +918,42 @@ def build_analytics_payload(
     show_agent_header = len(agents) != 1
 
     rows = []
+    col_count = len(column_docs)
     for definition in _metric_definitions():
+        row_type = definition.get("row_type") or "metric"
+        if row_type == "separator":
+            rows.append(
+                {
+                    "metric_name": definition["metric_name"],
+                    "label": definition.get("label") or "",
+                    "group": definition["group"],
+                    "format": definition["format"],
+                    "row_type": "separator",
+                    "section_end": bool(definition.get("section_end")),
+                    "clickable": False,
+                    "values": [""] * col_count,
+                }
+            )
+            continue
+
+        metric_name = definition["metric_name"]
+        fmt = definition["format"]
+        clickable = bool(definition.get("clickable")) or metric_name in CLICKABLE_METRICS
+        raw_values = [definition["get_value"](doc) for doc in column_docs]
+        clickable_cells = [
+            clickable and not _is_empty_metric_value(raw, fmt) for raw in raw_values
+        ]
         rows.append(
             {
-                "metric_name": definition["metric_name"],
+                "metric_name": metric_name,
                 "label": definition["label"],
                 "group": definition["group"],
-                "format": definition["format"],
+                "format": fmt,
+                "row_type": "metric",
                 "section_end": bool(definition.get("section_end")),
-                "values": [
-                    _format_cell_value(definition["get_value"](doc), definition["format"])
-                    for doc in column_docs
-                ],
+                "clickable": clickable,
+                "clickable_cells": clickable_cells,
+                "values": [_format_cell_value(raw, fmt) for raw in raw_values],
             }
         )
 
@@ -834,7 +967,7 @@ def build_analytics_payload(
     }
 
 
-def _pause_log_day_span(period_key: str, granularity: str) -> tuple[datetime.date, datetime.date]:
+def _period_key_date_span(period_key: str, granularity: str) -> tuple[datetime.date, datetime.date]:
     """Inclusive date range for filtering mock pause rows to a dashboard column bucket."""
     granularity = _normalize_granularity(granularity)
     pk = str(period_key).strip()
@@ -855,63 +988,513 @@ def _pause_log_day_span(period_key: str, granularity: str) -> tuple[datetime.dat
     return start, start
 
 
-def get_agent_pause_break_logs(
-    agent_id: str,
-    period_key: str,
-    granularity: str = "day_wise",
-) -> list[dict]:
-    """
-    Return pause/break intervals for the drawer when drilling into Avg daily pause.
-    Mock rows until this is wired to User dialer session break logs (or live SQL).
-    Each item: start_time, end_time, user, user_dialer_session_log.
-    """
-    agent_id = (agent_id or "").strip()
-    period_key = (period_key or "").strip()
-    if not agent_id or not period_key:
-        return []
-
+def _resolve_breakup_date_span(
+    *,
+    from_date: str | None,
+    to_date: str | None,
+    period_key: str | None,
+    granularity: str,
+) -> tuple[str, str] | None:
+    """Return inclusive ISO date bounds for breakup queries."""
     granularity = _normalize_granularity(granularity)
-    try:
-        span_start, span_end = _pause_log_day_span(period_key, granularity)
-    except ValueError:
+    if period_key:
+        try:
+            span_start, span_end = _period_key_date_span(period_key, granularity)
+            return span_start.isoformat(), span_end.isoformat()
+        except ValueError:
+            pass
+    fd = (from_date or "").strip()[:10]
+    td = (to_date or "").strip()[:10]
+    if fd and td:
+        return fd, td
+    if fd:
+        return fd, fd
+    return None
+
+
+def _breakup_datetime_bounds(from_date: str, to_date: str) -> tuple[str, str]:
+    return f"{from_date} 00:00:00", f"{to_date} 23:59:59.999999"
+
+
+def _valid_doctype_fields(doctype: str, fieldnames: list[str]) -> list[str]:
+    if not frappe.db.exists("DocType", doctype):
+        return []
+    valid = set(frappe.get_meta(doctype).get_valid_columns())
+    out = ["name"]
+    for f in fieldnames:
+        if f in valid and f not in out:
+            out.append(f)
+    return out
+
+
+def _call_session_connected_field() -> str:
+    if frappe.db.has_column(CALL_SESSION_DOCTYPE, "connected_at"):
+        return "connected_at"
+    return "lead_answered_at"
+
+
+def _call_session_breakup_fields() -> list[str]:
+    connected = _call_session_connected_field()
+    return [
+        "calling_method",
+        "direction",
+        "lead",
+        "status",
+        "duration",
+        "disposition_status",
+        "sub_disposition_status",
+        "disposition_remarks",
+        "creation",
+        connected,
+    ]
+
+
+def _fetch_call_sessions_breakup(
+    agent_ids: list[str],
+    from_date: str,
+    to_date: str,
+    *,
+    mode: str,
+) -> list[dict]:
+    """Load Call Session rows for total_attempts / total_connects breakup."""
+    if not agent_ids or not frappe.db.exists("DocType", CALL_SESSION_DOCTYPE):
         return []
 
-    seed = int(hashlib.md5(f"{agent_id}:{period_key}:{granularity}".encode()).hexdigest()[:12], 16)
-    rnd = random.Random(seed)
-    n_breaks = rnd.randint(2, 5)
-    total_days = (span_end - span_start).days + 1
+    from frappe.query_builder import DocType
+    from frappe.query_builder.functions import Coalesce
 
-    rows: list[dict] = []
-    alias = (agent_id.split("@")[0] or "AGT")[:6].upper()
+    connected_field = _call_session_connected_field()
+    start_dt, end_dt = _breakup_datetime_bounds(from_date, to_date)
+    fieldnames = _call_session_breakup_fields()
+    fetch_fields = _valid_doctype_fields(CALL_SESSION_DOCTYPE, fieldnames)
+    if not fetch_fields:
+        return []
 
-    for i in range(n_breaks):
-        day_off = rnd.randint(0, max(0, total_days - 1))
-        day = span_start + timedelta(days=day_off)
-        hour = rnd.randint(9, 17)
-        minute = rnd.choice([0, 5, 10, 15, 20, 30, 40, 45])
-        second = rnd.choice([0, 15, 30])
-        start_dt = datetime.combine(day, datetime.min.time()).replace(
-            hour=hour,
-            minute=minute,
-            second=second,
+    CS = DocType(CALL_SESSION_DOCTYPE)
+    connected_col = getattr(CS, connected_field, None)
+    if connected_col is None:
+        return []
+
+    select_cols = [CS.name]
+    for f in fetch_fields:
+        if f == "name":
+            continue
+        col = getattr(CS, f, None)
+        if col is not None:
+            select_cols.append(col)
+
+    date_expr = Coalesce(connected_col, CS.creation)
+
+    def _run_query(extra_filters: list) -> list:
+        q = (
+            frappe.qb.from_(CS)
+            .select(*select_cols)
+            .where(CS.agent.isin(agent_ids))
+            .where(date_expr >= start_dt)
+            .where(date_expr <= end_dt)
         )
-        duration_mins = rnd.randint(3, 28)
-        end_dt = start_dt + timedelta(minutes=duration_mins)
+        for cond in extra_filters:
+            q = q.where(cond)
+        return q.orderby(date_expr, order=frappe.qb.desc).run(as_dict=True)
 
-        sess = f"DSL-{alias}-{seed % 9000 + 1000}-{i}"
+    raw_rows: list[dict] = []
+    if mode == "attempts":
+        dialer_rows = _run_query(
+            [
+                CS.calling_method == "Dialer",
+                connected_col.isnotnull(),
+            ]
+        )
+        c2c_rows = _run_query([CS.calling_method == "Click2Call"])
+        by_name = {r["name"]: r for r in dialer_rows + c2c_rows}
+        raw_rows = list(by_name.values())
+    elif mode == "connects":
+        raw_rows = _run_query([connected_col.isnotnull()])
+    else:
+        return []
 
-        rows.append(
+    raw_rows.sort(
+        key=lambda r: str(r.get(connected_field) or r.get("creation") or ""),
+        reverse=True,
+    )
+
+    out = []
+    for row in raw_rows:
+        serialized = _serialize_breakup_row(row, fetch_fields)
+        date_raw = serialized.get(connected_field) or serialized.get("creation") or ""
+        out.append(
             {
-                "name": f"BREAK-{alias}-{seed % 10000}-{i}",
-                "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "user": agent_id,
-                "user_dialer_session_log": sess,
+                "call_id": serialized.get("name") or "",
+                "date": date_raw,
+                "direction": serialized.get("direction") or "",
+                "lead_id": serialized.get("lead") or "",
+                "status": serialized.get("status") or "",
+                "duration": _format_duration(_duration_to_seconds(serialized.get("duration"))),
+                "primary_status": serialized.get("disposition_status") or "",
+                "secondary_status": serialized.get("sub_disposition_status") or "",
+                "disposition_remarks": serialized.get("disposition_remarks") or "",
             }
         )
+    return out
 
-    rows.sort(key=lambda r: r["start_time"])
+
+def _serialize_breakup_row(row, fields: list[str]) -> dict:
+    data = {}
+    for f in fields:
+        val = getattr(row, f, None)
+        if val is None:
+            data[f] = ""
+        elif isinstance(val, datetime):
+            data[f] = val.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(val, "date") and hasattr(val, "strftime"):
+            data[f] = val.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            data[f] = str(val)
+    return data
+
+
+def _fetch_logs_overlapping_period(
+    doctype: str,
+    *,
+    agent_ids: list[str],
+    from_date: str,
+    to_date: str,
+    start_field: str,
+    end_field: str,
+    fields: list[str],
+    order_by: str,
+) -> list:
+    """Rows overlapping [from_date, to_date] (same pattern as agent_performance service)."""
+    if not agent_ids or not frappe.db.exists("DocType", doctype):
+        return []
+
+    fetch_fields = _valid_doctype_fields(doctype, fields)
+    if not fetch_fields:
+        return []
+
+    start_dt, end_dt = _breakup_datetime_bounds(from_date, to_date)
+    user_filter = {"user": ("in", agent_ids)}
+
+    started_in_period = frappe.get_all(
+        doctype,
+        filters={**user_filter, start_field: ("between", [start_dt, end_dt])},
+        fields=fetch_fields,
+        limit_page_length=0,
+    )
+
+    still_open = frappe.get_all(
+        doctype,
+        filters={
+            **user_filter,
+            start_field: ("<", start_dt),
+            end_field: ("is", "not set"),
+        },
+        fields=fetch_fields,
+        limit_page_length=0,
+    )
+
+    ended_in_period = frappe.get_all(
+        doctype,
+        filters={
+            **user_filter,
+            start_field: ("<", start_dt),
+            end_field: ("between", [start_dt, end_dt]),
+        },
+        fields=fetch_fields,
+        limit_page_length=0,
+    )
+
+    by_name: dict[str, object] = {}
+    for row in started_in_period + still_open + ended_in_period:
+        by_name[row.name] = row
+
+    rows = list(by_name.values())
+    if order_by:
+        rows.sort(key=lambda r: getattr(r, start_field, None) or "", reverse=True)
     return rows
+
+
+def _user_display_name_map(user_ids: list[str]) -> dict[str, str]:
+    ids = list({u for u in user_ids if u})
+    if not ids:
+        return {}
+    rows = frappe.get_all(
+        "User",
+        filters={"name": ("in", ids)},
+        fields=["name", "full_name"],
+        limit_page_length=0,
+    )
+    return {r.name: ((r.full_name or "").strip() or r.name) for r in (rows or [])}
+
+
+def _fetch_break_logs_from_db(agent_ids: list[str], from_date: str, to_date: str) -> list[dict]:
+    doctype = "User dialer session break logs"
+    fieldnames = ["break_name", "start_time", "end_time", "user"]
+    fetch_fields = _valid_doctype_fields(doctype, fieldnames)
+    raw = _fetch_logs_overlapping_period(
+        doctype,
+        agent_ids=agent_ids,
+        from_date=from_date,
+        to_date=to_date,
+        start_field="start_time",
+        end_field="end_time",
+        fields=fieldnames,
+        order_by="start_time desc",
+    )
+    serialized = [_serialize_breakup_row(r, fetch_fields) for r in raw]
+    name_map = _user_display_name_map([row.get("user") for row in serialized])
+    return [
+        {
+            "id": row.get("name") or "",
+            "user": name_map.get(row.get("user") or "", row.get("user") or ""),
+            "break_name": row.get("break_name") or "",
+            "start_time": row.get("start_time") or "",
+            "end_time": row.get("end_time") or "",
+        }
+        for row in serialized
+    ]
+
+
+def _fetch_dialer_sessions_from_db(agent_ids: list[str], from_date: str, to_date: str) -> list[dict]:
+    doctype = "User dialer session logs"
+    fieldnames = [
+        "user",
+        "campaign_id",
+        "campaign_name",
+        "active_at",
+        "inactive_at",
+        "inactive_reason",
+    ]
+    fetch_fields = _valid_doctype_fields(doctype, fieldnames)
+    raw = _fetch_logs_overlapping_period(
+        doctype,
+        agent_ids=agent_ids,
+        from_date=from_date,
+        to_date=to_date,
+        start_field="active_at",
+        end_field="inactive_at",
+        fields=fieldnames,
+        order_by="active_at desc",
+    )
+    serialized = [_serialize_breakup_row(r, fetch_fields) for r in raw]
+    name_map = _user_display_name_map([row.get("user") for row in serialized])
+    rows = []
+    for row in serialized:
+        campaign = (row.get("campaign_name") or row.get("campaign_id") or "").strip()
+        rows.append(
+            {
+                "id": row.get("name") or "",
+                "user": name_map.get(row.get("user") or "", row.get("user") or ""),
+                "campaign": campaign,
+                "active_at": row.get("active_at") or "",
+                "inactive_at": row.get("inactive_at") or "",
+                "inactive_reason": row.get("inactive_reason") or "",
+            }
+        )
+    return rows
+
+
+def _mock_breakup_rows(
+    metric_name: str,
+    agent_ids: list[str],
+    from_date: str,
+    to_date: str,
+) -> list[dict]:
+    seed = int(
+        hashlib.md5(f"{metric_name}:{','.join(agent_ids)}:{from_date}:{to_date}".encode()).hexdigest()[
+            :12
+        ],
+        16,
+    )
+    rnd = random.Random(seed)
+    agent_id = agent_ids[0] if agent_ids else ""
+    alias = (agent_id.split("@")[0] or "AGT")[:6].upper()
+    n = rnd.randint(2, 6)
+    rows = []
+    for i in range(n):
+        if metric_name == "break_count":
+            start_dt = datetime.strptime(from_date, "%Y-%m-%d") + timedelta(
+                hours=rnd.randint(9, 17), minutes=rnd.randint(0, 55)
+            )
+            end_dt = start_dt + timedelta(minutes=rnd.randint(3, 25))
+            rows.append(
+                {
+                    "name": f"BREAK-{alias}-{i}",
+                    "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "user": agent_id,
+                    "user_dialer_session_log": f"DSL-{alias}-{i}",
+                    "break_code": rnd.choice(["LUNCH", "BIO", "TEA"]),
+                }
+            )
+        elif metric_name == "dialer_session_count":
+            start_dt = datetime.strptime(from_date, "%Y-%m-%d") + timedelta(
+                hours=rnd.randint(8, 16), minutes=rnd.randint(0, 55)
+            )
+            end_dt = start_dt + timedelta(hours=rnd.randint(1, 4))
+            rows.append(
+                {
+                    "name": f"DSL-{alias}-{i}",
+                    "user": agent_id,
+                    "campaign_id": f"CAMP-{rnd.randint(100, 999)}",
+                    "status": rnd.choice(["ACTIVE", "INACTIVE"]),
+                    "active_at": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "inactive_at": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "name": f"ROW-{metric_name}-{alias}-{i}",
+                    "agent": agent_id,
+                    "date": from_date,
+                    "detail": f"{metric_name} record {i + 1}",
+                    "value": rnd.randint(1, 50),
+                }
+            )
+    return rows
+
+
+_BREAKUP_COLUMNS: dict[str, list[dict]] = {
+    "break_duration": [
+        {"key": "id", "label": "ID"},
+        {"key": "user", "label": "User"},
+        {"key": "break_name", "label": "Break name"},
+        {"key": "start_time", "label": "Start time"},
+        {"key": "end_time", "label": "End time"},
+    ],
+    "break_count": [
+        {"key": "id", "label": "ID"},
+        {"key": "user", "label": "User"},
+        {"key": "break_name", "label": "Break name"},
+        {"key": "start_time", "label": "Start time"},
+        {"key": "end_time", "label": "End time"},
+    ],
+    "dialer_session_duration": [
+        {"key": "id", "label": "ID"},
+        {"key": "user", "label": "User"},
+        {"key": "campaign", "label": "Campaign"},
+        {"key": "active_at", "label": "Active at"},
+        {"key": "inactive_at", "label": "Inactive at"},
+        {"key": "inactive_reason", "label": "Inactive reason"},
+    ],
+    "dialer_session_count": [
+        {"key": "id", "label": "ID"},
+        {"key": "user", "label": "User"},
+        {"key": "campaign", "label": "Campaign"},
+        {"key": "active_at", "label": "Active at"},
+        {"key": "inactive_at", "label": "Inactive at"},
+        {"key": "inactive_reason", "label": "Inactive reason"},
+    ],
+    "total_attempts": [
+        {"key": "call_id", "label": "Call id"},
+        {"key": "date", "label": "Date"},
+        {"key": "direction", "label": "Direction"},
+        {"key": "lead_id", "label": "Lead id", "link_doctype": "CRM Lead"},
+        {"key": "status", "label": "Status"},
+        {"key": "duration", "label": "Duration"},
+        {"key": "primary_status", "label": "Primary status"},
+        {"key": "secondary_status", "label": "Secondary status"},
+        {"key": "disposition_remarks", "label": "Disposition remarks"},
+    ],
+    "total_connects": [
+        {"key": "call_id", "label": "Call id"},
+        {"key": "date", "label": "Date"},
+        {"key": "direction", "label": "Direction"},
+        {"key": "lead_id", "label": "Lead id", "link_doctype": "CRM Lead"},
+        {"key": "status", "label": "Status"},
+        {"key": "duration", "label": "Duration"},
+        {"key": "primary_status", "label": "Primary status"},
+        {"key": "secondary_status", "label": "Secondary status"},
+        {"key": "disposition_remarks", "label": "Disposition remarks"},
+    ],
+}
+
+_CALL_SESSION_BREAKUP_METRICS = frozenset({"total_attempts", "total_connects"})
+
+_BREAKUP_NO_LINK_METRICS = frozenset(
+    {"dialer_session_duration", "dialer_session_count", "break_duration", "break_count"}
+)
+
+_DEFAULT_BREAKUP_COLUMNS = [
+    {"key": "date", "label": "Date"},
+    {"key": "agent", "label": "Agent"},
+    {"key": "detail", "label": "Detail"},
+    {"key": "value", "label": "Value"},
+]
+
+
+def _breakup_columns_for_rows(metric_name: str, rows: list[dict]) -> list[dict]:
+    """Return column defs for the drawer table."""
+    base = _BREAKUP_COLUMNS.get(metric_name, _DEFAULT_BREAKUP_COLUMNS)
+    if metric_name in _BREAKUP_NO_LINK_METRICS or metric_name in _CALL_SESSION_BREAKUP_METRICS:
+        return base
+    if not rows:
+        return base
+    keys_with_data = set()
+    for row in rows:
+        for k, v in row.items():
+            if v not in (None, ""):
+                keys_with_data.add(k)
+    filtered = [c for c in base if c["key"] in keys_with_data or c["key"] in ("name", "user")]
+    return filtered or base
+
+
+def get_agent_performance_breakup(
+    *,
+    metric_name: str,
+    agent_ids=None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    granularity: str = "day_wise",
+    period_key: str | None = None,
+    city: str | None = None,
+) -> dict:
+    """
+    Unified breakup for Agent Performance drawer.
+    Body: metric_name, agent_ids[], from_date, to_date, granularity, optional period_key.
+    """
+    metric_name = (metric_name or "").strip()
+    if not metric_name:
+        return {"columns": [], "rows": []}
+
+    parsed_ids = _parse_agent_ids(agent_ids)
+    if not parsed_ids:
+        return {"columns": _BREAKUP_COLUMNS.get(metric_name, _DEFAULT_BREAKUP_COLUMNS), "rows": []}
+
+    span = _resolve_breakup_date_span(
+        from_date=from_date,
+        to_date=to_date,
+        period_key=period_key,
+        granularity=granularity,
+    )
+    if not span:
+        return {"columns": _BREAKUP_COLUMNS.get(metric_name, _DEFAULT_BREAKUP_COLUMNS), "rows": []}
+
+    fd, td = span
+    rows: list[dict] = []
+
+    if metric_name in ("break_duration", "break_count"):
+        rows = _fetch_break_logs_from_db(parsed_ids, fd, td)
+    elif metric_name in ("dialer_session_duration", "dialer_session_count"):
+        rows = _fetch_dialer_sessions_from_db(parsed_ids, fd, td)
+    elif metric_name == "total_attempts":
+        rows = _fetch_call_sessions_breakup(parsed_ids, fd, td, mode="attempts")
+    elif metric_name == "total_connects":
+        rows = _fetch_call_sessions_breakup(parsed_ids, fd, td, mode="connects")
+    elif metric_name in CLICKABLE_METRICS:
+        rows = _mock_breakup_rows(metric_name, parsed_ids, fd, td)
+    else:
+        rows = _mock_breakup_rows(metric_name, parsed_ids, fd, td)
+
+    columns = _breakup_columns_for_rows(metric_name, rows)
+    linkable = metric_name not in _BREAKUP_NO_LINK_METRICS
+    return {
+        "columns": columns,
+        "rows": rows,
+        "metric_name": metric_name,
+        "linkable": linkable,
+    }
 
 
 def get_dashboard_data(

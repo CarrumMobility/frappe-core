@@ -33,6 +33,13 @@ def _as_datetime(val):
     return None
 
 
+def _call_session_connected_field() -> str:
+    doctype = EnumValues.ReferenceDocType.CALL_SESSION
+    if frappe.db.has_column(doctype, "connected_at"):
+        return "connected_at"
+    return "lead_answered_at"
+
+
 class AgentPerformanceService:
     def __init__(self):
         pass
@@ -107,8 +114,48 @@ class AgentPerformanceService:
         """Every 5 minutes cron: update today's Agent Performance data for all telecallers."""
         user_ids = self._ensure_today_telecaller_agents_performance()
         for user_id in user_ids or []:
+            if not user_id or user_id in ("Guest", "Administrator"):
+                continue
             self.update_today_agent_performance_data_for_telecaller(user_id)
+        frappe.db.commit()
 
+    def _fetch_today_call_sessions(self, user_id: str) -> list[dict]:
+        """Today's call sessions for an agent (date = Coalesce(connected_at, creation))."""
+        from frappe.query_builder import DocType
+        from frappe.query_builder.functions import Coalesce
+
+        doctype = EnumValues.ReferenceDocType.CALL_SESSION
+        if not frappe.db.exists("DocType", doctype):
+            return []
+
+        connected_field = _call_session_connected_field()
+        CS = DocType(doctype)
+        connected_col = getattr(CS, connected_field, None)
+        if connected_col is None:
+            return []
+
+        day_start = frappe.utils.get_datetime(frappe.utils.today())
+        day_end = day_start + timedelta(days=1)
+        date_expr = Coalesce(connected_col, CS.creation)
+
+        select_cols = [
+            CS.name,
+            CS.calling_method,
+            CS.lead_phone,
+            CS.duration,
+            connected_col.as_("connected_at"),
+        ]
+        if frappe.db.has_column(doctype, "ring_duration"):
+            select_cols.append(CS.ring_duration)
+
+        return (
+            frappe.qb.from_(CS)
+            .select(*select_cols)
+            .where(CS.agent == user_id)
+            .where(date_expr >= day_start)
+            .where(date_expr < day_end)
+            .run(as_dict=True)
+        )
 
     def update_today_agent_performance_data_for_telecaller(self, user_id: str) -> None:
         agent_performance_name = self._get_today_agent_performance_name(user_id)
@@ -117,16 +164,7 @@ class AgentPerformanceService:
         agent_performance_doc = frappe.get_doc(
             EnumValues.ReferenceDocType.AGENT_PERFORMANCE, agent_performance_name
         )
-        day_start = frappe.utils.get_datetime(frappe.utils.today())
-        day_end = day_start + timedelta(days=1)
-        call_sessions = frappe.get_all(
-            EnumValues.ReferenceDocType.CALL_SESSION,
-            filters={
-                "agent": user_id,
-                "agent_answered_at": ("between", [day_start, day_end]),
-            },
-            fields=["*"],
-        )
+        call_sessions = self._fetch_today_call_sessions(user_id)
 
         dialer_talktime_duration = 0
         total_dialer_connects = 0
@@ -137,27 +175,35 @@ class AgentPerformanceService:
         click2call_talktime_duration = 0
         click2call_ring_duration = 0
         for call_session in call_sessions:
-            total_unique_attempt_phones.add(call_session.phone_number)
+            phone = (call_session.get("lead_phone") or "").strip()
+            is_connected = bool(call_session.get("connected_at"))
+            calling_method = call_session.get("calling_method") or ""
 
-            if call_session.connected_at is not None:
-                total_unique_connect_phones.add(call_session.phone_number)
-
-            if call_session.calling_method == "Dialer":
+            if calling_method == "Dialer":
+                if not is_connected:
+                    continue
                 total_dialer_connects += 1
+                if phone:
+                    total_unique_attempt_phones.add(phone)
+                    total_unique_connect_phones.add(phone)
                 dialer_talktime_duration += _duration_field_to_seconds(
-                    call_session.duration
+                    call_session.get("duration")
                 )
+                continue
 
-            else:
+            if calling_method == "Click2Call":
                 total_click2call_attempts += 1
-                if call_session.connected_at is not None:
+                if phone:
+                    total_unique_attempt_phones.add(phone)
+                if is_connected:
                     total_click2call_connects += 1
-
+                    if phone:
+                        total_unique_connect_phones.add(phone)
                 click2call_talktime_duration += _duration_field_to_seconds(
-                    call_session.duration
+                    call_session.get("duration")
                 )
                 click2call_ring_duration += _duration_field_to_seconds(
-                    call_session.ring_duration
+                    call_session.get("ring_duration")
                 )
 
         session_duration,dialer_session_count = self._calculate_dialer_session_duration_count(user_id)
@@ -273,10 +319,12 @@ class AgentPerformanceService:
             fields=common_fields
         )
 
-        # Merge all, deduplicate by name (if you include 'name' in fields)
-        all_logs = { log.name: log for log in (sessions_started_today + sessions_still_active + sessions_ended_today) }.values()
-        # OR if not using 'name', just concat (no duplicates possible across these 3 queries)
-        all_logs = sessions_started_today + sessions_still_active + sessions_ended_today
+        all_logs = {
+            log.name: log
+            for log in (
+                sessions_started_today + sessions_still_active + sessions_ended_today
+            )
+        }.values()
 
         for log in all_logs:
             if not log.active_at:
@@ -335,9 +383,12 @@ class AgentPerformanceService:
             fields=common_fields,
         )
 
-        all_logs = (
-            sessions_started_today + sessions_still_active + sessions_ended_today
-        )
+        all_logs = {
+            log.name: log
+            for log in (
+                sessions_started_today + sessions_still_active + sessions_ended_today
+            )
+        }.values()
 
         for log in all_logs:
             if not log.start_time:

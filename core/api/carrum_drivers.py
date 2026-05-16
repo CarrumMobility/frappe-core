@@ -74,6 +74,273 @@ def _date_to_json_value(val):
     return str(val).strip() or None
 
 
+def _lead_field_missing(val, *, attach: bool = False) -> bool:
+    if attach:
+        return not (val and str(val).strip())
+    if val is None:
+        return True
+    if isinstance(val, str):
+        return not val.strip()
+    return False
+
+
+def _looks_like_portal_driver_results(o) -> bool:
+    if not o or not isinstance(o, dict):
+        return False
+    markers = (
+        "scheme_id",
+        "uber_id",
+        "chequeData",
+        "scheme_alias_detail",
+        "assignedVehicle",
+        "walletData",
+    )
+    return any(k in o for k in markers)
+
+
+def _extract_portal_driver_results(envelope_data) -> dict | None:
+    """Normalize Carrum portal driver payload to the ``results`` object."""
+    if envelope_data is None:
+        return None
+    top = envelope_data
+    if isinstance(top, dict):
+        if top.get("results") and isinstance(top["results"], dict):
+            o = top["results"]
+            if _looks_like_portal_driver_results(o):
+                return o
+        if isinstance(top.get("data"), dict) and isinstance(top["data"].get("results"), dict):
+            o = top["data"]["results"]
+            if _looks_like_portal_driver_results(o):
+                return o
+        msg = top.get("message")
+        if isinstance(msg, dict):
+            inner = msg.get("data") or msg
+            if isinstance(inner, dict) and isinstance(inner.get("results"), dict):
+                return inner["results"]
+        if _looks_like_portal_driver_results(top):
+            return top
+        if isinstance(top.get("results"), dict):
+            return top["results"]
+    return None
+
+
+def _portal_driver_has_scheme(account_id: str) -> bool:
+    """True when ``get_portal_driver_detail`` includes an assigned scheme."""
+    base = frappe.conf.get("old_carrum_base_url")
+    token = frappe.conf.get("old_carrum_token")
+    if not base or not token:
+        return False
+    aid = (account_id or "").strip()
+    if not aid:
+        return False
+    url = f"{str(base).rstrip('/')}/api/v1/driver/accounts/{aid}"
+    headers = {"Authorization": token}
+    try:
+        response = re.get(url, headers=headers, timeout=60)
+    except re.exceptions.RequestException:
+        return False
+    if not response.ok:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    results = _extract_portal_driver_results(payload)
+    if not results:
+        return False
+    if results.get("scheme_id") or results.get("schemeId"):
+        return True
+    alias = results.get("scheme_alias_detail") or results.get("schemeAliasDetail")
+    if isinstance(alias, dict):
+        if (alias.get("id") or alias.get("name") or alias.get("alias")):
+            return True
+    if results.get("alias_id") or results.get("aliasId"):
+        return True
+    return False
+
+
+def _send_agreement_field_specs() -> list[dict]:
+    """Ordered required fields for send agreement (label, category, validation source)."""
+    return [
+        {"fieldname": "aadhar_no", "label": _("Aadhar Number"), "category": "personal_bank"},
+        {"fieldname": "driving_license_number", "label": _("DL number"), "category": "personal_bank"},
+        {"fieldname": "pancard_number", "label": _("Pancard number"), "category": "personal_bank"},
+        {
+            "fieldname": "driving_license_issue_date",
+            "label": _("DL issue date"),
+            "category": "personal_bank",
+        },
+        {
+            "fieldname": "bank_account_number",
+            "label": _("Bank Account Number"),
+            "category": "personal_bank",
+        },
+        {
+            "fieldname": "driving_license_expiry_date",
+            "label": _("DL expiry date"),
+            "category": "personal_bank",
+        },
+        {"fieldname": "bank_ifsc", "label": _("Bank IFSC code"), "category": "personal_bank"},
+        {"fieldname": "hub_fee", "label": _("Hub fee"), "category": "personal_bank"},
+        {"fieldname": "lead_name", "label": _("Name"), "category": "personal_bank"},
+        {
+            "fieldname": "preferred_lang",
+            "label": _("Preferred language"),
+            "category": "personal_bank",
+        },
+        {"fieldname": "scheme", "label": _("Scheme"), "category": "personal_bank", "source": "portal"},
+        {"fieldname": "current_state", "label": _("Current state"), "category": "address"},
+        {"fieldname": "current_pincode", "label": _("Current pincode"), "category": "address"},
+        {"fieldname": "current_landmark", "label": _("Current landmark"), "category": "address"},
+        {
+            "fieldname": "current_address_line1",
+            "label": _("Current address line 1"),
+            "category": "address",
+        },
+        {
+            "fieldname": "current_address_proof_type",
+            "label": _("Current address proof type"),
+            "category": "address",
+        },
+        {
+            "fieldname": "current_address_line2",
+            "label": _("Current Address Line 2"),
+            "category": "address",
+        },
+        {"fieldname": "current_city", "label": _("Current city"), "category": "address"},
+        {
+            "fieldname": "current_address_number",
+            "label": _("Current address number"),
+            "category": "address",
+        },
+        {
+            "fieldname": "aadhaar_card_front",
+            "label": _("Aadhaar card front"),
+            "category": "documents",
+            "attach": True,
+        },
+        {
+            "fieldname": "aadhaar_card_back",
+            "label": _("Aadhaar card back"),
+            "category": "documents",
+            "attach": True,
+        },
+        {
+            "fieldname": "driving_license_front",
+            "label": _("Driving License Front"),
+            "category": "documents",
+            "attach": True,
+        },
+        {
+            "fieldname": "driving_license_back",
+            "label": _("Driving License Back"),
+            "category": "documents",
+            "attach": True,
+        },
+        {"fieldname": "pancard_pic", "label": _("Pancard Pic"), "category": "documents", "attach": True},
+        {
+            "fieldname": "bank_passbook_pic",
+            "label": _("Bank passbook pic"),
+            "category": "documents",
+            "attach": True,
+        },
+        {
+            "fieldname": "current_address_proof",
+            "label": _("Current address proof"),
+            "category": "documents",
+            "attach": True,
+        },
+    ]
+
+
+def _is_send_agreement_field_filled(lead, spec: dict) -> bool:
+    if spec.get("source") == "portal":
+        account_id = (lead.custom_account_id or "").strip()
+        return _portal_driver_has_scheme(account_id)
+    fieldname = spec["fieldname"]
+    if fieldname == "hub_fee":
+        return lead.get("hub_fee") is not None
+    if spec.get("attach"):
+        return not _lead_field_missing(lead.get(fieldname), attach=True)
+    return not _lead_field_missing(lead.get(fieldname))
+
+
+def _get_send_agreement_requirements_payload(lead) -> dict:
+    """Full send-agreement field status for API + validation."""
+    specs = _send_agreement_field_specs()
+    fields: list[dict] = []
+    missing: list[str] = []
+
+    for spec in specs:
+        filled = _is_send_agreement_field_filled(lead, spec)
+        fields.append(
+            {
+                "fieldname": spec["fieldname"],
+                "label": spec["label"],
+                "category": spec["category"],
+                "filled": filled,
+            }
+        )
+        if not filled:
+            missing.append(spec["label"])
+
+    category_titles = [
+        ("personal_bank", _("Personal & Bank Details")),
+        ("address", _("Address Information")),
+        ("documents", _("Required Documents")),
+    ]
+    categories = []
+    for key, title in category_titles:
+        missing_fields = [
+            {"fieldname": f["fieldname"], "label": f["label"]}
+            for f in fields
+            if f["category"] == key and not f["filled"]
+        ]
+        categories.append({"key": key, "title": title, "missing_fields": missing_fields})
+
+    filled_count = sum(1 for f in fields if f["filled"])
+    total_count = len(fields)
+
+    return {
+        "missing": missing,
+        "missing_count": len(missing),
+        "filled_count": filled_count,
+        "total_count": total_count,
+        "can_send": len(missing) == 0,
+        "categories": categories,
+        "fields": fields,
+    }
+
+
+def _get_send_agreement_missing_fields(lead) -> list[str]:
+    """Return human-readable labels for fields still required before send agreement."""
+    return _get_send_agreement_requirements_payload(lead)["missing"]
+
+
+def _validate_send_agreement_lead_fields(lead) -> None:
+    """Raise when CRM Lead / portal fields required for send agreement are incomplete."""
+    missing = _get_send_agreement_missing_fields(lead)
+    if missing:
+        frappe.throw(
+            _("Complete required fields before sending agreement: {0}").format(
+                ", ".join(missing)
+            )
+        )
+
+
+@frappe.whitelist()
+def get_send_agreement_requirements(leadId: str):
+    """Return missing field labels for the Agreement tab UI."""
+    lid = (leadId or "").strip()
+    if not lid:
+        frappe.throw(_("Lead ID is required"))
+    if not frappe.db.exists("CRM Lead", lid):
+        frappe.throw(_("Not a valid CRM Lead"))
+
+    lead = frappe.get_doc("CRM Lead", lid)
+    return _get_send_agreement_requirements_payload(lead)
+
+
 def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
     """Shape Pydantic errors for API clients (field + message + type)."""
     rows: list[dict] = []
@@ -291,6 +558,8 @@ def send_agreement(leadId: str):
     if not account_id:
         frappe.throw(_("Carrum Driver Account ID is required on the lead"))
 
+    _validate_send_agreement_lead_fields(lead)
+
     phoneNo = lead.mobile_no
     driver_name = lead.lead_name
     aadhar_number = lead.aadhar_no
@@ -354,9 +623,6 @@ def send_agreement(leadId: str):
         "Witness4": "sarpanch", # sarpanch
         "hubId": lead_hub_id
     }
-    print("====================payload============================")
-    print(payload)
-    print("====================payload============================")
     headers = {
         "Authorization": token,
         "Content-Type": "application/json",
@@ -369,7 +635,6 @@ def send_agreement(leadId: str):
         frappe.throw(_("Could not reach Carrum"))
 
     try:
-        print(response.text)
         resp_body = response.json()
     except ValueError:
         frappe.throw(_("Invalid response from Carrum"))

@@ -47,8 +47,10 @@ def _format_request_dict(d):
     path = d.get("full_path", d.get("base_url", ""))
     status = d.get("http_status_code", "")
     user = d.get("user", "")
-    site = d.get("site", "")
-    remote = d.get("remote_addr", "")
+    body = d.get("body", {})
+
+    # site = d.get("site", "")
+    # remote = d.get("remote_addr", "")
 
     # Build a concise request log line
     parts = []
@@ -58,12 +60,12 @@ def _format_request_dict(d):
         parts.append(f"→ {status}")
     if user:
         parts.append(f"user={user}")
-    if site:
-        parts.append(f"site={site}")
-    if remote:
-        parts.append(f"ip={remote}")
-
+    if body:
+        parts.append(f"body={_format_body(body)}")
     return " ".join(parts) if parts else json.dumps(d, default=str)
+
+def _format_body(body):
+    return json.dumps(body, default=str)
 
 
 def _nr_record_factory(*args, **kwargs):

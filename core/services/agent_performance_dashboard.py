@@ -704,7 +704,6 @@ def _metric_definitions():
             "row_type": "separator",
             "group": "separator",
             "format": "text",
-            "section_end": True,
         }
 
     return [

@@ -185,12 +185,14 @@ class AgentPerformanceService:
         click2call_talktime_duration = 0
         click2call_ring_duration = 0
         unique_interest_phones = set()
-
+        unique_date_confirmed_phones = set()
         for call_session in call_sessions:
             phone = (call_session.get("lead_phone") or "").strip()
             is_connected = bool(call_session.get("connected_at"))
             calling_method = call_session.get("calling_method") or ""
             disposition = (call_session.get("disposition_status") or "").strip()
+            if call_session.get("lead_callback_datetime"): 
+                unique_date_confirmed_phones.add(phone)
 
             if disposition == EnumValues.LeadStatus.INTERESTED and phone:
                 unique_interest_phones.add(phone)

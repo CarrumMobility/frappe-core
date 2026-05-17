@@ -5,6 +5,7 @@ from frappe.utils import flt, get_datetime, now_datetime
 from core.constants.enums import EnumValues
 import redis
 
+log = frappe.logger("agent_performance")
 # Max seconds credited per heartbeat (tab backgrounded / clock skew).
 _HEARTBEAT_MAX_DELTA_SEC = 120
 
@@ -112,11 +113,14 @@ class AgentPerformanceService:
 
     def cron_task_update_today_telecaller_agents_performance_5_minute(self) -> None:
         """Every 5 minutes cron: update today's Agent Performance data for all telecallers."""
+        log.info("CRON RUNNING: update today's Agent Performance data for all telecallers")
+
         user_ids = self._ensure_today_telecaller_agents_performance()
         for user_id in user_ids or []:
             if not user_id or user_id in ("Guest", "Administrator"):
                 continue
             self.update_today_agent_performance_data_for_telecaller(user_id)
+        log.info("CRON COMPLETED: update today's Agent Performance data for all telecallers")
         frappe.db.commit()
 
     def _fetch_today_call_sessions(self, user_id: str) -> list[dict]:

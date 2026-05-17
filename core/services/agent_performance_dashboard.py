@@ -42,6 +42,8 @@ _PERFORMANCE_FETCH_FIELDS = [
     "total_unique_attempts",
     "total_unique_connects",
     "total_unique_interests",
+    "unique_interest_phones",
+    "unique_date_confirmed",
     "total_manual_attempts",
     "total_manual_connects",
     "total_mannual_attempts",
@@ -138,6 +140,8 @@ def _normalize_db_row(row: dict) -> dict:
         "total_unique_attempts": _int_field(row, "total_unique_attempts"),
         "total_unique_connects": _int_field(row, "total_unique_connects"),
         "total_unique_interests": _int_field(row, "total_unique_interests"),
+        "unique_interest_phones": _int_field(row, "unique_interest_phones"),
+        "unique_date_confirmed": _int_field(row, "unique_date_confirmed"),
         "schedules_followup": _int_field(row, "schedules_followup"),
         "scheduled_followup": _int_field(row, "scheduled_followup"),
         "completed_scheduled_followup": _int_field(row, "completed_scheduled_followup"),
@@ -448,6 +452,8 @@ for date_idx, base in enumerate(BASE_DOCS_BY_DATE):
         unique_connects = max(1, round(c2c_connects * 0.94))
         unique_attempts = max(1, round((dialer_connects + c2c_attempts) * 0.92))
         unique_interests = max(0, round(unique_connects * 0.12))
+        unique_interest_phones = max(0, round(unique_interests * 0.9))
+        unique_date_confirmed = max(0, round(unique_connects * 0.05))
         MOCK_AGENT_PERFORMANCE_DOCS.append(
             {
                 **base,
@@ -473,6 +479,8 @@ for date_idx, base in enumerate(BASE_DOCS_BY_DATE):
                 "total_unique_attempts": unique_attempts,
                 "total_unique_connects": unique_connects,
                 "total_unique_interests": unique_interests,
+                "unique_interest_phones": unique_interest_phones,
+                "unique_date_confirmed": unique_date_confirmed,
                 "schedules_followup": max(0, round(4 + date_idx % 3)),
                 "scheduled_followup": max(0, round(3 + agent_idx)),
                 "completed_scheduled_followup": max(0, round(2 + date_idx % 2)),
@@ -622,6 +630,8 @@ _COUNT_SUM_KEYS = (
     "total_unique_attempts",
     "total_unique_connects",
     "total_unique_interests",
+    "unique_interest_phones",
+    "unique_date_confirmed",
     "schedules_followup",
     "scheduled_followup",
     "completed_scheduled_followup",
@@ -694,6 +704,14 @@ def _interest_pct(d: dict) -> float:
     if not connects:
         return 0.0
     return (interests / connects) * 100
+
+
+def _interest_day_pct(d: dict) -> float:
+    interests = d.get("total_unique_interests") or 0
+    phones = d.get("unique_interest_phones") or 0
+    if not phones:
+        return 0.0
+    return (interests / phones) * 100
 
 
 _STATS_BREAKUP_METRICS = frozenset(
@@ -810,6 +828,13 @@ def _metric_definitions():
             "get_value": lambda d: d.get("total_unique_interests") or 0,
         },
         {
+            "metric_name": "unique_interest_phones",
+            "label": "Unique interest phones",
+            "group": "conversion_metrics",
+            "format": "number",
+            "get_value": lambda d: d.get("unique_interest_phones") or 0,
+        },
+        {
             "metric_name": "interest_pct",
             "label": "Interest %",
             "group": "conversion_metrics",
@@ -817,11 +842,18 @@ def _metric_definitions():
             "get_value": _interest_pct,
         },
         {
-            "metric_name": "unique_date_confirm_pct",
-            "label": "Unique date confirm %",
+            "metric_name": "interest_day_percent",
+            "label": "Interest day %",
             "group": "conversion_metrics",
             "format": "percent",
-            "get_value": lambda d: _PLACEHOLDER_PCT_69,
+            "get_value": _interest_day_pct,
+        },
+        {
+            "metric_name": "unique_date_confirm",
+            "label": "Unique date confirm",
+            "group": "conversion_metrics",
+            "format": "number",
+            "get_value": lambda d: d.get("unique_date_confirmed") or 0,
         },
         {
             "metric_name": "date_confirm_pct",

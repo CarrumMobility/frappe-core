@@ -150,6 +150,8 @@ class AgentPerformanceService:
             CS.duration,
             connected_col.as_("connected_at"),
         ]
+        if frappe.db.has_column(doctype, "disposition_status"):
+            select_cols.append(CS.disposition_status)
         if frappe.db.has_column(doctype, "ring_duration"):
             select_cols.append(CS.ring_duration)
 
@@ -182,10 +184,19 @@ class AgentPerformanceService:
         total_unique_connect_phones = set()
         click2call_talktime_duration = 0
         click2call_ring_duration = 0
+        unique_interest_phones = set()
+        total_interested_sessions = 0
+
         for call_session in call_sessions:
             phone = (call_session.get("lead_phone") or "").strip()
             is_connected = bool(call_session.get("connected_at"))
             calling_method = call_session.get("calling_method") or ""
+            disposition = (call_session.get("disposition_status") or "").strip()
+
+            if disposition == EnumValues.LeadStatus.INTERESTED:
+                total_interested_sessions += 1
+                if phone:
+                    unique_interest_phones.add(phone)
 
             if calling_method == "Dialer":
                 if not is_connected:
@@ -233,7 +244,9 @@ class AgentPerformanceService:
         agent_performance_doc.total_click2call_connects = total_click2call_connects
         agent_performance_doc.total_unique_attempts = len(total_unique_attempt_phones)
         agent_performance_doc.total_unique_connects = len(total_unique_connect_phones)
-
+        agent_performance_doc.total_unique_interests = total_interested_sessions
+        agent_performance_doc.unique_interest_phones = len(unique_interest_phones)
+        
         agent_performance_doc.schedules_followup = today_schedules_followup
         agent_performance_doc.scheduled_followup = today_scheduled_followup
         agent_performance_doc.completed_scheduled_followup = today_completed_scheduled_followup

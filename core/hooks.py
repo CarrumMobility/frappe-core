@@ -257,6 +257,11 @@ override_whitelisted_methods = {
 # 	"core.auth.validate"
 # ]
 
+# NR log forwarding reads record.msg before formatters; normalize for all processes.
+from core.observability.logging import install_newrelic_log_compat
+
+install_newrelic_log_compat()
+
 # Patch LoginManager so master password and other auth overrides apply
 import frappe.auth
 from core.override.auth import CustomLoginManager

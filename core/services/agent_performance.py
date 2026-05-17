@@ -1,4 +1,5 @@
 from datetime import timedelta
+import logging
 import frappe
 from frappe.utils import flt, get_datetime, now_datetime
 
@@ -6,6 +7,7 @@ from core.constants.enums import EnumValues
 import redis
 
 log = frappe.logger("agent_performance")
+log.setLevel(logging.INFO)
 # Max seconds credited per heartbeat (tab backgrounded / clock skew).
 _HEARTBEAT_MAX_DELTA_SEC = 120
 
@@ -107,7 +109,6 @@ class AgentPerformanceService:
             )
             if not exists:
                 self.create_agent_performance_doc(uid)
-
         return user_ids
 
 
@@ -162,9 +163,12 @@ class AgentPerformanceService:
         )
 
     def update_today_agent_performance_data_for_telecaller(self, user_id: str) -> None:
+        log.info(f"UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id} - START")
         agent_performance_name = self._get_today_agent_performance_name(user_id)
         if not agent_performance_name:
+            log.info(f"UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id} - NO AGENT PERFORMANCE DOCUMENT FOUND")
             return
+        
         agent_performance_doc = frappe.get_doc(
             EnumValues.ReferenceDocType.AGENT_PERFORMANCE, agent_performance_name
         )

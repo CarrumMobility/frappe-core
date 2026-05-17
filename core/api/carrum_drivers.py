@@ -782,6 +782,31 @@ def get_portal_driver_detail(account_id: str | None = None):
     return {"success": True, "data": data}
 
 
+def _lead_blocks_scheme_business_type_change(lead) -> bool:
+    """True when CRM Lead status forbids changing scheme / business type."""
+    if isinstance(lead, str):
+        if not frappe.db.exists("CRM Lead", lead):
+            return False
+        lead = frappe.get_doc("CRM Lead", lead)
+    primary = (getattr(lead, "primary_status", None) or "").strip().lower()
+    if primary == "drop":
+        return True
+    status_name = (getattr(lead, "status", None) or "").strip()
+    if not status_name:
+        return False
+    row = frappe.db.get_value(
+        "CRM Lead Status",
+        status_name,
+        ["custom_primary_status", "is_apply_on_vehicle_assignment"],
+        as_dict=True,
+    )
+    if not row:
+        return False
+    if (row.get("custom_primary_status") or "").strip().lower() == "drop":
+        return True
+    return bool(row.get("is_apply_on_vehicle_assignment"))
+
+
 def _parse_update_driver_payload(data) -> UpdateDriverDtoSchema:
     """Accept dict (preferred) or legacy JSON string from ``frappe.form_dict``."""
     if data is None:
@@ -815,6 +840,22 @@ def update_driver(account_id: str, data: dict | str | None = None):
         frappe.throw(_("Account ID is required"))
 
     payload = _parse_update_driver_payload(data)
+
+    scheme_change_requested = (
+        payload.scheme_id is not None
+        or payload.scheme_type is not None
+        or payload.tenure is not None
+        or payload.emi_id is not None
+        or payload.remove_emi is not None
+    )
+    if scheme_change_requested:
+        lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
+        if lead_name and _lead_blocks_scheme_business_type_change(lead_name):
+            frappe.throw(
+                _(
+                    "Business type and scheme cannot be changed when the lead is in Drop status or after vehicle assignment."
+                )
+            )
 
     base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
     if not base:

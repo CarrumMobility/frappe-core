@@ -1624,7 +1624,11 @@ class CallService:
                     user, campaign_id=data.campaign_id
                 )
                 if not result.get("is_valid"):
-                    raise ValueError(result.get("reason"))
+                    reason = result.get("reason")
+                    if reason and "already logged out" in reason.lower():
+                        pass
+                    else:
+                        raise ValueError(reason)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 

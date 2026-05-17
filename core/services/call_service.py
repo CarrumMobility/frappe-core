@@ -1625,11 +1625,12 @@ class CallService:
                 )
                 if not result.get("is_valid"):
                     reason = result.get("reason")
-                    alreadyLoggedOutReason = "Agent is not logged"
-                    if reason and alreadyLoggedOutReason in reason.lower():
-                        pass
-                    else:
-                        raise ValueError(reason)
+                    alreadyLoggedOutReason = "agent is not logged"
+                    pass
+                    # if reason and alreadyLoggedOutReason in reason.lower():
+                    #     pass
+                    # else:
+                        # raise ValueError(reason)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 

@@ -163,10 +163,10 @@ class AgentPerformanceService:
         )
 
     def update_today_agent_performance_data_for_telecaller(self, user_id: str) -> None:
-        log.info(f"UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id} - START")
+        log.info(f"STARTING: UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id}")
         agent_performance_name = self._get_today_agent_performance_name(user_id)
         if not agent_performance_name:
-            log.info(f"UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id} - NO AGENT PERFORMANCE DOCUMENT FOUND")
+            log.info(f"NOT FOUND: AGENT PERFORMANCE DOCUMENT FOR TELECALLER: {user_id} - NO AGENT PERFORMANCE DOCUMENT FOUND")
             return
         
         agent_performance_doc = frappe.get_doc(
@@ -243,7 +243,9 @@ class AgentPerformanceService:
         agent_performance_doc.break_duration = break_duration
         agent_performance_doc.break_count = break_count
 
+        log.info(f"SAVING: UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id}")
         agent_performance_doc.save(ignore_permissions=True)
+        log.info(f"SAVED , END: UPDATING AGENT PERFORMANCE DATA FOR TELECALLER: {user_id}")
 
     def _calculate_today_schedules_followup_count(self, user_id: str) -> int:
         today = frappe.utils.today()

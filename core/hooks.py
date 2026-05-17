@@ -283,4 +283,9 @@ before_request = [
 	"core.services.site_home_redirect.maybe_redirect_site_login_to_external_url",
 	"core.services.util_service.blockDeskAccess",
 ]
+
+after_request = [
+	"core.observability.newrelic.enrich_newrelic_transaction",
+]
+
 after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

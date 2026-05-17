@@ -1624,7 +1624,7 @@ class CallService:
                     user, campaign_id=data.campaign_id
                 )
                 if not result.get("is_valid"):
-                    reason = result.get("reason")
+                    api_reason = result.get("reason")
                     alreadyLoggedOutReason = "agent is not logged"
                     pass
                     # if reason and alreadyLoggedOutReason in reason.lower():

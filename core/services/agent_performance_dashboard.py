@@ -696,16 +696,20 @@ def _interest_pct(d: dict) -> float:
     return (interests / connects) * 100
 
 
-def _metric_definitions():
-    def _sep(name: str):
-        return {
-            "metric_name": name,
-            "label": "",
-            "row_type": "separator",
-            "group": "separator",
-            "format": "text",
-        }
+_STATS_BREAKUP_METRICS = frozenset(
+    {
+        "break_duration",
+        "dialer_session_duration",
+    }
+)
 
+_STATS_BREAKUP_COLUMNS = [
+    {"key": "label", "label": "Statistic"},
+    {"key": "value", "label": "Value"},
+]
+
+
+def _metric_definitions():
     return [
         {
             "metric_name": "login_duration",
@@ -767,12 +771,12 @@ def _metric_definitions():
                 round(_talktime_seconds(d) / _total_connects(d)) if _total_connects(d) else 0
             ),
         },
-        _sep("_separator_attempts"),
         {
             "metric_name": "total_attempts",
             "label": "Total attempts",
             "group": "attempt_metrics",
             "format": "number",
+            "section_start": True,
             "clickable": True,
             "get_value": _total_attempts,
         },
@@ -827,12 +831,12 @@ def _metric_definitions():
             "section_end": True,
             "get_value": lambda d: _PLACEHOLDER_PCT_69,
         },
-        _sep("_separator_schedules"),
         {
             "metric_name": "schedules_followup",
             "label": "New followup schedules",
             "group": "schedule_metrics",
             "format": "number",
+            "section_start": True,
             "clickable": True,
             "get_value": lambda d: d.get("schedules_followup") or 0,
         },
@@ -919,22 +923,6 @@ def build_analytics_payload(
     rows = []
     col_count = len(column_docs)
     for definition in _metric_definitions():
-        row_type = definition.get("row_type") or "metric"
-        if row_type == "separator":
-            rows.append(
-                {
-                    "metric_name": definition["metric_name"],
-                    "label": definition.get("label") or "",
-                    "group": definition["group"],
-                    "format": definition["format"],
-                    "row_type": "separator",
-                    "section_end": bool(definition.get("section_end")),
-                    "clickable": False,
-                    "values": [""] * col_count,
-                }
-            )
-            continue
-
         metric_name = definition["metric_name"]
         fmt = definition["format"]
         clickable = bool(definition.get("clickable")) or metric_name in CLICKABLE_METRICS
@@ -949,6 +937,7 @@ def build_analytics_payload(
                 "group": definition["group"],
                 "format": fmt,
                 "row_type": "metric",
+                "section_start": bool(definition.get("section_start")),
                 "section_end": bool(definition.get("section_end")),
                 "clickable": clickable,
                 "clickable_cells": clickable_cells,
@@ -1439,6 +1428,44 @@ def _breakup_columns_for_rows(metric_name: str, rows: list[dict]) -> list[dict]:
     return filtered or base
 
 
+def _build_stats_breakup_rows(metric_name: str, docs: list[dict]) -> list[dict]:
+    """Summary rows for averaged metrics (cell value vs underlying record totals)."""
+    if not docs:
+        return []
+
+    day_count = len(docs)
+
+    if metric_name == "break_duration":
+        duration_key = "break_duration"
+        count_key = "break_count"
+        avg_duration_label = "Avg daily pause duration"
+        avg_count_label = "Avg daily pause count (shown in table)"
+        total_duration_label = "Total pause duration"
+        total_count_label = "Total pause records"
+    elif metric_name == "dialer_session_duration":
+        duration_key = "dialer_session_duration"
+        count_key = "dialer_session_count"
+        avg_duration_label = "Avg dialer session duration"
+        avg_count_label = "Avg sessions per day (shown in table)"
+        total_duration_label = "Total dialer session duration"
+        total_count_label = "Total dialer sessions"
+    else:
+        return []
+
+    total_duration = sum(_duration_to_seconds(d.get(duration_key)) for d in docs)
+    total_count = sum(_int_field(d, count_key) for d in docs)
+    avg_duration = round(total_duration / day_count) if day_count else 0
+    avg_count = round(total_count / day_count) if day_count else 0
+
+    return [
+        {"label": avg_duration_label, "value": _format_duration(avg_duration)},
+        {"label": avg_count_label, "value": str(avg_count)},
+        {"label": "Days in period", "value": str(day_count)},
+        {"label": total_duration_label, "value": _format_duration(total_duration)},
+        {"label": total_count_label, "value": str(total_count)},
+    ]
+
+
 def get_agent_performance_breakup(
     *,
     metric_name: str,
@@ -1473,9 +1500,31 @@ def get_agent_performance_breakup(
     fd, td = span
     rows: list[dict] = []
 
-    if metric_name in ("break_duration", "break_count"):
+    if metric_name in _STATS_BREAKUP_METRICS:
+        perf_docs = _fetch_performance_docs_from_db(
+            from_date=fd,
+            to_date=td,
+            agent_ids=parsed_ids,
+            hub_id=(city or "").strip(),
+        )
+        stats = _build_stats_breakup_rows(metric_name, perf_docs)
+        if metric_name == "break_duration":
+            detail_rows = _fetch_break_logs_from_db(parsed_ids, fd, td)
+        else:
+            detail_rows = _fetch_dialer_sessions_from_db(parsed_ids, fd, td)
+        detail_columns = _breakup_columns_for_rows(metric_name, detail_rows)
+        return {
+            "view_mode": "hybrid",
+            "stats": stats,
+            "columns": detail_columns,
+            "rows": detail_rows,
+            "metric_name": metric_name,
+            "linkable": metric_name not in _BREAKUP_NO_LINK_METRICS,
+        }
+
+    if metric_name == "break_count":
         rows = _fetch_break_logs_from_db(parsed_ids, fd, td)
-    elif metric_name in ("dialer_session_duration", "dialer_session_count"):
+    elif metric_name == "dialer_session_count":
         rows = _fetch_dialer_sessions_from_db(parsed_ids, fd, td)
     elif metric_name == "total_attempts":
         rows = _fetch_call_sessions_breakup(parsed_ids, fd, td, mode="attempts")

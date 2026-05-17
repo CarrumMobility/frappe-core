@@ -25,7 +25,6 @@
   "total_unique_attempts",
   "total_unique_connects",
   "total_unique_interests",
-  "unique_interest_phones",
   "psd_count",
   "fsd_count",
   "new_walkin_schedules",
@@ -200,11 +199,6 @@
     "fieldname": "total_unique_interests",
     "fieldtype": "Int",
     "label": "Total unique interests"
-  },
-  {
-    "fieldname": "unique_interest_phones",
-    "fieldtype": "Int",
-    "label": "Unique interest phones"
   },
   {
     "fieldname": "unique_date_confirmed",

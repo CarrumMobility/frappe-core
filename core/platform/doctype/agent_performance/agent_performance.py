@@ -40,7 +40,6 @@ class AgentPerformance(Document):
 		total_unique_attempts: DF.Int # capturing
 		total_unique_connects: DF.Int # capturing
 		total_unique_interests: DF.Int
-		unique_interest_phones: DF.Int
 		unique_date_confirmed: DF.Int
 
 		schedules_followup: DF.Int # done capturing

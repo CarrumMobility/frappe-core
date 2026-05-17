@@ -1496,6 +1496,11 @@ def get_agent_performance_breakup(
     }
 
 
+def get_available_agents() -> list[dict]:
+    """Agents available for the agent performance dashboard filter."""
+    return _fetch_agents_meta_from_db()
+
+
 def get_dashboard_data(
     *,
     granularity: str = "day_wise",

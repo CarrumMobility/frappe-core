@@ -1625,7 +1625,8 @@ class CallService:
                 )
                 if not result.get("is_valid"):
                     reason = result.get("reason")
-                    if reason and "already logged out" in reason.lower():
+                    alreadyLoggedOutReason = "Agent is not logged"
+                    if reason and alreadyLoggedOutReason in reason.lower():
                         pass
                     else:
                         raise ValueError(reason)

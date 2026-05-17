@@ -240,6 +240,11 @@
             "fieldname": "lead_callback_datetime",
             "fieldtype": "Datetime",
             "label": "Lead callback datetime"
+        },
+        {
+            "fieldname": "ring_duration",
+            "fieldtype": "Duration",
+            "label": "Ring duration"
         }
     ],
     "grid_page_length": 50,

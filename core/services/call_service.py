@@ -3,6 +3,7 @@ import json
 import re
 from datetime import datetime, timedelta
 from time import sleep
+from core.api import carrum_accounts
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from core.constants.enums import EnumValues
 from crm.api.event import enqueue_complete_callback_followups_for_lead
@@ -1257,6 +1258,34 @@ class CallService:
                     "is_valid": False,
                     "reason": f"Invalid calling method: {calling_method}",
                 }
+    def _enqueue_apply_default_campaign_id_to_call_session(self, call_session_id: str):
+        frappe.enqueue(
+            "core.api.call_session.apply_default_campaign_id_to_call_session",
+            queue="default",
+            enqueue_after_commit=True,
+            call_session_id=call_session_id,
+        )
+
+    def _apply_default_campaign_id_to_call_session(self, call_session_id: str):
+        call_session_doc = frappe.get_doc("Call Session", call_session_id)
+        if not call_session_doc:
+            raise ValueError("Invalid Call Session id: Call session record not found")
+        
+        agent = call_session_doc.get("agent")
+        smartflo_credentials = carrum_accounts.get_smartflo_credentials_for_frappe_user(agent)
+        if not smartflo_credentials:
+            return;
+
+        default_campaign_id = smartflo_credentials.get("defaultCampaignId")
+        default_campaign_name = smartflo_credentials.get("defaultCampaignName")
+        if not default_campaign_id or not default_campaign_name:
+            return;
+
+        call_session_doc.set("campaign_id", default_campaign_id)
+        call_session_doc.set("campaign_name", default_campaign_name)
+        call_session_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return;
 
     def _handle_click2call_submit_disposition(
         self,
@@ -1320,6 +1349,7 @@ class CallService:
         doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
     
         want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
+        _enqueue_apply_default_campaign_id_to_call_session(call_session_id)
         if svd and want_visit:
             doc.set("is_visit_scheduled", 1)
             doc.set("scheduled_visit_date", visit_dt or svd)
@@ -2195,6 +2225,14 @@ class CallService:
 
         return {"is_valid": True}
 
+    def enqueue_apply_campaign_id_to_click2_call(call_session_id: str):
+        frappe.enqueue(
+            "crm.api.call_session.apply_campaign_id_to_click2_call",
+            queue="default",
+            enqueue_after_commit=True,
+            call_session_id=call_session_id,
+        )
+
     def get_last_call(self, user: str):
         """Latest Call Session for this agent; shape matches LastCallStatusModal / CustomCallUI."""
         if not user or user == "Guest":
@@ -2450,3 +2488,7 @@ def get_call_session_disposition_remarks(user: str, payload: dict):
 
 def update_call_session(payload: dict):
     return _service._update_call_session(payload)
+
+
+def apply_default_campaign_id_to_call_session(call_session_id: str):
+    return _service._apply_default_campaign_id_to_call_session(call_session_id)

@@ -4,21 +4,30 @@ import frappe
 
 
 def execute():
-	if not frappe.db.table_exists("Agent Performance"):
+	doctype = "Agent Performance"
+	if not frappe.db.table_exists(doctype):
 		return
 
-	if frappe.db.has_column("Agent Performance", "unique_date_confirmed") and not frappe.db.has_column(
-		"Agent Performance", "unique_schedules_walkin"
-	):
+	has_old = frappe.db.has_column(doctype, "unique_date_confirmed")
+	has_new = frappe.db.has_column(doctype, "unique_schedules_walkin")
+
+	if has_old and not has_new:
 		frappe.db.rename_column(
-			"tabAgent Performance",
+			f"tab{doctype}",
 			"unique_date_confirmed",
 			"unique_schedules_walkin",
+		)
+	elif not has_old and not has_new:
+		frappe.db.sql(
+			"""
+			ALTER TABLE `tabAgent Performance`
+			ADD COLUMN `unique_schedules_walkin` int(11) not null default 0
+			"""
 		)
 
 	for name in frappe.get_all(
 		"DocField",
-		filters={"parent": "Agent Performance", "fieldname": "unique_date_confirmed"},
+		filters={"parent": doctype, "fieldname": "unique_date_confirmed"},
 		pluck="name",
 	):
 		frappe.db.set_value(
@@ -28,4 +37,4 @@ def execute():
 			update_modified=False,
 		)
 
-	frappe.clear_cache(doctype="Agent Performance")
+	frappe.clear_cache(doctype=doctype)

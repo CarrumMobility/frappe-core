@@ -82,6 +82,33 @@ def _agent_performance_table_ready() -> bool:
     return bool(frappe.db.exists("DocType", AGENT_PERFORMANCE_DOCTYPE))
 
 
+def _agent_performance_table_columns() -> set[str]:
+    if not _agent_performance_table_ready():
+        return set()
+    return set(frappe.db.get_table_columns(AGENT_PERFORMANCE_DOCTYPE) or [])
+
+
+def _performance_fetch_fields() -> list[str]:
+    """Only columns that exist in MariaDB (DocType meta can be ahead of DB)."""
+    cols = _agent_performance_table_columns()
+    if not cols:
+        return ["name"]
+
+    out: list[str] = []
+    for fieldname in _PERFORMANCE_FETCH_FIELDS:
+        if fieldname in cols and fieldname not in out:
+            out.append(fieldname)
+
+    if (
+        "unique_schedules_walkin" not in out
+        and "unique_date_confirmed" in cols
+        and "unique_date_confirmed" not in out
+    ):
+        out.append("unique_date_confirmed")
+
+    return out or ["name"]
+
+
 def _duration_to_seconds(value) -> int:
     if value is None:
         return 0
@@ -246,24 +273,13 @@ def _fetch_performance_docs_from_db(
     if hub_id:
         filters["hubId"] = hub_id
 
-    try:
-        rows = frappe.get_all(
-            AGENT_PERFORMANCE_DOCTYPE,
-            filters=filters or None,
-            fields=_PERFORMANCE_FETCH_FIELDS,
-            limit_page_length=0,
-            order_by="date asc, agent_id asc",
-        )
-    except Exception:
-        # Field renames / optional columns in older sites
-        fields = [f for f in _PERFORMANCE_FETCH_FIELDS if f not in ("total_mannual_attempts", "total_mannual_connects")]
-        rows = frappe.get_all(
-            AGENT_PERFORMANCE_DOCTYPE,
-            filters=filters or None,
-            fields=fields,
-            limit_page_length=0,
-            order_by="date asc, agent_id asc",
-        )
+    rows = frappe.get_all(
+        AGENT_PERFORMANCE_DOCTYPE,
+        filters=filters or None,
+        fields=_performance_fetch_fields(),
+        limit_page_length=0,
+        order_by="date asc, agent_id asc",
+    )
 
     return [_normalize_db_row(r) for r in (rows or []) if _normalize_db_row(r).get("date")]
 

@@ -1,7 +1,9 @@
 from datetime import timedelta
 import logging
+
+from core.constants.app_constant import AppConstants
 import frappe
-from frappe.utils import flt, get_datetime, now_datetime
+from frappe.utils import flt, get_datetime, getdate, now_datetime, today
 
 from core.constants.enums import EnumValues
 import redis
@@ -36,11 +38,49 @@ def _as_datetime(val):
     return None
 
 
+def _event_followup_visit_date_sql_expr() -> str:
+    """Calendar day of scheduled callback / visit (Event ``call_at`` or ``starts_on``)."""
+    cols = frappe.db.get_table_columns("Event") or []
+    if "call_at" in cols:
+        return "DATE(COALESCE(`call_at`, `starts_on`))"
+    return "DATE(`starts_on`)"
+
+
 def _call_session_connected_field() -> str:
     doctype = EnumValues.ReferenceDocType.CALL_SESSION
     if frappe.db.has_column(doctype, "connected_at"):
         return "connected_at"
     return "lead_answered_at"
+
+
+def _call_session_disconnect_field() -> str:
+    doctype = EnumValues.ReferenceDocType.CALL_SESSION
+    if frappe.db.has_column(doctype, "disconnect_at"):
+        return "disconnect_at"
+    return "hangup_at"
+
+
+def _dispose_seconds_for_call_session(call_session: dict) -> int:
+    """Seconds from disconnect to dispose, capped at MAX_TIME_TO_DISPOSE_SEC."""
+    max_sec = AppConstants.MAX_TIME_TO_DISPOSE_SEC
+    disconnect_at = _as_datetime(
+        call_session.get(_call_session_disconnect_field())
+    )
+    if not disconnect_at:
+        return 0
+
+    disposed_at = _as_datetime(call_session.get("disposed_at"))
+    now = now_datetime()
+
+    if not disposed_at:
+        if disconnect_at + timedelta(seconds=max_sec) < now:
+            return max_sec
+        return 0
+
+    delta_sec = int((disposed_at - disconnect_at).total_seconds())
+    if delta_sec <= 0:
+        return 0
+    return min(delta_sec, max_sec)
 
 
 class AgentPerformanceService:
@@ -143,17 +183,27 @@ class AgentPerformanceService:
         day_end = day_start + timedelta(days=1)
         date_expr = Coalesce(connected_col, CS.creation)
 
+        disconnect_field = _call_session_disconnect_field()
+        disconnect_col = getattr(CS, disconnect_field, None)
+
         select_cols = [
             CS.name,
             CS.calling_method,
             CS.lead_phone,
             CS.duration,
+            CS.status,
             connected_col.as_("connected_at"),
         ]
+        if disconnect_col is not None:
+            select_cols.append(disconnect_col.as_(disconnect_field))
+        if frappe.db.has_column(doctype, "disposed_at"):
+            select_cols.append(CS.disposed_at)
         if frappe.db.has_column(doctype, "disposition_status"):
             select_cols.append(CS.disposition_status)
         if frappe.db.has_column(doctype, "ring_duration"):
             select_cols.append(CS.ring_duration)
+        if frappe.db.has_column(doctype, "lead_callback_datetime"):
+            select_cols.append(CS.lead_callback_datetime)
 
         return (
             frappe.qb.from_(CS)
@@ -185,7 +235,6 @@ class AgentPerformanceService:
         click2call_talktime_duration = 0
         click2call_ring_duration = 0
         unique_interest_phones = set()
-        unique_date_confirmed_phones = set()
         total_dispose_duration = 0
         
         for call_session in call_sessions:
@@ -193,19 +242,13 @@ class AgentPerformanceService:
             is_connected = bool(call_session.get("connected_at"))
             calling_method = call_session.get("calling_method") or ""
             disposition = (call_session.get("disposition_status") or "").strip()
-            disposed_at = call_session.get("disposed_at")
-            time_to_dispose = 0
-            if call_session.get("status") not in (EnumValues.CallSessionStatus.DISPOSED, EnumValues.CallSessionStatus.DISCONNECTED):
+            if call_session.get("status") not in (
+                EnumValues.CallSessionStatus.DISPOSED,
+                EnumValues.CallSessionStatus.DISCONNECTED,
+            ):
                 continue
 
-            if not disposed_at:
-                time_to_dispose += 45 # 45 seconds
-            else:
-                time_to_dispose += (disposed_at - call_session.get("connected_at")).total_seconds()
-
-            total_dispose_duration += time_to_dispose
-            if call_session.get("lead_callback_datetime"): 
-                unique_date_confirmed_phones.add(phone)
+            total_dispose_duration += _dispose_seconds_for_call_session(call_session)
 
             if disposition == EnumValues.LeadStatus.INTERESTED and phone:
                 unique_interest_phones.add(phone)
@@ -240,7 +283,10 @@ class AgentPerformanceService:
         
         today_schedules_followup = self._calculate_today_schedules_followup_count(user_id)
         today_scheduled_followup = self._calculate_today_scheduled_followup_count(user_id)
-        today_completed_scheduled_followup = self._calculate_today_completed_scheduled_followup_count(user_id)
+        today_completed_scheduled_followup = (
+            self._calculate_today_completed_scheduled_followup_count(user_id)
+        )
+        unique_schedules_walkin = self._calculate_unique_schedules_walkin_count(user_id)
 
         agent_performance_doc.dialer_talktime_duration = dialer_talktime_duration
         agent_performance_doc.click2call_talktime_duration = click2call_talktime_duration
@@ -261,6 +307,10 @@ class AgentPerformanceService:
         agent_performance_doc.schedules_followup = today_schedules_followup
         agent_performance_doc.scheduled_followup = today_scheduled_followup
         agent_performance_doc.completed_scheduled_followup = today_completed_scheduled_followup
+        if hasattr(agent_performance_doc, "unique_schedules_walkin"):
+            agent_performance_doc.unique_schedules_walkin = unique_schedules_walkin
+        elif hasattr(agent_performance_doc, "unique_date_confirmed"):
+            agent_performance_doc.unique_date_confirmed = unique_schedules_walkin
 
         agent_performance_doc.dialer_session_duration = session_duration
         agent_performance_doc.dialer_session_count = dialer_session_count
@@ -285,32 +335,78 @@ class AgentPerformanceService:
         )
 
     def _calculate_today_scheduled_followup_count(self, user_id: str) -> int:
-        today = frappe.utils.today()
-        today_midnight = frappe.utils.get_datetime(today)
-        today_end = today_midnight + timedelta(days=1)
-        return frappe.db.count(
-            "Event",
-            filters={
-                "owner": user_id,
-                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
-                "call_at": ("between", [today_midnight, today_end]),
-                "callback_status": EnumValues.EventCallbackStatus.SCHEDULED
-            }
-        )
+        """Callback follow-ups scheduled for today (visit/call date = today)."""
+        return self._count_callback_events_by_visit_date(user_id)
 
     def _calculate_today_completed_scheduled_followup_count(self, user_id: str) -> int:
-        today = frappe.utils.today()
-        today_midnight = frappe.utils.get_datetime(today)
-        today_end = today_midnight + timedelta(days=1)
-        return frappe.db.count(
-            "Event",
-            filters={
-                "owner": user_id,
-                "event_category": EnumValues.EventCallbackCategory.CALLBACK,
-                "call_at": ("between", [today_midnight, today_end]),
-                "callback_status": EnumValues.EventCallbackStatus.COMPLETED
-            }
+        """Callback follow-ups scheduled for today with status Missed."""
+        return self._count_callback_events_by_visit_date(
+            user_id,
+            callback_status=EnumValues.EventCallbackStatus.MISSED,
         )
+
+    def _count_callback_events_by_visit_date(
+        self, user_id: str, *, callback_status: str | None = None
+    ) -> int:
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return 0
+
+        date_x = _event_followup_visit_date_sql_expr()
+        conditions = [
+            "`owner` = %(owner)s",
+            "`event_category` = %(cat)s",
+            f"{date_x} = %(today)s",
+        ]
+        params: dict = {
+            "owner": user_id,
+            "cat": EnumValues.EventCallbackCategory.CALLBACK,
+            "today": getdate(today()),
+        }
+        if callback_status:
+            conditions.append("`callback_status` = %(status)s")
+            params["status"] = callback_status
+
+        return int(
+            frappe.db.sql(
+                f"""
+                SELECT COUNT(*) FROM `tabEvent`
+                WHERE {" AND ".join(conditions)}
+                """,
+                params,
+            )[0][0]
+            or 0
+        )
+
+    def _calculate_unique_schedules_walkin_count(self, user_id: str) -> int:
+        """Distinct CRM leads with a Visit Date event created today."""
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return 0
+
+        today_s = today()
+        today_midnight = get_datetime(today_s)
+        today_end = today_midnight + timedelta(days=1)
+        rows = frappe.db.sql(
+            """
+            SELECT DISTINCT `reference_docname`
+            FROM `tabEvent`
+            WHERE `owner` = %(owner)s
+              AND `event_category` = %(cat)s
+              AND `reference_doctype` = %(ref_dt)s
+              AND IFNULL(`reference_docname`, '') != ''
+              AND `creation` >= %(start)s
+              AND `creation` < %(end)s
+            """,
+            {
+                "owner": user_id,
+                "cat": EnumValues.EventCallbackCategory.VISIT_DATE,
+                "ref_dt": EnumValues.ReferenceDocType.CRM_LEAD,
+                "start": today_midnight,
+                "end": today_end,
+            },
+        )
+        return len(rows or [])
 
     def _calculate_dialer_session_duration_count(self, user_id: str) -> tuple[int, int]:
         session_duration = 0

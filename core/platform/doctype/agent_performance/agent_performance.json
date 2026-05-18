@@ -33,7 +33,7 @@
   "schedules_followup",
   "scheduled_followup",
   "completed_scheduled_followup",
-  "unique_date_confirmed"
+  "unique_schedules_walkin"
  ],
  "fields": [
   {
@@ -201,9 +201,9 @@
     "label": "Total unique interests"
   },
   {
-    "fieldname": "unique_date_confirmed",
+    "fieldname": "unique_schedules_walkin",
     "fieldtype": "Int",
-    "label": "Total unique date confirmed"
+    "label": "Unique schedules walkin"
   }
  ],
  "grid_page_length": 50,

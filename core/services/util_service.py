@@ -231,6 +231,8 @@ class UtilService:
             event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)
             event_doc.save(ignore_permissions=True)
 
+        return len(event_names or [])
+
     def block_desk_access(self):
         if frappe.session.user == "Administrator":
             return

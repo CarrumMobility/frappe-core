@@ -720,6 +720,14 @@ def _interest_pct(d: dict) -> float:
     return (interests / connects) * 100
 
 
+def _schedules_walkin_pct(d: dict) -> float:
+    walkins = d.get("unique_schedules_walkin") or 0
+    interests = d.get("total_unique_interests") or 0
+    if not interests:
+        return 0.0
+    return (walkins / interests) * 100
+
+
 _STATS_BREAKUP_METRICS = frozenset(
     {
         "break_duration",
@@ -853,7 +861,7 @@ def _metric_definitions():
             "group": "conversion_metrics",
             "format": "percent",
             "section_end": True,
-            "get_value": lambda d: _PLACEHOLDER_PCT_69,
+            "get_value": _schedules_walkin_pct,
         },
         {
             "metric_name": "schedules_followup",

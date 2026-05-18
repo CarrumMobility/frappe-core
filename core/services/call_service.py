@@ -549,37 +549,40 @@ class CallService:
         *,
         manual_dial: bool = False,
     ):
-        # campaign_id = calling_config["default_campaign_id"]
+        campaign_id = calling_config["default_campaign_id"]
 
-        # max_login_retry_count = 2
-        # is_logged_in = False
-        # last_login_error_message = None
+        max_login_retry_count = 2
+        is_logged_in = False
+        last_login_error_message = None
 
-        # for attempt in range(max_login_retry_count):
-        #     try:
-        #         result = smartflo_client.handle_login_session_api(
-        #             user=user, campaign_id=campaign_id
-        #         )
-        #         if result.get("is_valid"):
-        #             is_logged_in = True
-        #             break
-        #         last_login_error_message = result.get("reason") or "Session login failed"
+        for attempt in range(max_login_retry_count):
+            try:
+                result = smartflo_client.handle_login_session_api(
+                    user=user, campaign_id=campaign_id
+                )
+                if result.get("is_valid"):
+                    is_logged_in = True
+                    break
+                last_login_error_message = result.get("reason") or "Session login failed"
+                if "already logged in" in last_login_error_message.lower():
+                    is_logged_in = True
+                    break
 
-        #     except Exception as e:
-        #         err = str(e)
-        #         if "already logged in" in err.lower():
-        #             is_logged_in = True
-        #             break
-        #         last_login_error_message = err
+            except Exception as e:
+                err = str(e)
+                if "already logged in" in err.lower():
+                    is_logged_in = True
+                    break
+                last_login_error_message = err
 
-        #     sleep(2)
+            sleep(2)
 
-        # if not is_logged_in:
-        #     return {
-        #         "is_valid": False,
-        #         "step": "login",
-        #         "reason": last_login_error_message,
-        #     }
+        if not is_logged_in:
+            return {
+                "is_valid": False,
+                "step": "login",
+                "reason": last_login_error_message,
+            }
 
         max_dial_retry_count = 2
         max_offline_retry = 1
@@ -612,21 +615,33 @@ class CallService:
 
                     offline_retry_count += 1
 
-                    # try:
-                    #     smartflo_client.handle_logout(
-                    #         user=user, campaign_id=campaign_id
-                    #     )
-                    # except Exception:
-                    #     pass
+                    try:
+                        smartflo_client.handle_logout(
+                            user=user, campaign_id=campaign_id
+                        )
+                    except Exception:
+                        pass
 
-                    # sleep(0.5)
+                    sleep(0.5)
 
-                    # try:
-                    #     smartflo_client.handle_login_session_api(
-                    #         user=user, campaign_id=campaign_id
-                    #     )
-                    # except Exception:
-                    #     pass
+                    try:
+                        relogin = smartflo_client.handle_login_session_api(
+                            user=user, campaign_id=campaign_id
+                        )
+                        if relogin.get("is_valid"):
+                            pass
+                        else:
+                            relogin_reason = (relogin.get("reason") or "").lower()
+                            if "already logged in" not in relogin_reason:
+                                last_dial_error_message = (
+                                    relogin.get("reason") or "Session re-login failed"
+                                )
+                                break
+                    except Exception as relogin_err:
+                        relogin_err_s = str(relogin_err)
+                        if "already logged in" not in relogin_err_s.lower():
+                            last_dial_error_message = relogin_err_s
+                            break
 
                     sleep(0.5)
                     continue
@@ -1587,11 +1602,11 @@ class CallService:
     def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str, campaign_name: str):
         try:
             # handle dialer login first
-            result = smartflo_client.handle_login_session_api(user,campaign_id)
+            result = smartflo_client.handle_login_session_api(user, campaign_id)
             if not result.get("is_valid"):
-                if "already logged in" in result.get("reason").lower():
-                    pass
-                raise ValueError(result.get("reason"))
+                reason = (result.get("reason") or "").lower()
+                if "already logged in" not in reason:
+                    raise ValueError(result.get("reason") or "Session login failed")
         except Exception as e:
             err = str(e)
             if "already logged in" in err.lower():

@@ -245,11 +245,16 @@ def handle_login_session_api(user: str, campaign_id):
 		url, None, method, payload, user, api_operation="login_session"
 	)
 	# Some Smartflo routes use "ok", others "success" (HTTP 200 body).
-	result = {
-		"is_valid": response.get("ok") is True or response.get("success") is True,
-		"reason": None,
-	}
-	return result
+	is_valid = response.get("ok") is True or response.get("success") is True
+	reason = None
+	if not is_valid:
+		reason = (
+			response.get("message")
+			or response.get("reason")
+			or response.get("error")
+			or "Session login failed"
+		)
+	return {"is_valid": is_valid, "reason": reason}
 
 def handle_logout(user: str, campaign_id: str):
 	url = constants.agent_logout_config["url"]

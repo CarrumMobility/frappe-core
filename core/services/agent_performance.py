@@ -283,6 +283,10 @@ class AgentPerformanceService:
         
         today_schedules_followup = self._calculate_today_schedules_followup_count(user_id)
         today_scheduled_followup = self._calculate_today_scheduled_followup_count(user_id)
+
+        total_psd_count = self._calculate_today_psd_count(user_id)
+        total_fsd_count = self._calculate_today_fsd_count(user_id)
+
         today_completed_scheduled_followup = (
             self._calculate_today_completed_scheduled_followup_count(user_id)
         )
@@ -304,6 +308,9 @@ class AgentPerformanceService:
         agent_performance_doc.total_unique_connects = len(total_unique_connect_phones)
         agent_performance_doc.total_unique_interests = len(unique_interest_phones)
         
+        agent_performance_doc.psd_count = total_psd_count
+        agent_performance_doc.fsd_count = total_fsd_count
+
         agent_performance_doc.schedules_followup = today_schedules_followup
         agent_performance_doc.scheduled_followup = today_scheduled_followup
         agent_performance_doc.completed_scheduled_followup = today_completed_scheduled_followup
@@ -537,6 +544,26 @@ class AgentPerformanceService:
     def cron_task_update_today_agent_performance_data(self) -> None:
         """Every 5 minutes: ensure today's row exists (idempotent)."""
         self._ensure_today_telecaller_agents_performance()
+
+    def _calculate_today_psd_count(self, user_id) -> int:
+        today = frappe.utils.today()
+        return frappe.db.count(
+            EnumValues.ReferenceDocType.CRM_LEAD,
+            filters={
+                "psd_received_at": ["between", [today, today + " 23:59:59.999999"]],
+                "telecaller": user_id
+            }
+        )
+
+    def _calculate_today_fsd_count(self, user_id) -> int:
+        today = frappe.utils.today()
+        return frappe.db.count(
+            EnumValues.ReferenceDocType.CRM_LEAD,
+            filters={
+                "fsd_received_at": ["between", [today, today + " 23:59:59.999999"]],
+                "telecaller": user_id
+            }
+        )
 
     def login_heartbeat(self, user: str):
         user = (user or "").strip()

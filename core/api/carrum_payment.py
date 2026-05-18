@@ -685,7 +685,6 @@ def webhook_capture():
     utr = d.get("utrNumber")
     transactionDt = d.get("transactionDate")
     user_id = d.get("userId")
-    agent_id = d.get("agentId")
     _raw_tid = d.get("transactionId")
     transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
     imageUrls = d.get("imageUrls")

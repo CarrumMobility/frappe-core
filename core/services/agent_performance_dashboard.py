@@ -1558,6 +1558,17 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
     ],
 }
 
+_EVENT_FOLLOWUP_BREAKUP_COLUMNS = [
+    {"key": "id", "label": "Event", "link_doctype": "Event"},
+    {"key": "created_at", "label": "Created at"},
+    {"key": "visit_date", "label": "Visit date"},
+    {"key": "lead_id", "label": "Lead id", "link_route": "leads"},
+    {"key": "callback_status", "label": "Callback status"},
+    {"key": "primary_status", "label": "Primary status"},
+    {"key": "secondary_status", "label": "Secondary status"},
+    {"key": "disposition_remarks", "label": "Disposition remarks"},
+]
+
 _EVENT_BREAKUP_COLUMNS = [
     {"key": "id", "label": "Event", "link_doctype": "Event"},
     {"key": "created_at", "label": "Created at"},
@@ -1570,12 +1581,10 @@ _EVENT_BREAKUP_COLUMNS = [
     {"key": "disposition_remarks", "label": "Disposition remarks"},
 ]
 
-for _event_metric in (
-    "schedules_followup",
-    "followup_done",
-    "new_walkin_schedules",
-    "walkin_done",
-):
+_BREAKUP_COLUMNS["schedules_followup"] = list(_EVENT_FOLLOWUP_BREAKUP_COLUMNS)
+_BREAKUP_COLUMNS["followup_done"] = list(_EVENT_FOLLOWUP_BREAKUP_COLUMNS)
+
+for _event_metric in ("new_walkin_schedules", "walkin_done"):
     _BREAKUP_COLUMNS[_event_metric] = list(_EVENT_BREAKUP_COLUMNS)
 
 _CALL_SESSION_BREAKUP_METRICS = frozenset({"total_attempts", "total_connects"})

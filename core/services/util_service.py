@@ -225,7 +225,7 @@ class UtilService:
             },
             pluck="name",
         )
-
+        
         for event_name in event_names or []:
             event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, event_name)
             event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)

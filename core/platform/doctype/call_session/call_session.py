@@ -109,7 +109,7 @@ class CallSession(Document):
 				"width": "8rem",
 			},
 			{
-				"label": _("Call at"),
+				"label": _("Agent answered at"),
 				"type": "Datetime",
 				"key": "agent_answered_at",
 				"width": "10rem",

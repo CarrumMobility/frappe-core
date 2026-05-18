@@ -186,30 +186,41 @@ class AgentPerformanceService:
         click2call_ring_duration = 0
         unique_interest_phones = set()
         unique_date_confirmed_phones = set()
+        total_dispose_duration = 0
+        
         for call_session in call_sessions:
             phone = (call_session.get("lead_phone") or "").strip()
             is_connected = bool(call_session.get("connected_at"))
             calling_method = call_session.get("calling_method") or ""
             disposition = (call_session.get("disposition_status") or "").strip()
+            disposed_at = call_session.get("disposed_at")
+            time_to_dispose = 0
+            if call_session.get("status") not in (EnumValues.CallSessionStatus.DISPOSED, EnumValues.CallSessionStatus.DISCONNECTED):
+                continue
+
+            if not disposed_at:
+                time_to_dispose += 45 # 45 seconds
+            else:
+                time_to_dispose += (disposed_at - call_session.get("connected_at")).total_seconds()
+
+            total_dispose_duration += time_to_dispose
             if call_session.get("lead_callback_datetime"): 
                 unique_date_confirmed_phones.add(phone)
 
             if disposition == EnumValues.LeadStatus.INTERESTED and phone:
                 unique_interest_phones.add(phone)
 
-            if calling_method == "Dialer":
+            if calling_method == EnumValues.CallingMethod.Dialer:
                 if not is_connected:
                     continue
                 total_dialer_connects += 1
                 if phone:
                     total_unique_attempt_phones.add(phone)
                     total_unique_connect_phones.add(phone)
-                dialer_talktime_duration += _duration_field_to_seconds(
-                    call_session.get("duration")
-                )
+                dialer_talktime_duration += _duration_field_to_seconds(call_session.get("duration"))
                 continue
 
-            if calling_method == "Click2Call":
+            if calling_method == EnumValues.CallingMethod.Click2Call:
                 total_click2call_attempts += 1
                 if phone:
                     total_unique_attempt_phones.add(phone)
@@ -233,6 +244,8 @@ class AgentPerformanceService:
 
         agent_performance_doc.dialer_talktime_duration = dialer_talktime_duration
         agent_performance_doc.click2call_talktime_duration = click2call_talktime_duration
+        agent_performance_doc.dispose_duration = total_dispose_duration
+
         if hasattr(agent_performance_doc, "click2call_ring_time"):
             agent_performance_doc.click2call_ring_time = click2call_ring_duration
         else:

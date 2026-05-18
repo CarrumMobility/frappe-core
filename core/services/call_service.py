@@ -260,6 +260,18 @@ def _direction_inbound_outbound_from_vendor_payload(payload: dict | None) -> str
     return "OUTBOUND"
 
 
+def _click2call_campaign_from_config(
+    calling_config: dict,
+    *,
+    campaign_id: str | None = None,
+    campaign_name: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve campaign id/name for Click2Call from request overrides or Smartflo creds."""
+    cid = (campaign_id or "").strip() or (calling_config.get("default_campaign_id") or "").strip()
+    cname = (campaign_name or "").strip() or (calling_config.get("default_campaign_name") or "").strip()
+    return cid or None, cname or None
+
+
 class CallService:
     def __init__(self):
         pass
@@ -274,6 +286,8 @@ class CallService:
         user: str,
         *,
         manual_dial: bool = False,
+        campaign_id: str | None = None,
+        campaign_name: str | None = None,
     ):
         log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId} and user: {user} and manual_dial: {manual_dial}")
         if calling_method == EnumValues.CallingMethod.Dialer:
@@ -300,6 +314,15 @@ class CallService:
         if pre_vendor_check_result["is_valid"] == False:
             raise ValueError(f"Pre vendor check failed: {pre_vendor_check_result['invalid_reason']}")
 
+        calling_config = dict(pre_vendor_check_result["calling_config"])
+        resolved_campaign_id, resolved_campaign_name = _click2call_campaign_from_config(
+            calling_config,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+        )
+        calling_config["default_campaign_id"] = resolved_campaign_id
+        calling_config["default_campaign_name"] = resolved_campaign_name
+
         call_session_doc = frappe.get_doc({
             "doctype": "Call Session",
             "lead": lead.name,
@@ -309,6 +332,8 @@ class CallService:
             "direction": EnumValues.CallDirection.OUTBOUND,
             "calling_method": calling_method,
             "vendor_name": default_telephony_vendor,
+            "campaign_id": resolved_campaign_id,
+            "campaign_name": resolved_campaign_name,
         })
         call_session_doc.insert()
 
@@ -316,7 +341,7 @@ class CallService:
             user,
             call_session_doc.name,
             mobile_no,
-            pre_vendor_check_result["calling_config"],
+            calling_config,
             manual_dial=bool(manual_dial),
         )
 
@@ -674,8 +699,12 @@ class CallService:
 
             calling_number = (smartflo_credentials.get("callingNumber") or "").strip()
             extension_id = smartflo_credentials.get("extensionId")
-            default_campaign_id = smartflo_credentials.get("defaultCampaignId")
-
+            default_campaign_id = smartflo_credentials.get("defaultCampaignId") or smartflo_credentials.get(
+                "default_campaign_id"
+            )
+            default_campaign_name = smartflo_credentials.get("defaultCampaignName") or smartflo_credentials.get(
+                "default_campaign_name"
+            )
             if not calling_number:
                 raise ValueError(f"Calling number not found for user: {user}")
 
@@ -695,7 +724,8 @@ class CallService:
             "calling_config": {
                 "calling_number": calling_number,
                 "extension_id": extension_id,
-                "default_campaign_id": default_campaign_id
+                "default_campaign_id": default_campaign_id,
+                "default_campaign_name": default_campaign_name
             },
         }
 
@@ -1275,7 +1305,7 @@ class CallService:
                 }
     def _enqueue_apply_default_campaign_id_to_call_session(self, call_session_id: str):
         frappe.enqueue(
-            "core.api.call_session.apply_default_campaign_id_to_call_session",
+            "core.services.call_service.apply_default_campaign_id_to_call_session",
             queue="default",
             enqueue_after_commit=True,
             call_session_id=call_session_id,
@@ -1291,13 +1321,18 @@ class CallService:
         if not smartflo_credentials:
             return;
 
-        default_campaign_id = smartflo_credentials.get("defaultCampaignId")
-        default_campaign_name = smartflo_credentials.get("defaultCampaignName")
-        if not default_campaign_id or not default_campaign_name:
-            return;
+        default_campaign_id = smartflo_credentials.get("defaultCampaignId") or smartflo_credentials.get(
+            "default_campaign_id"
+        )
+        default_campaign_name = smartflo_credentials.get("defaultCampaignName") or smartflo_credentials.get(
+            "default_campaign_name"
+        )
+        if not default_campaign_id:
+            return
 
         call_session_doc.set("campaign_id", default_campaign_id)
-        call_session_doc.set("campaign_name", default_campaign_name)
+        if default_campaign_name:
+            call_session_doc.set("campaign_name", default_campaign_name)
         call_session_doc.save(ignore_permissions=True)
         frappe.db.commit()
         return;
@@ -2370,9 +2405,21 @@ class CallService:
 _service = CallService()
 
 
-def start_call(calling_method: str, leadId: str, user: str, manual_dial: bool = False):
+def start_call(
+    calling_method: str,
+    leadId: str,
+    user: str,
+    manual_dial: bool = False,
+    campaign_id: str | None = None,
+    campaign_name: str | None = None,
+):
     return _service.start_call(
-        calling_method, leadId, user, manual_dial=bool(manual_dial)
+        calling_method,
+        leadId,
+        user,
+        manual_dial=bool(manual_dial),
+        campaign_id=campaign_id,
+        campaign_name=campaign_name,
     )
 
 

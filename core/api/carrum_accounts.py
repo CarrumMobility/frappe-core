@@ -109,11 +109,14 @@ def _normalize_smartflo_cred_dict(cred) -> dict | None:
     print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred))
     username = cred.get("username")
     password = cred.get("password") or "TechTeam@12"
-    defaultCampaignId = cred.get("defaultCampaignId") or "442227"
+    defaultCampaignId = cred.get("defaultCampaignId") or cred.get("default_campaign_id") or "442227"
+    defaultCampaignName = cred.get("defaultCampaignName") or cred.get("default_campaign_name")
 
     if not username:
         return None
     out = {"email": username, "password": str(password), "defaultCampaignId": defaultCampaignId}
+    if defaultCampaignName is not None and str(defaultCampaignName).strip():
+        out["defaultCampaignName"] = str(defaultCampaignName).strip()
     calling = cred.get("callingNumber") or cred.get("calling_number")
     if calling is not None and str(calling).strip():
         out["callingNumber"] = str(calling).strip()

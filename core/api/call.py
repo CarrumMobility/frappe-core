@@ -21,8 +21,15 @@ def start_call(calling_method: str = None, leadId: str = None):
         data.get("manual_dial")
         or data.get("manualDial")
     )
+    campaign_id = (data.get("campaign_id") or data.get("campaignId") or "").strip() or None
+    campaign_name = (data.get("campaign_name") or data.get("campaignName") or "").strip() or None
     result = call_service.start_call(
-        calling_method, leadId, user, manual_dial=manual_dial
+        calling_method,
+        leadId,
+        user,
+        manual_dial=manual_dial,
+        campaign_id=campaign_id,
+        campaign_name=campaign_name,
     )
     print(result)
     return result

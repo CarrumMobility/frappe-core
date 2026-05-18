@@ -1349,7 +1349,7 @@ class CallService:
         doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
     
         want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
-        _enqueue_apply_default_campaign_id_to_call_session(call_session_id)
+        self._enqueue_apply_default_campaign_id_to_call_session(call_session_id)
         if svd and want_visit:
             doc.set("is_visit_scheduled", 1)
             doc.set("scheduled_visit_date", visit_dt or svd)

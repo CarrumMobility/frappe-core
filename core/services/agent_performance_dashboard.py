@@ -1243,13 +1243,11 @@ def _fetch_events_breakup(
                 "e.`event_category` = %(callback_cat)s",
                 f"{visit_date_x} >= %(from_day)s",
                 f"{visit_date_x} <= %(to_day)s",
-                "e.`callback_status` = %(status)s",
             ]
         )
         params["callback_cat"] = EnumValues.EventCallbackCategory.CALLBACK
         params["from_day"] = getdate(from_date)
         params["to_day"] = getdate(to_date)
-        params["status"] = EnumValues.EventCallbackStatus.COMPLETED
     elif mode == "new_walkin_schedules":
         conditions.extend(
             [

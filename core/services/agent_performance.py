@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 import logging
 
 from core.constants.app_constant import AppConstants
@@ -38,12 +38,44 @@ def _as_datetime(val):
     return None
 
 
-def _event_followup_visit_date_sql_expr() -> str:
-    """Calendar day of scheduled callback / visit (Event ``call_at`` or ``starts_on``)."""
-    cols = frappe.db.get_table_columns("Event") or []
-    if "call_at" in cols:
-        return "DATE(COALESCE(`call_at`, `starts_on`))"
-    return "DATE(`starts_on`)"
+def _event_visit_date(call_at=None, starts_on=None) -> date | None:
+    """Calendar day of scheduled callback / visit (``call_at`` or ``starts_on``)."""
+    dt = _as_datetime(call_at) or _as_datetime(starts_on)
+    return getdate(dt) if dt else None
+
+
+def _count_agent_events_visit_date_today(
+    user_id: str,
+    event_category: str,
+    *,
+    callback_status: str | None = None,
+    exclude_override: bool = False,
+) -> int:
+    """Count Event rows owned by the agent whose visit/callback date is today."""
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return 0
+
+    filters: dict = {
+        "owner": user_id,
+        "event_category": event_category,
+    }
+    if callback_status:
+        filters["callback_status"] = callback_status
+
+    events = frappe.get_all(
+        EnumValues.ReferenceDocType.EVENT,
+        filters=filters,
+        fields=["call_at", "starts_on", "callback_status"],
+    )
+    today_s = getdate(today())
+    count = 0
+    for row in events:
+        if exclude_override and (row.callback_status or "") == EnumValues.EventCallbackStatus.OVERRIDE:
+            continue
+        if _event_visit_date(row.call_at, row.starts_on) == today_s:
+            count += 1
+    return count
 
 
 def _call_session_connected_field() -> str:
@@ -284,6 +316,14 @@ class AgentPerformanceService:
         today_schedules_followup = self._calculate_today_schedules_followup_count(user_id)
         today_scheduled_followup = self._calculate_today_scheduled_followup_count(user_id)
 
+        new_walkin_schedules = self._calculate_new_walkin_schedules_count(user_id)
+        scheduled_walkin = self._calculate_scheduled_walkin_count(user_id)
+        completed_scheduled_walkin = self._calculate_completed_scheduled_walkin_count(user_id)
+        agent_performance_doc.new_walkin_schedules = new_walkin_schedules
+        agent_performance_doc.scheduled_walkin = scheduled_walkin
+        agent_performance_doc.completed_scheduled_walkin = completed_scheduled_walkin
+
+
         total_psd_count = self._calculate_today_psd_count(user_id)
         total_fsd_count = self._calculate_today_fsd_count(user_id)
 
@@ -291,6 +331,8 @@ class AgentPerformanceService:
             self._calculate_today_completed_scheduled_followup_count(user_id)
         )
         unique_schedules_walkin = self._calculate_unique_schedules_walkin_count(user_id)
+        
+
 
         agent_performance_doc.dialer_talktime_duration = dialer_talktime_duration
         agent_performance_doc.click2call_talktime_duration = click2call_talktime_duration
@@ -355,34 +397,10 @@ class AgentPerformanceService:
     def _count_callback_events_by_visit_date(
         self, user_id: str, *, callback_status: str | None = None
     ) -> int:
-        user_id = (user_id or "").strip()
-        if not user_id:
-            return 0
-
-        date_x = _event_followup_visit_date_sql_expr()
-        conditions = [
-            "`owner` = %(owner)s",
-            "`event_category` = %(cat)s",
-            f"{date_x} = %(today)s",
-        ]
-        params: dict = {
-            "owner": user_id,
-            "cat": EnumValues.EventCallbackCategory.CALLBACK,
-            "today": getdate(today()),
-        }
-        if callback_status:
-            conditions.append("`callback_status` = %(status)s")
-            params["status"] = callback_status
-
-        return int(
-            frappe.db.sql(
-                f"""
-                SELECT COUNT(*) FROM `tabEvent`
-                WHERE {" AND ".join(conditions)}
-                """,
-                params,
-            )[0][0]
-            or 0
+        return _count_agent_events_visit_date_today(
+            user_id,
+            EnumValues.EventCallbackCategory.CALLBACK,
+            callback_status=callback_status,
         )
 
     def _calculate_unique_schedules_walkin_count(self, user_id: str) -> int:
@@ -394,26 +412,18 @@ class AgentPerformanceService:
         today_s = today()
         today_midnight = get_datetime(today_s)
         today_end = today_midnight + timedelta(days=1)
-        rows = frappe.db.sql(
-            """
-            SELECT DISTINCT `reference_docname`
-            FROM `tabEvent`
-            WHERE `owner` = %(owner)s
-              AND `event_category` = %(cat)s
-              AND `reference_doctype` = %(ref_dt)s
-              AND IFNULL(`reference_docname`, '') != ''
-              AND `creation` >= %(start)s
-              AND `creation` < %(end)s
-            """,
-            {
+        lead_ids = frappe.get_all(
+            EnumValues.ReferenceDocType.EVENT,
+            filters={
                 "owner": user_id,
-                "cat": EnumValues.EventCallbackCategory.VISIT_DATE,
-                "ref_dt": EnumValues.ReferenceDocType.CRM_LEAD,
-                "start": today_midnight,
-                "end": today_end,
+                "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
+                "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
+                "reference_docname": ["!=", ""],
+                "creation": ["between", [today_midnight, today_end]],
             },
+            pluck="reference_docname",
         )
-        return len(rows or [])
+        return len({lead_id for lead_id in (lead_ids or []) if lead_id})
 
     def _calculate_dialer_session_duration_count(self, user_id: str) -> tuple[int, int]:
         session_duration = 0
@@ -545,24 +555,70 @@ class AgentPerformanceService:
         """Every 5 minutes: ensure today's row exists (idempotent)."""
         self._ensure_today_telecaller_agents_performance()
 
-    def _calculate_today_psd_count(self, user_id) -> int:
-        today = frappe.utils.today()
+    def _calculate_today_psd_count(self, user_id: str) -> int:
+        """Leads assigned to this telecaller with ``psd_received_at`` today."""
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return 0
+        today_s = today()
+        today_midnight = get_datetime(today_s)
+        today_end = today_midnight + timedelta(days=1)
         return frappe.db.count(
             EnumValues.ReferenceDocType.CRM_LEAD,
             filters={
-                "psd_received_at": ["between", [today, today + " 23:59:59.999999"]],
-                "telecaller": user_id
-            }
+                "telecaller": user_id,
+                "psd_received_at": ["between", [today_midnight, today_end]],
+            },
         )
 
-    def _calculate_today_fsd_count(self, user_id) -> int:
-        today = frappe.utils.today()
+    def _calculate_today_fsd_count(self, user_id: str) -> int:
+        """Leads assigned to this telecaller with ``fsd_received_at`` today."""
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return 0
+        today_s = today()
+        today_midnight = get_datetime(today_s)
+        today_end = today_midnight + timedelta(days=1)
         return frappe.db.count(
             EnumValues.ReferenceDocType.CRM_LEAD,
             filters={
-                "fsd_received_at": ["between", [today, today + " 23:59:59.999999"]],
-                "telecaller": user_id
-            }
+                "telecaller": user_id,
+                "fsd_received_at": ["between", [today_midnight, today_end]],
+            },
+        )
+
+    def _calculate_new_walkin_schedules_count(self, user_id: str) -> int:
+        """Visit Date events created today by this agent (excluding Override)."""
+        user_id = (user_id or "").strip()
+        if not user_id:
+            return 0
+        today_s = today()
+        today_midnight = get_datetime(today_s)
+        today_end = today_midnight + timedelta(days=1)
+        return frappe.db.count(
+            EnumValues.ReferenceDocType.EVENT,
+            filters={
+                "owner": user_id,
+                "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
+                "creation": ["between", [today_midnight, today_end]],
+                "callback_status": ["!=", EnumValues.EventCallbackStatus.OVERRIDE],
+            },
+        )
+
+    def _calculate_scheduled_walkin_count(self, user_id: str) -> int:
+        """Visit Date events scheduled for today (visit date = today), excluding Override."""
+        return _count_agent_events_visit_date_today(
+            user_id,
+            EnumValues.EventCallbackCategory.VISIT_DATE,
+            exclude_override=True,
+        )
+
+    def _calculate_completed_scheduled_walkin_count(self, user_id: str) -> int:
+        """Visit Date events scheduled for today with status Completed."""
+        return _count_agent_events_visit_date_today(
+            user_id,
+            EnumValues.EventCallbackCategory.VISIT_DATE,
+            callback_status=EnumValues.EventCallbackStatus.COMPLETED,
         )
 
     def login_heartbeat(self, user: str):

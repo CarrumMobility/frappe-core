@@ -73,8 +73,6 @@ CLICKABLE_METRICS = frozenset(
         "followup_done",
         "new_walkin_schedules",
         "walkin_done",
-        "psd_count",
-        "fsd_count",
     }
 )
 
@@ -728,6 +726,14 @@ def _schedules_walkin_pct(d: dict) -> float:
     return (walkins / interests) * 100
 
 
+def _interest_to_psd_pct(d: dict) -> float:
+    psd = d.get("psd_count") or 0
+    interests = d.get("total_unique_interests") or 0
+    if not interests:
+        return 0.0
+    return (psd / interests) * 100
+
+
 _STATS_BREAKUP_METRICS = frozenset(
     {
         "break_duration",
@@ -901,27 +907,27 @@ def _metric_definitions():
             ),
         },
         {
+            "metric_name": "interest_to_psd_pct",
+            "label": "Interest to PSD %",
+            "group": "psd_metrics",
+            "format": "percent",
+            "get_value": _interest_to_psd_pct,
+        },
+        {
             "metric_name": "psd_count",
             "label": "PSD count",
-            "group": "schedule_metrics",
+            "group": "psd_metrics",
             "format": "number",
-            "clickable": True,
+            "section_start": True,
             "get_value": lambda d: d.get("psd_count") or 0,
         },
         {
             "metric_name": "fsd_count",
             "label": "FSD count",
-            "group": "schedule_metrics",
+            "group": "psd_metrics",
             "format": "number",
-            "clickable": True,
+            "section_end": True,
             "get_value": lambda d: d.get("fsd_count") or 0,
-        },
-        {
-            "metric_name": "interest_to_psd_pct",
-            "label": "Interest to PSD %",
-            "group": "conversion_metrics",
-            "format": "percent",
-            "get_value": lambda d: _PLACEHOLDER_PCT_69,
         },
     ]
 
@@ -1262,11 +1268,13 @@ def _fetch_events_breakup(
                 "e.`event_category` = %(visit_cat)s",
                 "e.`creation` >= %(start_dt)s",
                 "e.`creation` <= %(end_dt)s",
+                "IFNULL(e.`callback_status`, '') != %(override_status)s",
             ]
         )
         params["visit_cat"] = EnumValues.EventCallbackCategory.VISIT_DATE
         params["start_dt"] = start_dt
         params["end_dt"] = end_dt
+        params["override_status"] = EnumValues.EventCallbackStatus.OVERRIDE
     elif mode == "walkin_done":
         conditions.extend(
             [

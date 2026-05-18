@@ -1,19 +1,10 @@
 from datetime import datetime, timedelta
 from core.constants.enums import EnumValues
-from frappe.utils import get_datetime, getdate
+from frappe.utils import get_datetime, getdate, now_datetime
 import frappe
 import requests
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import today
-
-
-def _crm_lead_event_subject(lead_id: str, suffix: str) -> str:
-	"""Event subject: ``(LEAD_ID) Lead Name: (Suffix)`` — name omitted if missing."""
-	lead_name = (frappe.db.get_value("CRM Lead", lead_id, "lead_name") or "").strip()
-	if lead_name:
-		return f"({lead_id}) {lead_name}: ({suffix})"
-	return f"({lead_id}): ({suffix})"
-
 
 def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 	"""Set ``crm_lead_name`` and ``preferred_scheme`` from CRM Lead (custom Event fields)."""
@@ -39,6 +30,13 @@ def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 class UtilService:
     def __init__(self):
         pass
+
+    def crm_lead_event_subject(self,lead_id: str, suffix: str) -> str:
+        """Event subject: ``(LEAD_ID) Lead Name: (Suffix)`` — name omitted if missing."""
+        lead_name = (frappe.db.get_value("CRM Lead", lead_id, "lead_name") or "").strip()
+        if lead_name:
+            return f"({lead_id}) {lead_name}: ({suffix})"
+        return f"({lead_id}): ({suffix})"
 
     def create_event_for_callback(
         self,
@@ -69,7 +67,7 @@ class UtilService:
 
         event_doc = frappe.new_doc("Event")
 
-        event_doc.set("subject", _crm_lead_event_subject(lead_id, "Callback scheduled"))
+        event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Callback scheduled"))
         event_doc.set("event_category", EnumValues.EventCallbackCategory.CALLBACK)
         event_doc.set("event_type", "Private")
         event_doc.set("status", "Open")
@@ -181,7 +179,7 @@ class UtilService:
         )
 
         event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
-        event_doc.set("subject", _crm_lead_event_subject(lead_id, "Visit Scheduled"))
+        event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Visit Scheduled"))
         event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
         event_doc.set("event_type", "Private")
         event_doc.set("status", "Open")
@@ -232,6 +230,56 @@ class UtilService:
             event_doc.save(ignore_permissions=True)
 
         return len(event_names or [])
+
+    def create_event_for_walkin_completed(
+        self,
+        lead_id: str,
+        *,
+        disposition_status: str | None = None,
+        sub_disposition_status: str | None = None,
+        disposition_remarks: str | None = None,
+    ) -> str | None:
+        """Record a completed walk-in Visit Date event when no scheduled visit event exists."""
+        lead_id = (lead_id or "").strip()
+        if not lead_id:
+            return None
+
+        now_dt = get_datetime(now_datetime())
+        event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
+        event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Walk-in"))
+        event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
+        event_doc.set("event_type", "Private")
+        event_doc.set("status", "Completed")
+        event_doc.set("starts_on", now_dt)
+        event_doc.set("call_at", now_dt)
+        event_doc.set("ends_on", now_dt)
+        event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
+        event_doc.set("reference_docname", lead_id)
+        event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)
+
+        ds = (disposition_status or "").strip() if disposition_status is not None else ""
+        sub = (
+            (sub_disposition_status or "").strip()
+            if sub_disposition_status is not None
+            else ""
+        )
+        if ds:
+            event_doc.set("disposition_status", ds)
+        if sub:
+            event_doc.set("sub_disposition_status", sub)
+
+        remarks = (
+            str(disposition_remarks).strip()
+            if disposition_remarks is not None and str(disposition_remarks).strip()
+            else ""
+        )
+        if remarks:
+            event_doc.set("description", remarks)
+            event_doc.set("disposition_remarks", remarks)
+
+        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
+        event_doc.save(ignore_permissions=True)
+        return event_doc.name
 
     def block_desk_access(self):
         if frappe.session.user == "Administrator":

@@ -752,6 +752,7 @@ def _metric_definitions():
         {
             "metric_name": "login_duration",
             "label": "Avg daily login",
+            "definition": "Average time per day the agent was logged in, based on CRM heartbeat.",
             "group": "time_metrics",
             "format": "duration",
             "get_value": lambda d: d.get("login_duration"),
@@ -759,6 +760,7 @@ def _metric_definitions():
         {
             "metric_name": "dialer_session_duration",
             "label": "Avg dialer session duration",
+            "definition": "Average dialer session time per day. Parentheses show session count.",
             "group": "time_metrics",
             "format": "duration_with_count",
             "clickable": True,
@@ -770,6 +772,7 @@ def _metric_definitions():
         {
             "metric_name": "talktime",
             "label": "Avg daily talktime",
+            "definition": "Average daily call talk time (dialer plus manual click-to-call combined).",
             "group": "time_metrics",
             "format": "duration",
             "get_value": _talktime_seconds,
@@ -777,6 +780,7 @@ def _metric_definitions():
         {
             "metric_name": "break_duration",
             "label": "Avg daily pause",
+            "definition": "Average daily dialer pause or break time. Parentheses show break count.",
             "group": "time_metrics",
             "format": "duration_with_count",
             "clickable": True,
@@ -788,6 +792,7 @@ def _metric_definitions():
         {
             "metric_name": "click2call_ring_time",
             "label": "Avg daily ring",
+            "definition": "Average daily ring time for manual click-to-call attempts before connect.",
             "group": "time_metrics",
             "format": "duration",
             "get_value": lambda d: d.get("click2call_ring_time"),
@@ -795,6 +800,7 @@ def _metric_definitions():
         {
             "metric_name": "dispose_duration",
             "label": "Avg daily dispo",
+            "definition": "Average daily after-call wrap-up (dispose) time.",
             "group": "time_metrics",
             "format": "duration",
             "get_value": lambda d: d.get("dispose_duration"),
@@ -802,6 +808,7 @@ def _metric_definitions():
         {
             "metric_name": "aht",
             "label": "Avg AHT",
+            "definition": "Average Handle Time: total talk time divided by total connects.",
             "group": "time_metrics",
             "format": "duration",
             "section_end": True,
@@ -812,6 +819,7 @@ def _metric_definitions():
         {
             "metric_name": "total_attempts",
             "label": "Total attempts",
+            "definition": "Dialer connects plus manual click-to-call attempts.",
             "group": "attempt_metrics",
             "format": "number",
             "section_start": True,
@@ -821,6 +829,7 @@ def _metric_definitions():
         {
             "metric_name": "unique_attempts",
             "label": "Unique attempts",
+            "definition": "Count of distinct phone numbers attempted.",
             "group": "attempt_metrics",
             "format": "number",
             "get_value": lambda d: d.get("total_unique_attempts") or 0,
@@ -828,6 +837,7 @@ def _metric_definitions():
         {
             "metric_name": "total_connects",
             "label": "Total connects",
+            "definition": "Dialer connects plus manual click-to-call connects.",
             "group": "attempt_metrics",
             "format": "number",
             "clickable": True,
@@ -836,6 +846,7 @@ def _metric_definitions():
         {
             "metric_name": "unique_connects",
             "label": "Unique connects",
+            "definition": "Count of distinct phone numbers with a successful connect.",
             "group": "attempt_metrics",
             "format": "number",
             "get_value": lambda d: d.get("total_unique_connects") or 0,
@@ -843,6 +854,7 @@ def _metric_definitions():
         {
             "metric_name": "unique_interests",
             "label": "Unique interests",
+            "definition": "Count of distinct leads marked as interested.",
             "group": "conversion_metrics",
             "format": "number",
             "get_value": lambda d: d.get("total_unique_interests") or 0,
@@ -850,6 +862,7 @@ def _metric_definitions():
         {
             "metric_name": "interest_pct",
             "label": "Interest %",
+            "definition": "Unique interests as a percentage of unique connects.",
             "group": "conversion_metrics",
             "format": "percent",
             "get_value": _interest_pct,
@@ -857,6 +870,7 @@ def _metric_definitions():
         {
             "metric_name": "unique_schedules_walkin",
             "label": "Unique schedules walkin",
+            "definition": "Count of unique walk-in visit schedules created.",
             "group": "conversion_metrics",
             "format": "number",
             "get_value": lambda d: d.get("unique_schedules_walkin") or 0,
@@ -864,6 +878,7 @@ def _metric_definitions():
         {
             "metric_name": "schedules_walkin_pct",
             "label": "Schedules walkin %",
+            "definition": "Unique walk-in schedules as a percentage of unique interests.",
             "group": "conversion_metrics",
             "format": "percent",
             "section_end": True,
@@ -872,6 +887,7 @@ def _metric_definitions():
         {
             "metric_name": "schedules_followup",
             "label": "New followup schedules",
+            "definition": "New follow-up schedules created in the selected period.",
             "group": "schedule_metrics",
             "format": "number",
             "section_start": True,
@@ -881,6 +897,7 @@ def _metric_definitions():
         {
             "metric_name": "followup_done",
             "label": "Followup done",
+            "definition": "Completed scheduled follow-ups over total scheduled follow-ups.",
             "group": "schedule_metrics",
             "format": "ratio",
             "clickable": True,
@@ -891,6 +908,7 @@ def _metric_definitions():
         {
             "metric_name": "new_walkin_schedules",
             "label": "New walkin schedules",
+            "definition": "New walk-in visit schedules created in the selected period.",
             "group": "schedule_metrics",
             "format": "number",
             "clickable": True,
@@ -899,6 +917,7 @@ def _metric_definitions():
         {
             "metric_name": "walkin_done",
             "label": "Walkin done",
+            "definition": "Completed scheduled walk-ins over total scheduled walk-ins.",
             "group": "schedule_metrics",
             "format": "ratio",
             "clickable": True,
@@ -909,6 +928,7 @@ def _metric_definitions():
         {
             "metric_name": "interest_to_psd_pct",
             "label": "Interest to PSD %",
+            "definition": "PSD count as a percentage of unique interests.",
             "group": "psd_metrics",
             "format": "percent",
             "get_value": _interest_to_psd_pct,
@@ -916,6 +936,7 @@ def _metric_definitions():
         {
             "metric_name": "psd_count",
             "label": "PSD count",
+            "definition": "Leads with PSD (payment schedule document) received in the selected period.",
             "group": "psd_metrics",
             "format": "number",
             "section_start": True,
@@ -924,6 +945,7 @@ def _metric_definitions():
         {
             "metric_name": "fsd_count",
             "label": "FSD count",
+            "definition": "Leads with FSD (full schedule document) received in the selected period.",
             "group": "psd_metrics",
             "format": "number",
             "section_end": True,
@@ -972,6 +994,7 @@ def build_analytics_payload(
             {
                 "metric_name": metric_name,
                 "label": definition["label"],
+                "definition": definition.get("definition") or "",
                 "group": definition["group"],
                 "format": fmt,
                 "row_type": "metric",

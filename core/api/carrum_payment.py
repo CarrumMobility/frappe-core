@@ -128,17 +128,26 @@ def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
     return True
 
 
-def _apply_crm_lead_status_row(lead, row):
+def _apply_crm_lead_status_row(lead, row, *, milestone=None):
+    """Apply CRM Lead Status row via ``set`` + ``save`` (runs validations / hooks)."""
     primary, secondary = row
     from crm.fcrm.doctype.crm_lead.crm_lead import (
         get_crm_lead_status_name_for_primary_secondary,
     )
 
-    patch = {"primary_status": primary, "secondary_status": secondary}
+    lead.set("primary_status", primary)
+    lead.set("secondary_status", secondary)
     pk = get_crm_lead_status_name_for_primary_secondary(primary, secondary)
     if pk:
-        patch["status"] = pk
-    lead.db_set(patch, update_modified=True)
+        lead.set("status", pk)
+
+    now = frappe.utils.now_datetime()
+    if milestone == "psd":
+        lead.set("psd_received_at", now)
+    elif milestone == "fsd":
+        lead.set("fsd_received_at", now)
+
+    lead.save(ignore_permissions=True)
 
 
 def _portal_driver_detail_results(envelope):
@@ -258,7 +267,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
         and fsd_row
         and is_security_deposit_cleared
     ):
-        _apply_crm_lead_status_row(lead, fsd_row)
+        _apply_crm_lead_status_row(lead, fsd_row, milestone="fsd")
         return
 
     # Stage 1 -> 2 or 1 -> 3 (if both dues are already cleared)
@@ -269,7 +278,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
         and is_hub_fee_cleared
         and is_security_deposit_cleared
     ):
-        _apply_crm_lead_status_row(lead, fsd_row)
+        _apply_crm_lead_status_row(lead, fsd_row, milestone="fsd")
         return
 
     if (
@@ -278,7 +287,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
         and psd_row
         and is_hub_fee_cleared
     ):
-        _apply_crm_lead_status_row(lead, psd_row)
+        _apply_crm_lead_status_row(lead, psd_row, milestone="psd")
 
 
 def _resolve_payment_doc(doctype=None, name=None, lead_id=None):
@@ -676,6 +685,7 @@ def webhook_capture():
     utr = d.get("utrNumber")
     transactionDt = d.get("transactionDate")
     user_id = d.get("userId")
+    agent_id = d.get("agentId")
     _raw_tid = d.get("transactionId")
     transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
     imageUrls = d.get("imageUrls")

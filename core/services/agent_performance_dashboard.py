@@ -9,7 +9,9 @@ from calendar import month_name
 from datetime import date, datetime, timedelta
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, getdate
+
+from core.constants.enums import EnumValues
 
 MOCK_AGENTS = [
     {"id": "rahul@carrum.co.in", "name": "Rahul Sharma", "city": "Delhi"},
@@ -19,6 +21,7 @@ MOCK_AGENTS = [
 
 AGENT_PERFORMANCE_DOCTYPE = "Agent Performance"
 CALL_SESSION_DOCTYPE = "Call Session"
+EVENT_DOCTYPE = "Event"
 
 _PERFORMANCE_FETCH_FIELDS = [
     "name",
@@ -1146,6 +1149,147 @@ def _fetch_call_sessions_breakup(
     return out
 
 
+def _event_visit_date_sql_expr(alias: str = "e") -> str:
+    cols = frappe.db.get_table_columns(EVENT_DOCTYPE) or []
+    if "call_at" in cols:
+        return f"DATE(COALESCE({alias}.`call_at`, {alias}.`starts_on`))"
+    return f"DATE({alias}.`starts_on`)"
+
+
+def _event_breakup_fieldnames() -> list[str]:
+    candidates = [
+        "name",
+        "owner",
+        "creation",
+        "event_category",
+        "call_at",
+        "starts_on",
+        "callback_status",
+        "reference_docname",
+        "reference_doctype",
+        "subject",
+        "disposition_status",
+        "sub_disposition_status",
+        "disposition_remarks",
+    ]
+    cols = set(frappe.db.get_table_columns(EVENT_DOCTYPE) or [])
+    return [f for f in candidates if f in cols]
+
+
+def _format_event_breakup_datetime(val) -> str:
+    if val is None or val == "":
+        return ""
+    if isinstance(val, datetime):
+        return val.strftime("%Y-%m-%d %H:%M:%S")
+    if hasattr(val, "strftime"):
+        return val.strftime("%Y-%m-%d %H:%M:%S")
+    return str(val)
+
+
+def _event_row_to_breakup(row: dict) -> dict:
+    visit_raw = row.get("call_at") or row.get("starts_on") or ""
+    lead_id = ""
+    if (row.get("reference_doctype") or "") == EnumValues.ReferenceDocType.CRM_LEAD:
+        lead_id = (row.get("reference_docname") or "").strip()
+    return {
+        "id": row.get("name") or "",
+        "created_at": _format_event_breakup_datetime(row.get("creation")),
+        "visit_date": _format_event_breakup_datetime(visit_raw),
+        "lead_id": lead_id,
+        "callback_status": row.get("callback_status") or "",
+        "subject": row.get("subject") or "",
+        "primary_status": row.get("disposition_status") or "",
+        "secondary_status": row.get("sub_disposition_status") or "",
+        "disposition_remarks": row.get("disposition_remarks") or "",
+    }
+
+
+def _fetch_events_breakup(
+    agent_ids: list[str],
+    from_date: str,
+    to_date: str,
+    *,
+    mode: str,
+) -> list[dict]:
+    """Load Event rows for follow-up / walk-in schedule metric breakups."""
+    if not agent_ids or not frappe.db.exists("DocType", EVENT_DOCTYPE):
+        return []
+
+    fieldnames = _event_breakup_fieldnames()
+    if not fieldnames:
+        return []
+
+    start_dt, end_dt = _breakup_datetime_bounds(from_date, to_date)
+    visit_date_x = _event_visit_date_sql_expr("e")
+    select_sql = ", ".join(f"e.`{f}`" for f in fieldnames)
+
+    conditions = ["e.`owner` IN %(owners)s"]
+    params: dict = {"owners": tuple(agent_ids)}
+
+    if mode == "schedules_followup":
+        conditions.extend(
+            [
+                "e.`event_category` = %(callback_cat)s",
+                "e.`creation` >= %(start_dt)s",
+                "e.`creation` <= %(end_dt)s",
+            ]
+        )
+        params["callback_cat"] = EnumValues.EventCallbackCategory.CALLBACK
+        params["start_dt"] = start_dt
+        params["end_dt"] = end_dt
+    elif mode == "followup_done":
+        conditions.extend(
+            [
+                "e.`event_category` = %(callback_cat)s",
+                f"{visit_date_x} >= %(from_day)s",
+                f"{visit_date_x} <= %(to_day)s",
+                "e.`callback_status` = %(status)s",
+            ]
+        )
+        params["callback_cat"] = EnumValues.EventCallbackCategory.CALLBACK
+        params["from_day"] = getdate(from_date)
+        params["to_day"] = getdate(to_date)
+        params["status"] = EnumValues.EventCallbackStatus.COMPLETED
+    elif mode == "new_walkin_schedules":
+        conditions.extend(
+            [
+                "e.`event_category` = %(visit_cat)s",
+                "e.`creation` >= %(start_dt)s",
+                "e.`creation` <= %(end_dt)s",
+            ]
+        )
+        params["visit_cat"] = EnumValues.EventCallbackCategory.VISIT_DATE
+        params["start_dt"] = start_dt
+        params["end_dt"] = end_dt
+    elif mode == "walkin_done":
+        conditions.extend(
+            [
+                "e.`event_category` = %(visit_cat)s",
+                f"{visit_date_x} >= %(from_day)s",
+                f"{visit_date_x} <= %(to_day)s",
+                "e.`callback_status` = %(status)s",
+            ]
+        )
+        params["visit_cat"] = EnumValues.EventCallbackCategory.VISIT_DATE
+        params["from_day"] = getdate(from_date)
+        params["to_day"] = getdate(to_date)
+        params["status"] = EnumValues.EventCallbackStatus.COMPLETED
+    else:
+        return []
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT {select_sql}
+        FROM `tabEvent` e
+        WHERE {" AND ".join(conditions)}
+        ORDER BY e.`creation` DESC, e.`name` DESC
+        """,
+        params,
+        as_dict=True,
+    )
+    return [_event_row_to_breakup(r) for r in (rows or [])]
+
+
 def _serialize_breakup_row(row, fields: list[str]) -> dict:
     data = {}
     for f in fields:
@@ -1416,7 +1560,30 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
     ],
 }
 
+_EVENT_BREAKUP_COLUMNS = [
+    {"key": "id", "label": "Event", "link_doctype": "Event"},
+    {"key": "created_at", "label": "Created at"},
+    {"key": "visit_date", "label": "Visit date"},
+    {"key": "lead_id", "label": "Lead id", "link_doctype": "CRM Lead"},
+    {"key": "callback_status", "label": "Callback status"},
+    {"key": "subject", "label": "Subject"},
+    {"key": "primary_status", "label": "Primary status"},
+    {"key": "secondary_status", "label": "Secondary status"},
+    {"key": "disposition_remarks", "label": "Disposition remarks"},
+]
+
+for _event_metric in (
+    "schedules_followup",
+    "followup_done",
+    "new_walkin_schedules",
+    "walkin_done",
+):
+    _BREAKUP_COLUMNS[_event_metric] = list(_EVENT_BREAKUP_COLUMNS)
+
 _CALL_SESSION_BREAKUP_METRICS = frozenset({"total_attempts", "total_connects"})
+_EVENT_BREAKUP_METRICS = frozenset(
+    {"schedules_followup", "followup_done", "new_walkin_schedules", "walkin_done"}
+)
 
 _BREAKUP_NO_LINK_METRICS = frozenset(
     {"dialer_session_duration", "dialer_session_count", "break_duration", "break_count"}
@@ -1433,7 +1600,11 @@ _DEFAULT_BREAKUP_COLUMNS = [
 def _breakup_columns_for_rows(metric_name: str, rows: list[dict]) -> list[dict]:
     """Return column defs for the drawer table."""
     base = _BREAKUP_COLUMNS.get(metric_name, _DEFAULT_BREAKUP_COLUMNS)
-    if metric_name in _BREAKUP_NO_LINK_METRICS or metric_name in _CALL_SESSION_BREAKUP_METRICS:
+    if (
+        metric_name in _BREAKUP_NO_LINK_METRICS
+        or metric_name in _CALL_SESSION_BREAKUP_METRICS
+        or metric_name in _EVENT_BREAKUP_METRICS
+    ):
         return base
     if not rows:
         return base
@@ -1548,6 +1719,14 @@ def get_agent_performance_breakup(
         rows = _fetch_call_sessions_breakup(parsed_ids, fd, td, mode="attempts")
     elif metric_name == "total_connects":
         rows = _fetch_call_sessions_breakup(parsed_ids, fd, td, mode="connects")
+    elif metric_name == "schedules_followup":
+        rows = _fetch_events_breakup(parsed_ids, fd, td, mode="schedules_followup")
+    elif metric_name == "followup_done":
+        rows = _fetch_events_breakup(parsed_ids, fd, td, mode="followup_done")
+    elif metric_name == "new_walkin_schedules":
+        rows = _fetch_events_breakup(parsed_ids, fd, td, mode="new_walkin_schedules")
+    elif metric_name == "walkin_done":
+        rows = _fetch_events_breakup(parsed_ids, fd, td, mode="walkin_done")
     elif metric_name in CLICKABLE_METRICS:
         rows = _mock_breakup_rows(metric_name, parsed_ids, fd, td)
     else:

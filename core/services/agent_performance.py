@@ -342,7 +342,7 @@ class AgentPerformanceService:
         """Callback follow-ups scheduled for today with status Missed."""
         return self._count_callback_events_by_visit_date(
             user_id,
-            callback_status=EnumValues.EventCallbackStatus.MISSED,
+            callback_status=EnumValues.EventCallbackStatus.COMPLETED,
         )
 
     def _count_callback_events_by_visit_date(

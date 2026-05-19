@@ -315,6 +315,9 @@ class CallService:
             raise ValueError(f"Pre vendor check failed: {pre_vendor_check_result['invalid_reason']}")
 
         calling_config = dict(pre_vendor_check_result["calling_config"])
+        log.info(f"calling_config: {calling_config}")
+        log.info(f"campaign_id: {campaign_id}")
+        log.info(f"campaign_name: {campaign_name}")
         resolved_campaign_id, resolved_campaign_name = _click2call_campaign_from_config(
             calling_config,
             campaign_id=campaign_id,
@@ -323,8 +326,8 @@ class CallService:
         calling_config["default_campaign_id"] = resolved_campaign_id
         calling_config["default_campaign_name"] = resolved_campaign_name
 
-        call_session_doc = frappe.get_doc({
-            "doctype": "Call Session",
+        call_session_doc = {
+            "doctype": EnumValues.ReferenceDocType.CALL_SESSION,
             "lead": lead.name,
             "agent": user,
             "lead_phone": mobile_no,
@@ -334,7 +337,10 @@ class CallService:
             "vendor_name": default_telephony_vendor,
             "campaign_id": resolved_campaign_id,
             "campaign_name": resolved_campaign_name,
-        })
+        }
+        log.info(f"call_session_doc: {call_session_doc}")
+
+        call_session_doc = frappe.get_doc(call_session_doc)
         call_session_doc.insert()
 
         call_initiated_result = self._handle_click2call_start_logic(

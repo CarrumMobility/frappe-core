@@ -2168,7 +2168,6 @@ class CallService:
         """
         Handle Smartflo Dialer Call Disconnected Event
         """
-
         frappe.logger().info(f"Dialer Disconnected Payload: {payload}")
 
         call_id = payload.get("call_id")
@@ -2197,7 +2196,8 @@ class CallService:
             else EnumValues.CallSessionStatus.MISSED
         )
         lead_telecaller = (getattr(lead, "telecaller", None) or "").strip() or None
-
+        
+        
         if session_status_value == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
             _notify_telecaller_missed_call(lead, lead_telecaller)
 
@@ -2220,7 +2220,7 @@ class CallService:
         call_duration = payload.get("outbound_sec")
         row = frappe.get_doc("Call Session", row_name)
 
-        if call_duration is not None:
+        if call_duration is not None and call_duration != "":
             row.set("duration", call_duration)
             
         pre_status = (row.get("status") or "").strip().upper()

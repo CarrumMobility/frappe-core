@@ -926,14 +926,6 @@ def _metric_definitions():
             ),
         },
         {
-            "metric_name": "interest_to_psd_pct",
-            "label": "Interest to PSD %",
-            "definition": "PSD count as a percentage of unique interests.",
-            "group": "psd_metrics",
-            "format": "percent",
-            "get_value": _interest_to_psd_pct,
-        },
-        {
             "metric_name": "psd_count",
             "label": "PSD count",
             "definition": "Leads with PSD (payment schedule document) received in the selected period.",
@@ -948,8 +940,16 @@ def _metric_definitions():
             "definition": "Leads with FSD (full schedule document) received in the selected period.",
             "group": "psd_metrics",
             "format": "number",
-            "section_end": True,
             "get_value": lambda d: d.get("fsd_count") or 0,
+        },
+        {
+            "metric_name": "interest_to_psd_pct",
+            "label": "Interest to PSD %",
+            "definition": "PSD count as a percentage of unique interests.",
+            "group": "psd_metrics",
+            "format": "percent",
+            "section_start": True,
+            "get_value": _interest_to_psd_pct,
         },
     ]
 

@@ -30,7 +30,6 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Amount",
-   "non_negative": 1,
    "precision": "2",
    "reqd": 1
   },

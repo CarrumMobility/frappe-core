@@ -24,6 +24,7 @@ def _format_request_dict(d: dict) -> str:
 	path = d.get("full_path", d.get("base_url", ""))
 	status = d.get("http_status_code", "")
 	user = d.get("user", "")
+	request_body = d.get("request_body")
 
 	parts = []
 	if method and path:
@@ -32,6 +33,8 @@ def _format_request_dict(d: dict) -> str:
 		parts.append(f"→ {status}")
 	if user:
 		parts.append(f"user={user}")
+	if request_body is not None:
+		parts.append(f"request_body={json.dumps(request_body, default=str)}")
 	return " ".join(parts) if parts else json.dumps(d, default=str)
 
 

@@ -50,7 +50,7 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "SD breakup amount",
-   "non_negative": 1,
+   "non_negative": 0,
    "precision": "2",
    "reqd": 1
   },
@@ -58,7 +58,7 @@
    "fieldname": "settlement_breakup_amount",
    "fieldtype": "Currency",
    "label": "Settlement breakup amount",
-   "non_negative": 1,
+   "non_negative": 0,
    "precision": "2",
    "reqd": 1
   },

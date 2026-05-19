@@ -293,6 +293,7 @@ before_request = [
 
 after_request = [
 	"core.observability.newrelic.enrich_newrelic_transaction",
+	"core.observability.request_logging.log_api_request_body",
 ]
 
 after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

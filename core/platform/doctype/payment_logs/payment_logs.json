@@ -22,7 +22,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Captured\nFailed",
+   "options": "Captured\nFailed\nTransferred\nRejected",
    "reqd": 1
   },
   {

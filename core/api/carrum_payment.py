@@ -766,7 +766,14 @@ def webhook_failed():
     _raw_tid = d.get("transactionId")
     transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
     imageUrls = d.get("imageUrls")
-
+    status = (d.get("status") or "").strip().lower()
+    statusMap = {
+        "reject": "Rejected",
+        "rejected": "Rejected",
+        "rejet": "Rejected",
+        "transferred": "Transferred",
+    }
+    finalStatus = statusMap.get(status, "Failed")
     if not user_id:
         frappe.throw(_("userId is required"), title=_("Payment webhook"))
     if not transactionId:
@@ -810,7 +817,7 @@ def webhook_failed():
         "sd_breakup_amount": sdBreakupAmount,
         "settlement_breakup_amount": settlementBreakupAmount,
         "transaction_date": transaction_date,
-        "status": "Failed",
+        "status": finalStatus,
     }
     if image_csv:
         pl_kwargs["image"] = image_csv

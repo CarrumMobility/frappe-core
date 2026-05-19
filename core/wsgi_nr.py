@@ -21,12 +21,14 @@ environment variables injected by Docker Compose / .env file.
 import logging
 import os
 
+from core.observability.error_logging import install_error_logging_for_newrelic
 from core.observability.logging import install_newrelic_log_compat
 
 import newrelic.agent
 
 # Materialize log messages before NR's logging hook forwards them.
 install_newrelic_log_compat()
+install_error_logging_for_newrelic()
 
 # initialize() is idempotent — safe to call even when newrelic-admin
 # has already initialised the agent (the second call is a no-op).

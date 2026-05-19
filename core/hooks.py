@@ -258,9 +258,11 @@ override_whitelisted_methods = {
 # ]
 
 # NR log forwarding reads record.msg before formatters; normalize for all processes.
+from core.observability.error_logging import install_error_logging_for_newrelic
 from core.observability.logging import install_newrelic_log_compat
 
 install_newrelic_log_compat()
+install_error_logging_for_newrelic()
 
 # Patch LoginManager so master password and other auth overrides apply
 import frappe.auth

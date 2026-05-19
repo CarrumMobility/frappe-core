@@ -91,6 +91,14 @@ class _LeadStatus:
 	INTERESTED = "Interested"
 	NOT_INTERESTED = "Not Interested"
 
+class _LEAD_SOURCE:
+	GateApp = "Gate App"
+
+class _WALK_IN_STATUS:
+	NotScheduled = "NOT_SCHEDULED"
+	Scheduled = "SCHEDULED"
+	Visited = "VISITED"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -105,5 +113,7 @@ class _EnumValues:
 	LEAD_ACTION_LIST = _LEAD_ACTION_LIST
 	LEAD_ACTION_SLUG = _LEAD_ACTION_SLUG
 	LeadStatus = _LeadStatus
+	LeadSource = _LEAD_SOURCE
+	WalkInStatus = _WALK_IN_STATUS
 
 EnumValues = _EnumValues()

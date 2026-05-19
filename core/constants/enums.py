@@ -50,6 +50,7 @@ class _ReferenceDocType:
 	CRM_LEAD_STATUS = "CRM Lead Status"
 	AGENT_PERFORMANCE = "Agent Performance"
 	USER = "User"
+	LEAD_WALKIN_DONE = "Lead walkin done"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -74,6 +75,7 @@ class _LEAD_ACTION_LIST:
 	MERGE_LEAD = "Merge Lead"
 	UNMERGE_LEAD = "Unmerge Lead"
 	MARK_ONBOARDING_DROP = "Mark Onboarding Drop"
+	MARK_WALK_IN_DONE = "Mark WalkIn Done"
 
 
 class _LEAD_ACTION_SLUG:
@@ -84,6 +86,7 @@ class _LEAD_ACTION_SLUG:
 	MARK_ONBOARDING_DROP = "mark_onboarding_drop"
 	MERGE_LEAD = "merge_lead"
 	UNMERGE_LEAD = "unmerge_lead"
+	MARK_WALK_IN_DONE = "mark_walk_in_done"
 
 class _LeadStatus:
 	DROP = "Drop"

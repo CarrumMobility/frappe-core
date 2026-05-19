@@ -96,16 +96,17 @@ def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
         lead_name = (getattr(lead, "name", None) or "").strip()
         if not lead_name:
             return
-        display = (getattr(lead, "lead_name", None) or lead.get("lead_name") or lead_name or "").strip()
+        person_name = (
+            getattr(lead, "lead_name", None) or lead.get("lead_name") or lead_name or ""
+        ).strip()
         # System-originated so notify_user does not drop when session user == telecaller (owner == assigned_to).
         owner = "Administrator"
-        msg = frappe._("You have a missed call from {0}").format(display or lead_name)
-        notification_text = f"""
-            <div class="mb-2 leading-5 text-ink-gray-5">
-                <span>{frappe._("Missed call")}</span>
-                <span class="font-medium text-ink-gray-9">{frappe.utils.escape_html(display or lead_name)}</span>
-            </div>
-        """
+        msg = frappe._("You have a missed call from #{0} {1} ({2})").format(
+            lead_name,
+            person_name or lead_name,
+            person_name or lead_name,
+        )
+        notification_text = msg
         notify_user(
             {
                 "owner": owner,

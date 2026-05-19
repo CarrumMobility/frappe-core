@@ -73,6 +73,7 @@ class _LEAD_ACTION_LIST:
 	REMOVE_ONBOARDING_DROP = "Remove Onboarding Drop"
 	MERGE_LEAD = "Merge Lead"
 	UNMERGE_LEAD = "Unmerge Lead"
+	MARK_ONBOARDING_DROP = "Mark Onboarding Drop"
 
 
 class _LEAD_ACTION_SLUG:
@@ -80,6 +81,7 @@ class _LEAD_ACTION_SLUG:
 
 	RAISE_DRIVER_REACTIVATION_REQUEST = "raise_driver_reactivation_request"
 	REMOVE_ONBOARDING_DROP = "remove_onboarding_drop"
+	MARK_ONBOARDING_DROP = "mark_onboarding_drop"
 	MERGE_LEAD = "merge_lead"
 	UNMERGE_LEAD = "unmerge_lead"
 
@@ -94,10 +96,10 @@ class _LeadStatus:
 class _LEAD_SOURCE:
 	GateApp = "Gate App"
 
-class _WALK_IN_STATUS:
-	NotScheduled = "NOT_SCHEDULED"
-	Scheduled = "SCHEDULED"
-	Visited = "VISITED"
+class _HUB_VISIT_STATUS:
+	NotInHub = "NOT_IN_HUB"
+	InHub = "IN_HUB"
+	HubVisited = "HUB_VISITED"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
@@ -114,6 +116,6 @@ class _EnumValues:
 	LEAD_ACTION_SLUG = _LEAD_ACTION_SLUG
 	LeadStatus = _LeadStatus
 	LeadSource = _LEAD_SOURCE
-	WalkInStatus = _WALK_IN_STATUS
+	HubVisitStatus = _HUB_VISIT_STATUS
 
 EnumValues = _EnumValues()

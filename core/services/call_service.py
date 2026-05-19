@@ -2025,7 +2025,7 @@ class CallService:
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
                 frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
-                    call_to_number or ""
+                    lead_phone or ""
                 )
             )
         
@@ -2176,9 +2176,15 @@ class CallService:
 
         event_id = payload.get("uuid")
         recording_url = payload.get("recording_url")
+     
+        call_direction = EnumValues.CallDirection.OUTBOUND if payload.get("direction") == "Dialer (outbound)" else EnumValues.CallDirection.INBOUND
+        caller_id_number = payload.get("caller_id_number")
+        call_to_number = payload.get("call_to_number")
 
-        row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
-        lead = self._create_lead_if_not_exists(payload.get("call_to_number"))
+
+        lead_phone = call_to_number if call_direction == EnumValues.CallDirection.OUTBOUND else caller_id_number
+        row_name = frappe.db.get_value(EnumValues.ReferenceDocType.CALL_SESSION, {"agent_call_id": call_id})
+        lead = self._create_lead_if_not_exists(lead_phone)
         campaign_name = payload.get("campaign_name")
         campaign_id = payload.get("campaign_id")
         if not lead or not getattr(lead, "name", None):
@@ -2188,7 +2194,6 @@ class CallService:
                 )
             )
 
-        call_direction = EnumValues.CallDirection.OUTBOUND if payload.get("direction") == "Dialer (outbound)" else EnumValues.CallDirection.INBOUND
 
         session_status_value = (
             EnumValues.CallSessionStatus.NOT_CONNECTED
@@ -2202,10 +2207,10 @@ class CallService:
             _notify_telecaller_missed_call(lead, lead_telecaller)
 
         if not row_name:
-            new_session = frappe.new_doc("Call Session")
+            new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
             new_session.agent_call_id = call_id
             new_session.vendor_name = "Smartflo"
-            new_session.calling_method = "Dialer"
+            new_session.calling_method = EnumValues.CallingMethod.Dialer
             new_session.lead = lead.name
             new_session.agent = lead_telecaller or None
             new_session.lead_phone = lead.get("mobile_no") or ""

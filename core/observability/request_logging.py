@@ -94,7 +94,8 @@ def log_api_request_body(response, request) -> None:
 		return
 
 	frappe.logger("frappe.web", allow_site=frappe.local.site).info(
-		{
+		"api_request",
+		extra={
 			"site": getattr(frappe.local, "site", None),
 			"remote_addr": getattr(request, "remote_addr", "NOTFOUND"),
 			"user": getattr(getattr(frappe.local, "session", None), "user", "NOTFOUND"),
@@ -103,5 +104,5 @@ def log_api_request_body(response, request) -> None:
 			"method": getattr(request, "method", "NOTFOUND"),
 			"http_status_code": getattr(response, "status_code", "NOTFOUND"),
 			"request_body": _request_body_for_log(request),
-		}
+		},
 	)

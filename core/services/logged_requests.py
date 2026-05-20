@@ -26,7 +26,7 @@ def _request_body_from_kwargs(kwargs: dict):
 
 def _log_api_request(method: str, url: str, request_body, response_status=None, exception=None):
 	payload = {
-		"message": "External API request",
+		"message": f"External API request {method} : {url}",
 		"method": (method or "").upper(),
 		"url": url,
 		"request_body": request_body,

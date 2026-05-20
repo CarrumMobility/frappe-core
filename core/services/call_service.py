@@ -1271,6 +1271,26 @@ class CallService:
                 "is_valid": False,
                 "reason": "disposition_status or disposition_code is required",
             }
+        remarks_required = False
+        try:
+            if status_pk:
+                remarks_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_pk, "is_remarks_required")
+                )
+            elif ds:
+                status_filters = {"custom_primary_status": ds}
+                if sub:
+                    status_filters["lead_status"] = sub
+                remarks_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_filters, "is_remarks_required")
+                )
+        except Exception:
+            log.exception("Failed to resolve CRM Lead Status remarks requirement")
+        if remarks_required and not remarks:
+            return {
+                "is_valid": False,
+                "reason": "Remarks are required for this disposition",
+            }
 
         match calling_method:
             case EnumValues.CallingMethod.Click2Call:

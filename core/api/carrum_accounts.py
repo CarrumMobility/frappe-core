@@ -1,3 +1,4 @@
+from core.constants.enums import EnumValues
 from pydantic import BaseModel
 from core.services import logged_requests as requests
 import frappe
@@ -232,3 +233,49 @@ def get_users_by_inbox_id(inbox_id: int):
         data2Return.append(frappeUsername)
 
     return data2Return 
+
+def get_hub_telecallers(hub_id: str):
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users"
+    query_params = {
+        "hubId": hub_id,
+        "limit": 100,
+        "roleName": EnumValues.Roles.TELECALLER.lower(),
+    }
+    
+
+    response = requests.get(
+        url,
+        headers={"Authorization": carrum_token},
+        params=query_params,
+        timeout=20,
+    )
+    data = response.json()
+    return data
+
+
+def _carrum_user_rows(payload):
+    if isinstance(payload, dict):
+        rows = payload.get("data") or payload.get("results") or payload.get("users") or payload.get("items")
+        if isinstance(rows, dict):
+            rows = rows.get("data") or rows.get("results") or rows.get("users") or rows.get("items")
+    else:
+        rows = payload
+    return rows if isinstance(rows, list) else []
+
+
+def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
+    data = get_hub_telecallers(hub_id)
+    usernames = []
+    for user in _carrum_user_rows(data):
+        if not isinstance(user, dict):
+            continue
+        frappe_cred = user.get("frappeCred") or user.get("frappe_cred") or {}
+        username = ""
+        if isinstance(frappe_cred, dict):
+            username = frappe_cred.get("username") or frappe_cred.get("userName") or ""
+        username = (username or "").strip()
+        if username:
+            usernames.append(username)
+    return list(dict.fromkeys(usernames))

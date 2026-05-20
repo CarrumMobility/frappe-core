@@ -59,12 +59,6 @@ class CallSession(Document):
 	def default_list_data():
 		columns = [
 			{
-				"label": _("Recording"),
-				"type": "Long Text",
-				"key": "recording_url",
-				"width": "11rem",
-			},
-			{
 				"label": _("Lead ID"),
 				"type": "Link",
 				"key": "lead",
@@ -151,6 +145,12 @@ class CallSession(Document):
 				"width": "12rem",
 			},
 			{
+				"label": _("Ring duration"),
+				"type": "Duration",
+				"key": "ring_duration",
+				"width": "9rem",
+			},
+			{
 				"label": _("Created At"),
 				"type": "Datetime",
 				"key": "creation",
@@ -193,14 +193,13 @@ class CallSession(Document):
 				"width": "11rem",
 			},
 			{
-				"label": _("Ring duration"),
-				"type": "Duration",
-				"key": "ring_duration",
-				"width": "9rem",
+				"label": _("Recording"),
+				"type": "Long Text",
+				"key": "recording_url",
+				"width": "10rem",
 			},
 		]
 		rows = [
-			"recording_url",
 			"lead",
 			"status",
 			"direction",
@@ -215,6 +214,7 @@ class CallSession(Document):
 			"campaign_id",
 			"campaign_name",
 			"failure_reason",
+			"ring_duration",
 			"creation",
 			"agent_answered_at",
 			"lead_answered_at",
@@ -222,7 +222,7 @@ class CallSession(Document):
 			"hangup_by",
 			"hangup_reason",
 			"disposed_at",
-			"ring_duration",
+			"recording_url",
 		]
 		return {"columns": columns, "rows": rows}
 

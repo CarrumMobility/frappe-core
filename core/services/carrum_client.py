@@ -2,7 +2,7 @@
 
 from urllib.parse import urlencode
 
-import requests
+from core.services import logged_requests as requests
 
 import frappe
 from frappe import _

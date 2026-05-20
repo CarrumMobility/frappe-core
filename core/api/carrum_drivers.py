@@ -7,13 +7,15 @@ from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
 from core.services.util_service import util_service
 from crm.utils import parse_phone_number
-import requests as re
+from core.services import logged_requests as re
 import frappe
 from frappe import _
 
 from typing import Optional
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+logger = frappe.logger("core.api.carrum_drivers")
 
 
 class UpdateDriverDtoSchema(BaseModel):

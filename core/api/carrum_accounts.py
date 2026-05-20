@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-import requests
+from core.services import logged_requests as requests
 import frappe
 
 logger = frappe.logger("core::carrum_accounts")

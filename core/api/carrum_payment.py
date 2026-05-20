@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import json
 
 from frappe.utils.data import flt
-import requests
+from core.services import logged_requests as requests
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.api.carrum_drivers import get_portal_driver_detail

@@ -1,6 +1,6 @@
 import time
 from core.integrations.smartflo import constants
-import requests
+from core.services import logged_requests as requests
 import frappe
 import core.integrations.smartflo.auth as auth
 from core.services.apihit_service import api_hit_service

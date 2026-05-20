@@ -5,7 +5,7 @@ REF: https://docs.smartflo.tatatelebusiness.com/reference/authentication-using-t
 import time
 
 import frappe
-import requests
+from core.services import logged_requests as requests
 
 from core.integrations.smartflo.constants import generate_token_config
 from core.api.carrum_accounts import get_smartflo_credentials_for_frappe_user

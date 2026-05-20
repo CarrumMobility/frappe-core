@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from core.constants.enums import EnumValues
 from frappe.utils import get_datetime, getdate, now_datetime
 import frappe
-import requests
+from core.services import logged_requests as requests
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import today
 

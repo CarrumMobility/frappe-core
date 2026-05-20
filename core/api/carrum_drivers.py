@@ -1106,6 +1106,8 @@ def driver_status_update_webhook():
             {"is_inactive": 1},
             _("Lead status not found with is_inactive = 1"),
         )
+    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
+        pass # no action required
     else:
         frappe.throw(_("Unhandled status: {0}").format(new_status))
 

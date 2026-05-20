@@ -357,7 +357,14 @@ class UtilService:
         ``aadhar_no`` → ``aadhar_number``, ``pancard_number`` → ``pancard_number``.
         """
         body: dict = {}
-
+        crm_to_api = {
+                "driving_license_number": "driving_licence_number",
+                "aadhar_no": "aadhar_number",
+                "pancard_number": "pancard_number",
+                "driving_licence_number": "driving_licence_number",
+                "aadhar_number": "aadhar_number",
+                "mobile_no": "phone"
+        }
         if identification_type == "reactivation":
             if not old_carrum_account_id:
                 frappe.throw(frappe._("oldCarrumAccountId is required"))
@@ -372,13 +379,7 @@ class UtilService:
             if not identification_value:
                 frappe.throw(frappe._("identification_value is required"))
             ik = (identification_key or "").strip()
-            crm_to_api = {
-                "driving_license_number": "driving_licence_number",
-                "aadhar_no": "aadhar_number",
-                "pancard_number": "pancard_number",
-                "driving_licence_number": "driving_licence_number",
-                "aadhar_number": "aadhar_number",
-            }
+            
             api_key = crm_to_api.get(ik)
             if not api_key:
                 frappe.throw(
@@ -393,6 +394,12 @@ class UtilService:
             }
             if request_reason:
                 body["request_reason"] = request_reason
+        elif identification_key == "mobile_no": 
+            body = {
+                "identification_key": "phone",
+                "phone": identification_value,
+                "request_reason": request_reason,
+            }
         else:
             frappe.throw(
                 frappe._("Invalid identification type: {0}").format(identification_type)

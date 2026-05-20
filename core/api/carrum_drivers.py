@@ -3,6 +3,7 @@ import json
 from datetime import date, datetime
 from uuid import UUID
 from core.constants.enums import EnumValues
+from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
 from core.services.util_service import util_service
@@ -1131,6 +1132,12 @@ def raise_driver_return_request(
         "identification_key": identificationType,
         "request_reason": requestReason,
     }
+    request_by = (
+        fetch_carrum_user_data_using_frappe_username(frappe.session.user).get("id")
+    )
+    if not request_by:
+        frappe.throw(_("Carrum user id not found for current user"))
+    body["request_by"] = request_by
     old_carrum_token = frappe.conf.get("old_carrum_token")
     headers = {"Authorization": old_carrum_token, "Content-Type": "application/json"}
     response = re.post(url, headers=headers, json=body, timeout=60)

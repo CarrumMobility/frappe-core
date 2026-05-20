@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.constants.enums import EnumValues
 from frappe.utils import get_datetime, getdate, now_datetime
 import frappe
@@ -404,6 +405,13 @@ class UtilService:
             frappe.throw(
                 frappe._("Invalid identification type: {0}").format(identification_type)
             )
+
+        request_by = (
+            fetch_carrum_user_data_using_frappe_username(frappe.session.user).get("id")
+        )
+        if not request_by:
+            frappe.throw(frappe._("Carrum user id not found for current user"))
+        body["request_by"] = request_by
 
         base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
         if not base:

@@ -21,7 +21,7 @@ class CallSession(Document):
 		agent_answer_event_log: DF.JSON | None
 		agent_answered_at: DF.Datetime | None
 		agent_call_id: DF.Data | None
-		calling_method: DF.Literal["", "Dialer", "Click2Call"]
+		calling_method: DF.Literal["", "Dialer", "Agent"]
 		direction: DF.Literal["", "INBOUND", "OUTBOUND"]
 		disposed_at: DF.Datetime | None
 		disposition_event_id: DF.Data | None
@@ -59,35 +59,53 @@ class CallSession(Document):
 	def default_list_data():
 		columns = [
 			{
-				"label": _("Name"),
-				"type": "Data",
-				"key": "name",
-				"width": "12rem",
+				"label": _("Recording"),
+				"type": "Long Text",
+				"key": "recording_url",
+				"width": "11rem",
 			},
 			{
-				"label": _("Calling method"),
-				"type": "Select",
-				"key": "calling_method",
-				"width": "8rem",
-			},
-			{
-				"label": _("Lead"),
+				"label": _("Lead ID"),
 				"type": "Link",
 				"key": "lead",
 				"options": "CRM Lead",
 				"width": "12rem",
 			},
 			{
-				"label": _("Direction"),
-				"type": "Select",
-				"key": "direction",
-				"width": "8rem",
-			},
-			{
-				"label": _("Status"),
+				"label": _("Call status"),
 				"type": "Select",
 				"key": "status",
 				"width": "10rem",
+			},
+			{
+				"label": _("Call direction"),
+				"type": "Select",
+				"key": "direction",
+				"width": "9rem",
+			},
+			{
+				"label": _("Primary status"),
+				"type": "Data",
+				"key": "disposition_status",
+				"width": "11rem",
+			},
+			{
+				"label": _("Secondary status"),
+				"type": "Data",
+				"key": "sub_disposition_status",
+				"width": "14rem",
+			},
+			{
+				"label": _("Duration"),
+				"type": "Duration",
+				"key": "duration",
+				"width": "8rem",
+			},
+			{
+				"label": _("Caller Type"),
+				"type": "Select",
+				"key": "calling_method",
+				"width": "9rem",
 			},
 			{
 				"label": _("Agent"),
@@ -97,52 +115,114 @@ class CallSession(Document):
 				"width": "10rem",
 			},
 			{
-				"label": _("Failure reason"),
-				"type": "Text",
-				"key": "failure_reason",
-				"width": "16rem",
+				"label": _("Next followup date"),
+				"type": "Datetime",
+				"key": "lead_callback_datetime",
+				"width": "12rem",
 			},
 			{
-				"label": _("Hangup by"),
-				"type": "Select",
-				"key": "hangup_by",
-				"width": "8rem",
+				"label": _("Next Visit Date"),
+				"type": "Datetime",
+				"key": "scheduled_visit_date",
+				"width": "12rem",
+			},
+			{
+				"label": _("Disposition remarks"),
+				"type": "Small Text",
+				"key": "disposition_remarks",
+				"width": "14rem",
+			},
+			{
+				"label": _("Campaign Id"),
+				"type": "Data",
+				"key": "campaign_id",
+				"width": "10rem",
+			},
+			{
+				"label": _("Campaign Name"),
+				"type": "Data",
+				"key": "campaign_name",
+				"width": "11rem",
+			},
+			{
+				"label": _("Failure Reason"),
+				"type": "Text",
+				"key": "failure_reason",
+				"width": "12rem",
+			},
+			{
+				"label": _("Created At"),
+				"type": "Datetime",
+				"key": "creation",
+				"width": "10rem",
 			},
 			{
 				"label": _("Agent answered at"),
 				"type": "Datetime",
 				"key": "agent_answered_at",
-				"width": "10rem",
+				"width": "11rem",
 			},
 			{
-				"label": _("Disposition timing"),
+				"label": _("Lead answer at"),
+				"type": "Datetime",
+				"key": "lead_answered_at",
+				"width": "11rem",
+			},
+			{
+				"label": _("Hangup At"),
+				"type": "Datetime",
+				"key": "hangup_at",
+				"width": "11rem",
+			},
+			{
+				"label": _("Hangup By"),
 				"type": "Select",
-				"key": "disposition_timing",
-				"width": "10rem",
+				"key": "hangup_by",
+				"width": "9rem",
 			},
 			{
-				"label": _("Duration"),
+				"label": _("Hangup Reason"),
+				"type": "Data",
+				"key": "hangup_reason",
+				"width": "12rem",
+			},
+			{
+				"label": _("Dispose At"),
+				"type": "Datetime",
+				"key": "disposed_at",
+				"width": "11rem",
+			},
+			{
+				"label": _("Ring duration"),
 				"type": "Duration",
-				"key": "duration",
-				"width": "8rem",
+				"key": "ring_duration",
+				"width": "9rem",
 			},
 		]
 		rows = [
-			"name",
-			"calling_method",
+			"recording_url",
 			"lead",
-			"direction",
 			"status",
-			"agent",
-			"failure_reason",
-			"hangup_by",
-			"agent_answered_at",
-			"disposition_timing",
-			"duration",
+			"direction",
 			"disposition_status",
+			"sub_disposition_status",
+			"duration",
+			"calling_method",
+			"agent",
+			"lead_callback_datetime",
+			"scheduled_visit_date",
 			"disposition_remarks",
-			"lead_phone",
-			"modified",
+			"campaign_id",
+			"campaign_name",
+			"failure_reason",
+			"creation",
+			"agent_answered_at",
+			"lead_answered_at",
+			"hangup_at",
+			"hangup_by",
+			"hangup_reason",
+			"disposed_at",
+			"ring_duration",
 		]
 		return {"columns": columns, "rows": rows}
 
@@ -191,4 +271,13 @@ class CallSession(Document):
 					r["_duration"] = ""
 			else:
 				r["_duration"] = ""
+			ring_dur = r.get("ring_duration")
+			if ring_dur is not None:
+				try:
+					sec = float(ring_dur)
+					r["_ring_duration"] = format_duration(sec) if sec else ""
+				except (TypeError, ValueError):
+					r["_ring_duration"] = ""
+			else:
+				r["_ring_duration"] = ""
 		return rows

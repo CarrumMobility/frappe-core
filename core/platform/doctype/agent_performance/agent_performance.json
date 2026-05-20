@@ -93,7 +93,7 @@
   {
    "fieldname": "click2call_talktime_duration",
    "fieldtype": "Duration",
-   "label": "Click2Call talktime duration"
+   "label": "Agent talktime duration"
   },
   {
    "fieldname": "dispose_duration",
@@ -103,7 +103,7 @@
   {
    "fieldname": "click2call_ring_time",
    "fieldtype": "Duration",
-   "label": "Click2call ring duration"
+   "label": "Agent ring duration"
   },
   {
    "fieldname": "total_dialer_connects",

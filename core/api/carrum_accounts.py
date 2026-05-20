@@ -104,7 +104,7 @@ def get_chatwoot_config_by_frappe_user(username: str):
 
 
 def _normalize_smartflo_cred_dict(cred) -> dict | None:
-    """Return Smartflo login + dialer fields for token API and click-to-call, or None."""
+    """Return Smartflo login + dialer fields for token API and agent calling, or None."""
     if not isinstance(cred, dict):
         return None
     print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred))

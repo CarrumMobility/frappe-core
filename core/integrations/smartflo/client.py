@@ -212,7 +212,7 @@ def handle_click2call_start_api(
 
 def handle_click2call_end_api(*, user: str, telephony_call_id: str):
 	"""
-	Hang up a click-to-call leg. Smartflo expects JSON `call_id` = telephony session id
+	Hang up an agent-call leg. Smartflo expects JSON `call_id` = telephony session id
 	(e.g. 1775719461.306731) — the same value stored as Call Session `agent_call_id`, not the Frappe session name.
 	"""
 	url = constants.click2call_end_config["url"]

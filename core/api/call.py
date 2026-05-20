@@ -43,11 +43,11 @@ def end_call(calling_method: str, call_id: str):
 @frappe.whitelist(methods=['POST'])
 def submit_disposition():
     """
-    Store disposition on Call Session (Click2Call and Dialer both use Call Session name).
+    Store disposition on Call Session (Agent and Dialer both use Call Session name).
 
     Body/JSON:
-      call_session_id — Call Session name (Click2Call and Dialer)
-      calling_method — \"Click2Call\" | \"Dialer\"
+      call_session_id — Call Session name (Agent and Dialer)
+      calling_method — \"Agent\" | \"Dialer\"
       disposition_status — selected ``custom_primary_status`` string (stored on session; not doc name)
       disposition_code — vendor code from CRM Lead Status ``custom_disposition_code`` (Smartflo body)
       disposition_remarks — optional string
@@ -130,7 +130,7 @@ def dialer_call_disposed_webhook():
 
 @frappe.whitelist()
 def get_last_call():
-    """Latest Call Session for the current user (Dialer / Click2Call); UI shape matches LastCallStatusModal."""
+    """Latest Call Session for the current user (Dialer / Agent); UI shape matches LastCallStatusModal."""
     return call_service.get_last_call(user=frappe.session.user)
 
 @frappe.whitelist(methods=["POST"])

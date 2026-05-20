@@ -295,7 +295,7 @@ class AgentPerformanceService:
                 dialer_talktime_duration += _duration_field_to_seconds(call_session.get("duration"))
                 continue
 
-            if calling_method == EnumValues.CallingMethod.Click2Call:
+            if calling_method == EnumValues.CallingMethod.Agent:
                 total_click2call_attempts += 1
                 if phone:
                     total_unique_attempt_phones.add(phone)

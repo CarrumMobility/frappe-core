@@ -38,15 +38,18 @@
         "is_visit_scheduled",
         "scheduled_visit_date",
         "lead_source_during_call",
-        "recording_url"
+        "recording_url",
+        "campaign_id",
+        "campaign_name",
+        "lead_callback_datetime"
     ],
     "fields": [
         {
             "fieldname": "calling_method",
             "fieldtype": "Select",
             "in_list_view": 1,
-            "label": "Calling method",
-            "options": "\nDialer\nClick2Call",
+            "label": "Caller Type",
+            "options": "\nDialer\nAgent",
             "reqd": 1
         },
         {

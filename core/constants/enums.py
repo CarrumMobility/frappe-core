@@ -28,7 +28,7 @@ class _CallDirection:
 
 class _CallingMethod:
 	Dialer = "Dialer"
-	Click2Call = "Click2Call"
+	Agent = "Agent"
 
 class _CallSessionStatus:
 	INITIATED = "INITIATED"

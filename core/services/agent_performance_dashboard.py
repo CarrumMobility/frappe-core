@@ -772,7 +772,7 @@ def _metric_definitions():
         {
             "metric_name": "talktime",
             "label": "Avg daily talktime",
-            "definition": "Average daily call talk time (dialer plus manual click-to-call combined).",
+            "definition": "Average daily call talk time (dialer plus agent calling combined).",
             "group": "time_metrics",
             "format": "duration",
             "get_value": _talktime_seconds,
@@ -792,7 +792,7 @@ def _metric_definitions():
         {
             "metric_name": "click2call_ring_time",
             "label": "Avg daily ring",
-            "definition": "Average daily ring time for manual click-to-call attempts before connect.",
+            "definition": "Average daily ring time for agent calling attempts before connect.",
             "group": "time_metrics",
             "format": "duration",
             "get_value": lambda d: d.get("click2call_ring_time"),
@@ -819,7 +819,7 @@ def _metric_definitions():
         {
             "metric_name": "total_attempts",
             "label": "Total attempts",
-            "definition": "Dialer connects plus manual click-to-call attempts.",
+            "definition": "Dialer connects plus agent calling attempts.",
             "group": "attempt_metrics",
             "format": "number",
             "section_start": True,
@@ -837,7 +837,7 @@ def _metric_definitions():
         {
             "metric_name": "total_connects",
             "label": "Total connects",
-            "definition": "Dialer connects plus manual click-to-call connects.",
+            "definition": "Dialer connects plus agent calling connects.",
             "group": "attempt_metrics",
             "format": "number",
             "clickable": True,
@@ -1154,7 +1154,7 @@ def _fetch_call_sessions_breakup(
                 connected_col.isnotnull(),
             ]
         )
-        c2c_rows = _run_query([CS.calling_method == "Click2Call"])
+        c2c_rows = _run_query([CS.calling_method == EnumValues.CallingMethod.Agent])
         by_name = {r["name"]: r for r in dialer_rows + c2c_rows}
         raw_rows = list(by_name.values())
     elif mode == "connects":

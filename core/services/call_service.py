@@ -267,7 +267,7 @@ def _click2call_campaign_from_config(
     campaign_id: str | None = None,
     campaign_name: str | None = None,
 ) -> tuple[str | None, str | None]:
-    """Resolve campaign id/name for Click2Call from request overrides or Smartflo creds."""
+    """Resolve campaign id/name for Agent calls from request overrides or Smartflo creds."""
     cid = (campaign_id or "").strip() or (calling_config.get("default_campaign_id") or "").strip()
     cname = (campaign_name or "").strip() or (calling_config.get("default_campaign_name") or "").strip()
     return cid or None, cname or None
@@ -293,13 +293,13 @@ class CallService:
         log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId} and user: {user} and manual_dial: {manual_dial}")
         if calling_method == EnumValues.CallingMethod.Dialer:
             raise ValueError(f"Dialer calling method is not supported: {calling_method}")
-        if calling_method != EnumValues.CallingMethod.Click2Call:
+        if calling_method != EnumValues.CallingMethod.Agent:
             raise ValueError(f"Invalid calling method: {calling_method}")
 
         if self._user_has_active_dialer_session(user):
             raise ValueError(
                 frappe._(
-                    "You have an active dialer session. End the session before using click-to-call."
+                    "You have an active dialer session. End the session before using agent calling."
                 )
             )
 
@@ -369,7 +369,7 @@ class CallService:
                 "lead_name": lead.lead_name,
                 "phone_number": mobile_no,
                 "to_number": mobile_no,
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "status": "CALL INITIATED TO AGENT",
                 "direction": _call_session_direction_to_ui(
                     call_session_doc.get("direction") or EnumValues.CallDirection.OUTBOUND
@@ -391,7 +391,7 @@ class CallService:
 
     def end_call(self,calling_method: str, call_session_id: str, user: str):
         log.info(f"Ending call with calling_method: {calling_method} and call_session_id: {call_session_id} and user: {user}")
-        if calling_method == "Click2Call":
+        if calling_method == EnumValues.CallingMethod.Agent:
             return self._handle_click2call_end_logic(call_session_id, user)
         elif calling_method == "Dialer":
             return self._handle_dialer_end_logic(call_session_id, user)
@@ -479,7 +479,7 @@ class CallService:
                     "lead_id": call_session_doc.lead,
                     "phone_number": call_session_doc.get("lead_phone"),
                     "failure_reason": call_session_doc.failure_reason or "",
-                    "calling_method": "Click2Call",
+                    "calling_method": EnumValues.CallingMethod.Agent,
                     "direction": _call_session_direction_to_ui(
                         call_session_doc.get("direction") or "OUTBOUND"
                     ),
@@ -686,7 +686,7 @@ class CallService:
         return {
             "is_valid": False,
             "step": "dial",
-            "reason": last_dial_error_message or "Failed to start click2call",
+            "reason": last_dial_error_message or "Failed to start agent call",
         }
     
     def _handle_pre_vendor_check(self, user: str):
@@ -810,7 +810,7 @@ class CallService:
                     "phone_number": phone_display,
                     "to_number": phone_display,
                     "status": EnumValues.CallSessionStatus.AGENT_CONNECTED,
-                    "calling_method": EnumValues.CallingMethod.Click2Call,
+                    "calling_method": EnumValues.CallingMethod.Agent,
                     "direction": _call_session_direction_to_ui(
                         call_session_record.get("direction")
                     ),
@@ -895,7 +895,7 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": start_stamp,
                 "status": EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction")
                 ),
@@ -1043,7 +1043,7 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL MISSED BY CUSTOMER",
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction") or EnumValues.CallDirection.OUTBOUND
                 ),
@@ -1203,7 +1203,7 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL DISCONNECTED",
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction")
                 ),
@@ -1293,7 +1293,7 @@ class CallService:
             }
 
         match calling_method:
-            case EnumValues.CallingMethod.Click2Call:
+            case EnumValues.CallingMethod.Agent:
                 return self._handle_click2call_submit_disposition(
                     call_session_id=call_session_id,
                     disposition_status=ds,
@@ -1380,7 +1380,7 @@ class CallService:
         is_visit_scheduled=None,
         status_pk: str | None = None
     ):
-        """Smartflo store-disposition + Call Session update (Click2Call)."""
+        """Smartflo store-disposition + Call Session update (Agent calling)."""
         try:
             doc = frappe.get_doc("Call Session", call_session_id)
         except DoesNotExistError:

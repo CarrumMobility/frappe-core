@@ -395,7 +395,7 @@ class UtilService:
             }
             if request_reason:
                 body["request_reason"] = request_reason
-        elif identification_key == "mobile_no": 
+        elif identification_type == "new_lead_creation": 
             body = {
                 "identification_key": "phone",
                 "phone": identification_value,

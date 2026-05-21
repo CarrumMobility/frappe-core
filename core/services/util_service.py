@@ -401,6 +401,7 @@ class UtilService:
             body = {
                 "identification_key": "phone",
                 "request_reason": request_reason,
+                "phone": identification_value,
             }
         else:
             frappe.throw(

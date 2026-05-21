@@ -969,6 +969,7 @@ def lead_creation_webhook():
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
+    logger.info("lead_creation_webhook payload: %s", data)
     raw_display = data.get("displayId")
 
     displayId = str(raw_display).strip().upper() if raw_display is not None else ""
@@ -1048,6 +1049,7 @@ def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: 
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
     payload = frappe.request.get_json() or {}
+    logger.info("driver_status_update_webhook payload: %s", payload)
     account_id = payload.get("accountId")
     if not account_id:
         frappe.throw(_("accountId is required"))

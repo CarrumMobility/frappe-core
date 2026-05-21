@@ -105,6 +105,10 @@ class _HUB_VISIT_STATUS:
 	InHub = "IN_HUB"
 	HubVisited = "HUB_VISITED"
 
+class _LEAD_SOURCE_PURPOSE:
+	Inbound = "Inbound"
+	ManualSelection = "Manual Selection"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -121,5 +125,6 @@ class _EnumValues:
 	LeadStatus = _LeadStatus
 	LeadSource = _LEAD_SOURCE
 	HubVisitStatus = _HUB_VISIT_STATUS
+	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
 
 EnumValues = _EnumValues()

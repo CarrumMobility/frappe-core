@@ -13,6 +13,9 @@
   <script>
     (function() {
       var env = {{ env | tojson }};
+      var LOGIN_URL = {{ login_url | tojson }};
+      var DESK_URL = {{ desk_url | tojson }};
+      var REDIRECT_TO_FROM_QS = {{ redirect_to | tojson }};
       var SSO_USER = "";
       var SSO_PWD = "";
       if (env === "DEV") {
@@ -30,7 +33,14 @@
         document.getElementById("status").style.color = "#b91c1c";
         return;
       }
-      var redirectTo = "dashboard"
+      var redirectTo = (REDIRECT_TO_FROM_QS && String(REDIRECT_TO_FROM_QS).trim()) || "dashboard";
+      function buildLoginUrl() {
+        if (LOGIN_URL) return LOGIN_URL;
+        return '/login?redirect-to=' + encodeURIComponent(redirectTo);
+      }
+      function buildPostLoginUrl() {
+        return DESK_URL || redirectTo;
+      }
       function getCookies() {
         var cookies = {};
         document.cookie.split('; ').forEach(function(part) {
@@ -48,28 +58,26 @@
       var usr = c[SSO_USER];
       var pwd = c[SSO_PWD];
       if (!usr || !pwd) {
-        window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo);
+        window.location.replace(buildLoginUrl());
         return;
       }
-      usr = atob(usr)
-      pwd = atob(pwd)
-      console.log('usr', usr)
-      console.log('pwd', pwd)
+      usr = atob(usr);
+      pwd = atob(pwd);
       var body = new URLSearchParams({ usr: usr, pwd: pwd });
       fetch('/api/method/login', { method: 'POST', body: body, credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.message === 'Logged In' || data.message === 'No App') {
             clearCookies();
-            window.location.replace(redirectTo);
+            window.location.replace(buildPostLoginUrl());
           } else {
             document.getElementById('status').textContent = 'Invalid credentials. Redirecting...';
-            setTimeout(function() { window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo); }, 1500);
+            setTimeout(function() { window.location.replace(buildLoginUrl()); }, 1500);
           }
         })
         .catch(function() {
           document.getElementById('status').textContent = 'Invalid credentials. Redirecting...';
-          setTimeout(function() { window.location.href = '/login?redirect-to=' + encodeURIComponent(redirectTo); }, 1500);
+          setTimeout(function() { window.location.replace(buildLoginUrl()); }, 1500);
         });
     })();
   </script>

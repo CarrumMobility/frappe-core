@@ -1240,7 +1240,7 @@ class CallService:
         expected_call_duration_minutes = data.get("expected_call_duration_minutes")
         scheduled_visit_date = data.get("scheduled_visit_date")
         is_visit_scheduled = data.get("is_visit_scheduled")
-        lead_display_name = str(data.get("lead_name") or "").strip()
+        new_lead_name = str(data.get("lead_name") or "").strip()
         disposition_timing_raw = data.get("disposition_timing") or data.get("disposition_source")
         disposition_timing = (
             str(disposition_timing_raw).strip().upper()
@@ -1308,15 +1308,13 @@ class CallService:
         except Exception:
             log.exception("Failed to resolve CRM Lead Status lead name requirement")
         if lead_name_required:
-            lead_id = frappe.db.get_value("Call Session", call_session_id, "lead")
-            existing_lead_name = (
-                frappe.db.get_value("CRM Lead", lead_id, "lead_name") if lead_id else ""
-            )
-            if not (existing_lead_name or "").strip() and not lead_display_name:
-                return {
-                    "is_valid": False,
-                    "reason": "Lead name is required for this disposition",
-                }
+            lead_doc = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
+            
+            current_lead_name = lead_doc.get("lead_name")
+
+            if not current_lead_name and new_lead_name is not None:
+                lead_doc.set("lead_name", new_lead_name)
+                lead_doc.save(ignore_permissions=True)
 
         match calling_method:
             case EnumValues.CallingMethod.Agent:
@@ -1334,7 +1332,7 @@ class CallService:
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
                     status_pk = status_pk,
-                    lead_display_name=lead_display_name,
+                    lead_display_name=new_lead_name,
                 )
             case EnumValues.CallingMethod.Dialer:
                 return self._handle_dialer_submit_disposition(
@@ -1351,7 +1349,7 @@ class CallService:
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
                     status_pk = status_pk,
-                    lead_display_name=lead_display_name,
+                    lead_display_name=new_lead_name,
                 )
             case _:
                 return {

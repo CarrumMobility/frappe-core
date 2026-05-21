@@ -67,6 +67,7 @@
       fetch('/api/method/login', { method: 'POST', body: body, credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+          console.log("Login response: ", data)
           if (data.message === 'Logged In' || data.message === 'No App') {
             clearCookies();
             window.location.replace(buildPostLoginUrl());
@@ -76,6 +77,7 @@
           }
         })
         .catch(function() {
+          console.error('Error logging in:', error);
           document.getElementById('status').textContent = 'Invalid credentials. Redirecting...';
           setTimeout(function() { window.location.replace(buildLoginUrl()); }, 1500);
         });

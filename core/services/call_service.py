@@ -1,5 +1,3 @@
-from enum import Enum
-import json
 import re
 from datetime import datetime, timedelta
 from time import sleep
@@ -2081,16 +2079,22 @@ class CallService:
                     lead_phone or ""
                 )
             )
-        
-        DID_SOURCE_MAPPING = frappe.get_doc("Global Config", {"key": "DID_SOURCE_MAPPING"})
-        did_source_map = {}
-        if DID_SOURCE_MAPPING:
-            did_source_map = json.loads(DID_SOURCE_MAPPING.value)
+        inbound_source = None
+        if did_number:
+            inbound_source = frappe.db.get_value(
+                EnumValues.ReferenceDocType.LEAD_SOURCE,
+                {
+                    "purpose": EnumValues.LeadSourcePurpose.Inbound,
+                    "did_number": did_number,
+                },
+                ["name", "source_name"],
+                as_dict=True,
+            )
 
-        newSource = did_source_map.get(did_number)
-        if newSource is not None:
-            lead.set('source',newSource)
-            lead.save(ignore_permissions=True) 
+        if inbound_source:
+            lead.set("source", inbound_source.get("source_name"))
+            lead.set("source_id", inbound_source.get("name"))
+            lead.save(ignore_permissions=True)
 
         
         new_call_session_doc = frappe.new_doc(

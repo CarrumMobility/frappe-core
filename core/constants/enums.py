@@ -51,6 +51,7 @@ class _ReferenceDocType:
 	AGENT_PERFORMANCE = "Agent Performance"
 	USER = "User"
 	LEAD_WALKIN_DONE = "Lead walkin done"
+	LEAD_SOURCE = "CRM Lead Source"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'

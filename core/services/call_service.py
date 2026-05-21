@@ -1240,6 +1240,7 @@ class CallService:
         expected_call_duration_minutes = data.get("expected_call_duration_minutes")
         scheduled_visit_date = data.get("scheduled_visit_date")
         is_visit_scheduled = data.get("is_visit_scheduled")
+        lead_display_name = str(data.get("lead_name") or "").strip()
         disposition_timing_raw = data.get("disposition_timing") or data.get("disposition_source")
         disposition_timing = (
             str(disposition_timing_raw).strip().upper()
@@ -1291,6 +1292,31 @@ class CallService:
                 "is_valid": False,
                 "reason": "Remarks are required for this disposition",
             }
+        lead_name_required = False
+        try:
+            if status_pk:
+                lead_name_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_pk, "is_lead_name_required")
+                )
+            elif ds:
+                status_filters = {"custom_primary_status": ds}
+                if sub:
+                    status_filters["lead_status"] = sub
+                lead_name_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_filters, "is_lead_name_required")
+                )
+        except Exception:
+            log.exception("Failed to resolve CRM Lead Status lead name requirement")
+        if lead_name_required:
+            lead_id = frappe.db.get_value("Call Session", call_session_id, "lead")
+            existing_lead_name = (
+                frappe.db.get_value("CRM Lead", lead_id, "lead_name") if lead_id else ""
+            )
+            if not (existing_lead_name or "").strip() and not lead_display_name:
+                return {
+                    "is_valid": False,
+                    "reason": "Lead name is required for this disposition",
+                }
 
         match calling_method:
             case EnumValues.CallingMethod.Agent:
@@ -1307,7 +1333,8 @@ class CallService:
                     disposition_timing=disposition_timing,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=lead_display_name,
                 )
             case EnumValues.CallingMethod.Dialer:
                 return self._handle_dialer_submit_disposition(
@@ -1323,7 +1350,8 @@ class CallService:
                     expected_call_duration_minutes=expected_call_duration_minutes,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=lead_display_name,
                 )
             case _:
                 return {
@@ -1378,7 +1406,8 @@ class CallService:
         disposition_timing: str,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
         """Smartflo store-disposition + Call Session update (Agent calling)."""
         try:
@@ -1457,7 +1486,8 @@ class CallService:
                     disposition_status,
                     sub_disposition,
                     remarks,
-                    status_pk=status_pk
+                    status_pk=status_pk,
+                    lead_display_name=lead_display_name,
                 )
 
             except Exception:
@@ -1508,7 +1538,8 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
         match default_telephony_vendor:
             case "Smartflo":
@@ -1525,7 +1556,8 @@ class CallService:
                     expected_call_duration_minutes,
                     scheduled_visit_date,
                     is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=lead_display_name,
                 )
             case _:
                 return {
@@ -1547,7 +1579,8 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
         try:
             call_session_doc = frappe.get_doc("Call Session", call_session_id)
@@ -1596,7 +1629,8 @@ class CallService:
                         disposition_status,
                         sub_disposition_status,
                         remarks,
-                        status_pk
+                        status_pk,
+                        lead_display_name=lead_display_name,
                     )
                 except Exception:
                     frappe.log_error(
@@ -2406,9 +2440,15 @@ class CallService:
         if not agent or agent != user:
             return {"is_valid": False, "reason": "not permitted"}
         rmk = frappe.db.get_value("Call Session", call_session_id, "disposition_remarks")
+        lead_id = frappe.db.get_value("Call Session", call_session_id, "lead")
+        lead_display_name = (
+            frappe.db.get_value("CRM Lead", lead_id, "lead_name") if lead_id else ""
+        )
         return {
             "is_valid": True,
             "disposition_remarks": "" if rmk is None else str(rmk),
+            "lead_id": lead_id or "",
+            "lead_name": "" if lead_display_name is None else str(lead_display_name),
         }
 
     def _update_call_session(self, payload:dict):

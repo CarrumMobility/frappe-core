@@ -396,9 +396,10 @@ class UtilService:
             if request_reason:
                 body["request_reason"] = request_reason
         elif identification_type == "new_lead_creation": 
+            if not request_reason:
+                frappe.throw(frappe._("request_reason is required"))
             body = {
                 "identification_key": "phone",
-                "phone": identification_value,
                 "request_reason": request_reason,
             }
         else:

@@ -32,7 +32,8 @@ CRM_AGENT_PERMISSIONS = {
 	"FCRM Note": ["create", "read", "select", "write"],
 	"FCRM Event": ["create", "read", "select", "write"],
 	"FCRM Settings": ["read", "select"],
-	"User dialer session logs": ["read", "select"],
+	"User dialer session logs": ["read", "select", "write", "create", "delete"],
+	"User dialer session break logs": ["read", "select", "write", "create", "delete"],
 	"payment_logs": ["read", "select"],
 	"Lead walkin done": ["create", "read", "select", "write"],
 }

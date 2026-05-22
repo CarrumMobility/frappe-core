@@ -53,4 +53,3 @@ def get_env_config():
 @frappe.whitelist(allow_guest=True)
 def emit_socket_event(event: str, payload: dict):
     frappe.publish_realtime(event, payload)
-

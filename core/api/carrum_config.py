@@ -1,6 +1,6 @@
 import json
 
-import requests
+from core.services import logged_requests as requests
 from frappe import _
 
 import frappe

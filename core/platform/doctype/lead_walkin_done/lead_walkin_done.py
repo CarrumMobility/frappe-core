@@ -5,7 +5,7 @@
 from frappe.model.document import Document
 
 
-class smartflocallsession(Document):
+class Leadwalkindone(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 
@@ -14,8 +14,13 @@ class smartflocallsession(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
-		campaignid: DF.Data | None
-		status: DF.Data
-		user: DF.Data
+		callback_at: DF.Datetime | None
+		created_by: DF.Link | None
+		lead: DF.Link | None
+		lead_status_link: DF.Link | None
+		primary_status: DF.Data | None
+		remarks: DF.SmallText | None
+		secondary_status: DF.Data | None
+		source: DF.Data | None
 	# end: auto-generated types
 	pass

@@ -155,7 +155,13 @@ scheduler_events = {
 	"hourly_long": [],
 	"monthly_long": [],
 	"cron": {
-		# "*/1 * * * *": [],
+		# every day at IST time 12:05 AM, GMT time 06:35 PM (previous day)
+    	# "35 18 * * *": ["core.services.agent_performance.agent_performance_service.cron_task_update_agent_performance"],
+
+    	# every 5 minutes
+    	"*/5 * * * *": [
+        	"core.services.agent_performance.cron_task_update_today_telecaller_agents_performance_5_minute"
+    	],
 	},
 }
 
@@ -251,6 +257,13 @@ override_whitelisted_methods = {
 # 	"core.auth.validate"
 # ]
 
+# NR log forwarding reads record.msg before formatters; normalize for all processes.
+from core.observability.error_logging import install_error_logging_for_newrelic
+from core.observability.logging import install_newrelic_log_compat
+
+install_newrelic_log_compat()
+install_error_logging_for_newrelic()
+
 # Patch LoginManager so master password and other auth overrides apply
 import frappe.auth
 from core.override.auth import CustomLoginManager
@@ -277,4 +290,10 @@ before_request = [
 	"core.services.site_home_redirect.maybe_redirect_site_login_to_external_url",
 	"core.services.util_service.blockDeskAccess",
 ]
-# after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]
+
+after_request = [
+	"core.observability.newrelic.enrich_newrelic_transaction",
+	"core.observability.request_logging.log_api_request_body",
+]
+
+after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class Testsmartflocallsession(FrappeTestCase):
+class TestAgentPerformance(FrappeTestCase):
 	pass

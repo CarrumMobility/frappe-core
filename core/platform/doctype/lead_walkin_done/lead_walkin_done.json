@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-05-19 22:42:59.649893",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_jl0h",
+  "created_by",
+  "lead",
+  "source",
+  "primary_status",
+  "secondary_status",
+  "lead_status_link",
+  "remarks",
+  "callback_at",
+  "callback_type"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_jl0h",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "created_by",
+   "fieldtype": "Link",
+   "label": "Created by",
+   "options": "User"
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "CRM Lead"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source"
+  },
+  {
+   "fieldname": "primary_status",
+   "fieldtype": "Data",
+   "label": "Primary status"
+  },
+  {
+   "fieldname": "secondary_status",
+   "fieldtype": "Data",
+   "label": "Secondary status"
+  },
+  {
+   "fieldname": "lead_status_link",
+   "fieldtype": "Link",
+   "label": "Lead status link",
+   "options": "CRM Lead Status"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "callback_at",
+   "fieldtype": "Datetime",
+   "label": "Callback at"
+  },
+  {
+    "fieldname": "callback_type",
+    "fieldtype": "Select",
+    "label": "Callback type",
+    "options": "Callback\nVisit Date"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-19 22:49:16.681518",
+ "modified_by": "Administrator",
+ "module": "Platform",
+ "name": "Lead walkin done",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

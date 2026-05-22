@@ -1340,13 +1340,13 @@ def _fetch_events_breakup(
                 "e.`event_category` = %(visit_cat)s",
                 f"{visit_date_x} >= %(from_day)s",
                 f"{visit_date_x} <= %(to_day)s",
-                "e.`callback_status` = %(status)s",
+                "IFNULL(e.`callback_status`, '') != %(override_status)s",
             ]
         )
         params["visit_cat"] = EnumValues.EventCallbackCategory.VISIT_DATE
         params["from_day"] = getdate(from_date)
         params["to_day"] = getdate(to_date)
-        params["status"] = EnumValues.EventCallbackStatus.COMPLETED
+        params["override_status"] = EnumValues.EventCallbackStatus.OVERRIDE
     else:
         return []
 

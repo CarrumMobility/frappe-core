@@ -1760,7 +1760,13 @@ class CallService:
             as_dict=True,
         )
         if not data:
-            raise ValueError("No active dialer session found")
+            warning = "Session already ended"
+            return {
+                "is_valid": True,
+                "reason": warning,
+                "warning": warning,
+            }
+        warning = None
         match default_telephony_vendor:
             case "Smartflo":
                 result = self._handle_smartflo_end_dialer_session(
@@ -1768,12 +1774,16 @@ class CallService:
                 )
                 if not result.get("is_valid"):
                     api_reason = result.get("reason")
-                    alreadyLoggedOutReason = "agent is not logged"
-                    pass
-                    # if reason and alreadyLoggedOutReason in reason.lower():
-                    #     pass
-                    # else:
-                        # raise ValueError(reason)
+                    normalized_reason = str(api_reason or "").lower()
+                    already_ended_markers = (
+                        "agent is not logged",
+                        "session already ended",
+                        "already logged out",
+                    )
+                    if any(marker in normalized_reason for marker in already_ended_markers):
+                        warning = api_reason or "Session already ended"
+                    else:
+                        raise ValueError(api_reason or "Failed to end dialer session")
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
@@ -1798,7 +1808,8 @@ class CallService:
 
         return {
             "is_valid": True,
-            "reason": None,
+            "reason": warning,
+            "warning": warning,
         }
 
     def _handle_smartflo_end_dialer_session(self, user: str, campaign_id: str):

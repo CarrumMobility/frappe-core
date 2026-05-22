@@ -2340,23 +2340,24 @@ class CallService:
         start_stamp = row.lead_answered_at
 
         agent_call_id = (row.get("agent_call_id") or "").strip()
-        frappe.publish_realtime(
-            event="call_disconnected",
-            message={
-                "call_session_id": row.name,
-                "call_id": agent_call_id,
-                "lead_id": lead_id,
-                "phone_number": phone_display,
-                "to_number": phone_display,
-                "timestamp": start_stamp,
-                "status": "CALL DISCONNECTED",
-                "calling_method": EnumValues.CallingMethod.Dialer,
-                "message": "Call Disconnected",
-                "direction": _call_session_direction_to_ui(row.get("direction")),
-                "recording_url": row.get("recording_url"),
-            },
-            user=target_user,
-        )
+        if row.get("status") == EnumValues.CallSessionStatus.DISCONNECTED:
+            frappe.publish_realtime(
+                event="call_disconnected",
+                message={
+                    "call_session_id": row.name,
+                    "call_id": agent_call_id,
+                    "lead_id": lead_id,
+                    "phone_number": phone_display,
+                    "to_number": phone_display,
+                    "timestamp": start_stamp,
+                    "status": "CALL DISCONNECTED",
+                    "calling_method": EnumValues.CallingMethod.Dialer,
+                    "message": "Call Disconnected",
+                    "direction": _call_session_direction_to_ui(row.get("direction")),
+                    "recording_url": row.get("recording_url"),
+                },
+                user=target_user,
+            )
 
         return {"is_valid": True}
 

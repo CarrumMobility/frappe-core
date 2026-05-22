@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timedelta
 from time import sleep
@@ -15,7 +16,7 @@ from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from core.services.util_service import UtilService
 log = frappe.logger("core_services_call_service")
-
+log.setLevel(logging.INFO)
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
 

@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "break_code",
+  "break_name",
   "start_time",
   "end_time",
   "user",
@@ -16,6 +17,11 @@
    "fieldname": "break_code",
    "fieldtype": "Data",
    "label": "break_code"
+  },
+  {
+   "fieldname": "break_name",
+   "fieldtype": "Data",
+   "label": "break name"
   },
   {
    "fieldname": "start_time",

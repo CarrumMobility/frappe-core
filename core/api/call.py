@@ -1,6 +1,13 @@
 import frappe
 import core.services.call_service as call_service
 log = frappe.logger("core_api_call")
+log.setLevel("INFO")
+
+
+def _get_webhook_payload(webhook_name: str):
+    payload = frappe.request.get_json() or {}
+    log.info("%s payload: %s", webhook_name, payload)
+    return payload
 
 @frappe.whitelist(methods=['POST'])
 def start_call(calling_method: str = None, leadId: str = None):
@@ -21,8 +28,15 @@ def start_call(calling_method: str = None, leadId: str = None):
         data.get("manual_dial")
         or data.get("manualDial")
     )
+    campaign_id = (data.get("campaign_id") or data.get("campaignId") or "").strip() or None
+    campaign_name = (data.get("campaign_name") or data.get("campaignName") or "").strip() or None
     result = call_service.start_call(
-        calling_method, leadId, user, manual_dial=manual_dial
+        calling_method,
+        leadId,
+        user,
+        manual_dial=manual_dial,
+        campaign_id=campaign_id,
+        campaign_name=campaign_name,
     )
     print(result)
     return result
@@ -36,11 +50,11 @@ def end_call(calling_method: str, call_id: str):
 @frappe.whitelist(methods=['POST'])
 def submit_disposition():
     """
-    Store disposition on Call Session (Click2Call and Dialer both use Call Session name).
+    Store disposition on Call Session (Agent and Dialer both use Call Session name).
 
     Body/JSON:
-      call_session_id — Call Session name (Click2Call and Dialer)
-      calling_method — \"Click2Call\" | \"Dialer\"
+      call_session_id — Call Session name (Agent and Dialer)
+      calling_method — \"Agent\" | \"Dialer\"
       disposition_status — selected ``custom_primary_status`` string (stored on session; not doc name)
       disposition_code — vendor code from CRM Lead Status ``custom_disposition_code`` (Smartflo body)
       disposition_remarks — optional string
@@ -60,25 +74,25 @@ def reconcile_active_calls():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def handle_agent_call_connected_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("handle_agent_call_connected_webhook")
     return call_service.handle_agent_call_connected_webhook(vendor_name="Smartflo", payload=payload)
 
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def handle_customer_call_connected_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("handle_customer_call_connected_webhook")
     return call_service.handle_customer_call_connected_webhook(vendor_name="Smartflo", payload=payload)
 
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def handle_call_missed_by_customer_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("handle_call_missed_by_customer_webhook")
     return call_service.handle_call_missed_by_customer_webhook(vendor_name="Smartflo", payload=payload)
 
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def handle_answered_call_hangup_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("handle_answered_call_hangup_webhook")
     return call_service.handle_answered_call_hangup_webhook(vendor_name="Smartflo", payload=payload)
 
 @frappe.whitelist(methods=['POST'])
@@ -102,28 +116,25 @@ def get_dialer_break_status():
 
 @frappe.whitelist(methods=["POST"],allow_guest=True)
 def dialer_call_connected_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("dialer_call_connected_webhook")
     user = frappe.session.user
-    log.info(f"Dialer call connected webhook payload: {payload}")
     return call_service.dialer_call_connected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disconnected_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("dialer_call_disconnected_webhook")
     user = frappe.session.user
-    log.info(f"Dialer call disconnected webhook payload: {payload}")
     return call_service.dialer_call_disconnected(user=user, payload=payload)
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disposed_webhook():
-    payload = frappe.request.get_json() or {}
+    payload = _get_webhook_payload("dialer_call_disposed_webhook")
     user = frappe.session.user
-    log.info(f"Dialer call disposed webhook payload: {payload}")
     return call_service.dialer_call_disposed(user=user, payload=payload)
 
 @frappe.whitelist()
 def get_last_call():
-    """Latest Call Session for the current user (Dialer / Click2Call); UI shape matches LastCallStatusModal."""
+    """Latest Call Session for the current user (Dialer / Agent); UI shape matches LastCallStatusModal."""
     return call_service.get_last_call(user=frappe.session.user)
 
 @frappe.whitelist(methods=["POST"])

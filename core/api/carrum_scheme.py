@@ -1,6 +1,6 @@
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
-import requests as re
+from core.services import logged_requests as re
 
 carrum_base_url = frappe.conf.get("old_carrum_base_url")
 carrum_token = frappe.conf.get('old_carrum_token')

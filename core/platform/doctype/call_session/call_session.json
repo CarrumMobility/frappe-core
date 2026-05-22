@@ -24,6 +24,7 @@
         "disposition_remarks",
         "disposition_timing",
         "duration",
+        "ring_duration",
         "hangup_by",
         "hangup_reason",
         "hangup_at",
@@ -37,15 +38,18 @@
         "is_visit_scheduled",
         "scheduled_visit_date",
         "lead_source_during_call",
-        "recording_url"
+        "recording_url",
+        "campaign_id",
+        "campaign_name",
+        "lead_callback_datetime"
     ],
     "fields": [
         {
             "fieldname": "calling_method",
             "fieldtype": "Select",
             "in_list_view": 1,
-            "label": "Calling method",
-            "options": "\nDialer\nClick2Call",
+            "label": "Caller Type",
+            "options": "\nDialer\nAgent",
             "reqd": 1
         },
         {
@@ -91,7 +95,7 @@
             "fieldtype": "Select",
             "in_list_view": 1,
             "label": "Status",
-            "options": "INITIATED\nFAILED\nAGENT_CONNECTED\nCUSTOMER_CONNECTED\nNOT_CONNECTED\nMISSED\nDISCONNECTED\nDISPOSED",
+            "options": "INITIATED\nFAILED\nAGENT_CONNECTED\nCUSTOMER_CONNECTED\nOB Missed\nIB Missed\nDISCONNECTED\nDISPOSED",
             "reqd": 1
         },
         {
@@ -224,6 +228,26 @@
             "fieldname": "recording_url",
             "fieldtype": "Long Text",
             "label": "Recording URL"
+        },
+        {
+            "fieldname": "campaign_name",
+            "fieldtype": "Data",
+            "label": "Campaign name"
+        },
+        {
+            "fieldname": "campaign_id",
+            "fieldtype": "Data",
+            "label": "Campaign id"
+        },
+        {
+            "fieldname": "lead_callback_datetime",
+            "fieldtype": "Datetime",
+            "label": "Lead callback datetime"
+        },
+        {
+            "fieldname": "ring_duration",
+            "fieldtype": "Duration",
+            "label": "Ring duration"
         }
     ],
     "grid_page_length": 50,
@@ -260,5 +284,6 @@
     "rows_threshold_for_grid_search": 20,
     "sort_field": "modified",
     "sort_order": "DESC",
-    "states": []
+    "states": [],
+    "track_changes": 1
 }

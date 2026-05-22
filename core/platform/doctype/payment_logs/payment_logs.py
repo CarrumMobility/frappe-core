@@ -20,7 +20,7 @@ class payment_logs(Document):
 		raw: DF.JSON
 		sd_breakup_amount: DF.Currency
 		settlement_breakup_amount: DF.Currency
-		status: DF.Literal["Captured", "Failed"]
+		status: DF.Literal["Captured", "Failed",'Transferred', 'Rejected']
 		transaction_date: DF.Datetime
 		utr: DF.Data | None
 	# end: auto-generated types

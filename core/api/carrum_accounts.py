@@ -1,5 +1,6 @@
+from core.constants.enums import EnumValues
 from pydantic import BaseModel
-import requests
+from core.services import logged_requests as requests
 import frappe
 
 logger = frappe.logger("core::carrum_accounts")
@@ -103,17 +104,20 @@ def get_chatwoot_config_by_frappe_user(username: str):
 
 
 def _normalize_smartflo_cred_dict(cred) -> dict | None:
-    """Return Smartflo login + dialer fields for token API and click-to-call, or None."""
+    """Return Smartflo login + dialer fields for token API and agent calling, or None."""
     if not isinstance(cred, dict):
         return None
     print("normailze_smartflo_cred_dict==========cred==========: "+ str(cred))
     username = cred.get("username")
     password = cred.get("password") or "TechTeam@12"
-    defaultCampaignId = cred.get("defaultCampaignId") or "442227"
+    defaultCampaignId = cred.get("defaultCampaignId") or cred.get("default_campaign_id") or "442227"
+    defaultCampaignName = cred.get("defaultCampaignName") or cred.get("default_campaign_name")
 
     if not username:
         return None
     out = {"email": username, "password": str(password), "defaultCampaignId": defaultCampaignId}
+    if defaultCampaignName is not None and str(defaultCampaignName).strip():
+        out["defaultCampaignName"] = str(defaultCampaignName).strip()
     calling = cred.get("callingNumber") or cred.get("calling_number")
     if calling is not None and str(calling).strip():
         out["callingNumber"] = str(calling).strip()
@@ -229,3 +233,49 @@ def get_users_by_inbox_id(inbox_id: int):
         data2Return.append(frappeUsername)
 
     return data2Return 
+
+def get_hub_telecallers(hub_id: str):
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users"
+    query_params = {
+        "hubId": hub_id,
+        "limit": 100,
+        "roleName": EnumValues.Roles.TELECALLER.lower(),
+    }
+    
+
+    response = requests.get(
+        url,
+        headers={"Authorization": carrum_token},
+        params=query_params,
+        timeout=20,
+    )
+    data = response.json()
+    return data
+
+
+def _carrum_user_rows(payload):
+    if isinstance(payload, dict):
+        rows = payload.get("data") or payload.get("results") or payload.get("users") or payload.get("items")
+        if isinstance(rows, dict):
+            rows = rows.get("data") or rows.get("results") or rows.get("users") or rows.get("items")
+    else:
+        rows = payload
+    return rows if isinstance(rows, list) else []
+
+
+def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
+    data = get_hub_telecallers(hub_id)
+    usernames = []
+    for user in _carrum_user_rows(data):
+        if not isinstance(user, dict):
+            continue
+        frappe_cred = user.get("frappeCred") or user.get("frappe_cred") or {}
+        username = ""
+        if isinstance(frappe_cred, dict):
+            username = frappe_cred.get("username") or frappe_cred.get("userName") or ""
+        username = (username or "").strip()
+        if username:
+            usernames.append(username)
+    return list(dict.fromkeys(usernames))

@@ -1,13 +1,13 @@
-from enum import Enum
-import json
 import re
 from datetime import datetime, timedelta
 from time import sleep
+from core.api import carrum_accounts
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from core.constants.enums import EnumValues
 from crm.api.event import enqueue_complete_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
+from crm.fcrm.doctype.crm_notification.crm_notification import notify_user
 from crm.utils import parse_phone_number
 import frappe
 import core.integrations.smartflo.client as smartflo_client
@@ -45,6 +45,19 @@ def _enqueue_apply_not_connected_dial_for_today_lead_callback(
         )
 
 
+def _disposition_datetime_or_none(value):
+    """Normalize API datetime strings for Call Session Datetime fields; empty/invalid -> None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return get_datetime(s)
+    except Exception:
+        return None
+
+
 def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
     """Set ``CRM Lead.telecaller`` to the disposing agent.
 
@@ -70,6 +83,43 @@ def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
         lead.save(ignore_permissions=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "set_lead_telecaller_on_dispose")
+
+
+def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
+    """In-app CRM notification for assigned telecaller on inbound missed dialer call."""
+    try:
+        tc = (telecaller_user or "").strip()
+        if not tc or not frappe.db.exists("User", tc):
+            return
+        lead_name = (getattr(lead, "name", None) or "").strip()
+        if not lead_name:
+            return
+        person_name = (
+            getattr(lead, "lead_name", None) or lead.get("lead_name") or lead_name or ""
+        ).strip()
+        # System-originated so notify_user does not drop when session user == telecaller (owner == assigned_to).
+        owner = "Administrator"
+        msg = frappe._("You have a missed call from #{0} {1} ({2})").format(
+            lead_name,
+            person_name or lead_name,
+            person_name or lead_name,
+        )
+        notification_text = msg
+        notify_user(
+            {
+                "owner": owner,
+                "assigned_to": tc,
+                "notification_type": "Assignment",
+                "message": msg,
+                "notification_text": notification_text,
+                "reference_doctype": "CRM Lead",
+                "reference_docname": lead_name,
+                "redirect_to_doctype": "CRM Lead",
+                "redirect_to_docname": lead_name,
+            }
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "notify_telecaller_missed_call_dialer_disconnect")
 
 
 def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
@@ -112,20 +162,20 @@ def _call_session_lead_fields(call_session_record):
     row = frappe.db.get_value(
         "CRM Lead",
         lead_id,
-        ["lead_name", "mobile_no", "current_source", "preferred_scheme"],
+        ["lead_name", "mobile_no", "source", "preferred_scheme"],
     )
     if not row:
         return lead_id, None, None, None, None
-    lead_name, mobile_no, current_source, preferred_scheme = row
-    return lead_id, lead_name, mobile_no, current_source, preferred_scheme
+    lead_name, mobile_no, source, preferred_scheme = row
+    return lead_id, lead_name, mobile_no, source, preferred_scheme
 
 
 def _set_lead_source_during_call_on_session(doc):
-    """Snapshot CRM Lead ``current_source`` onto Call Session at disposition time."""
+    """Snapshot CRM Lead `source` onto Call Session at disposition time."""
     lead_id = (doc.get("lead") or "").strip()
     if not lead_id:
         return
-    src = frappe.db.get_value("CRM Lead", lead_id, "current_source")
+    src = frappe.db.get_value("CRM Lead", lead_id, "source")
     doc.set("lead_source_during_call", (src or "").strip() or None)
 
 
@@ -145,11 +195,36 @@ def _duration_seconds_from_value(duration_val):
         return None
 
 
+def _ring_duration_seconds_from_smartflo_agent_ring_time(payload: dict | None):
+    """Parse Smartflo ``agent_ring_time`` into seconds for Call Session ``ring_duration``."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("agent_ring_time")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.startswith("$"):
+        return None
+    try:
+        sec = flt(s)
+    except Exception:
+        return None
+    if sec < 0:
+        return None
+    return sec
+
+
 def _call_session_status_to_ui_bucket(status: str | None) -> str:
-    s = (status or "").strip().upper()
-    if s == "DISPOSED":
+    s = (status or "").strip()
+    s_upper = s.upper()
+    if s_upper == "DISPOSED":
         return "disposed"
-    if s in (EnumValues.CallSessionStatus.DISCONNECTED, EnumValues.CallSessionStatus.MISSED, EnumValues.CallSessionStatus.FAILED):
+    if s in (
+        EnumValues.CallSessionStatus.DISCONNECTED,
+        EnumValues.CallSessionStatus.MISSED,
+        EnumValues.CallSessionStatus.NOT_CONNECTED,
+        EnumValues.CallSessionStatus.FAILED,
+    ) or s_upper in ("MISSED", "NOT_CONNECTED", "FAILED", "DISCONNECTED"):
         return "disconnected"
     if s in _CALL_SESSION_UI_ON_CALL:
         return "on_call"
@@ -190,6 +265,18 @@ def _direction_inbound_outbound_from_vendor_payload(payload: dict | None) -> str
     return "OUTBOUND"
 
 
+def _click2call_campaign_from_config(
+    calling_config: dict,
+    *,
+    campaign_id: str | None = None,
+    campaign_name: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve campaign id/name for Agent calls from request overrides or Smartflo creds."""
+    cid = (campaign_id or "").strip() or (calling_config.get("default_campaign_id") or "").strip()
+    cname = (campaign_name or "").strip() or (calling_config.get("default_campaign_name") or "").strip()
+    return cid or None, cname or None
+
+
 class CallService:
     def __init__(self):
         pass
@@ -204,17 +291,19 @@ class CallService:
         user: str,
         *,
         manual_dial: bool = False,
+        campaign_id: str | None = None,
+        campaign_name: str | None = None,
     ):
         log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId} and user: {user} and manual_dial: {manual_dial}")
         if calling_method == EnumValues.CallingMethod.Dialer:
             raise ValueError(f"Dialer calling method is not supported: {calling_method}")
-        if calling_method != EnumValues.CallingMethod.Click2Call:
+        if calling_method != EnumValues.CallingMethod.Agent:
             raise ValueError(f"Invalid calling method: {calling_method}")
 
         if self._user_has_active_dialer_session(user):
             raise ValueError(
                 frappe._(
-                    "You have an active dialer session. End the session before using click-to-call."
+                    "You have an active dialer session. End the session before using agent calling."
                 )
             )
 
@@ -230,8 +319,20 @@ class CallService:
         if pre_vendor_check_result["is_valid"] == False:
             raise ValueError(f"Pre vendor check failed: {pre_vendor_check_result['invalid_reason']}")
 
-        call_session_doc = frappe.get_doc({
-            "doctype": "Call Session",
+        calling_config = dict(pre_vendor_check_result["calling_config"])
+        log.info(f"calling_config: {calling_config}")
+        log.info(f"campaign_id: {campaign_id}")
+        log.info(f"campaign_name: {campaign_name}")
+        resolved_campaign_id, resolved_campaign_name = _click2call_campaign_from_config(
+            calling_config,
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+        )
+        calling_config["default_campaign_id"] = resolved_campaign_id
+        calling_config["default_campaign_name"] = resolved_campaign_name
+
+        call_session_doc = {
+            "doctype": EnumValues.ReferenceDocType.CALL_SESSION,
             "lead": lead.name,
             "agent": user,
             "lead_phone": mobile_no,
@@ -239,14 +340,19 @@ class CallService:
             "direction": EnumValues.CallDirection.OUTBOUND,
             "calling_method": calling_method,
             "vendor_name": default_telephony_vendor,
-        })
+            "campaign_id": resolved_campaign_id,
+            "campaign_name": resolved_campaign_name,
+        }
+        log.info(f"call_session_doc: {call_session_doc}")
+
+        call_session_doc = frappe.get_doc(call_session_doc)
         call_session_doc.insert()
 
         call_initiated_result = self._handle_click2call_start_logic(
             user,
             call_session_doc.name,
             mobile_no,
-            pre_vendor_check_result["calling_config"],
+            calling_config,
             manual_dial=bool(manual_dial),
         )
 
@@ -256,7 +362,7 @@ class CallService:
             call_session_doc.db_set("failure_reason", call_initiated_result["reason"])
             raise ValueError(f"Call initiation failed: {call_initiated_result['reason']}")
 
-        _pli, _pln, _pm, cur_src_init, pref_sch_init = _call_session_lead_fields(
+        _pli, _pln, _pm, source_init, pref_sch_init = _call_session_lead_fields(
             call_session_doc
         )
         frappe.publish_realtime(
@@ -267,12 +373,12 @@ class CallService:
                 "lead_name": lead.lead_name,
                 "phone_number": mobile_no,
                 "to_number": mobile_no,
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "status": "CALL INITIATED TO AGENT",
                 "direction": _call_session_direction_to_ui(
                     call_session_doc.get("direction") or EnumValues.CallDirection.OUTBOUND
                 ),
-                "source": cur_src_init,
+                "source": source_init,
                 "preferred_scheme": pref_sch_init,
             },
             user=frappe.session.user,
@@ -289,7 +395,7 @@ class CallService:
 
     def end_call(self,calling_method: str, call_session_id: str, user: str):
         log.info(f"Ending call with calling_method: {calling_method} and call_session_id: {call_session_id} and user: {user}")
-        if calling_method == "Click2Call":
+        if calling_method == EnumValues.CallingMethod.Agent:
             return self._handle_click2call_end_logic(call_session_id, user)
         elif calling_method == "Dialer":
             return self._handle_dialer_end_logic(call_session_id, user)
@@ -377,7 +483,7 @@ class CallService:
                     "lead_id": call_session_doc.lead,
                     "phone_number": call_session_doc.get("lead_phone"),
                     "failure_reason": call_session_doc.failure_reason or "",
-                    "calling_method": "Click2Call",
+                    "calling_method": EnumValues.CallingMethod.Agent,
                     "direction": _call_session_direction_to_ui(
                         call_session_doc.get("direction") or "OUTBOUND"
                     ),
@@ -479,37 +585,40 @@ class CallService:
         *,
         manual_dial: bool = False,
     ):
-        # campaign_id = calling_config["default_campaign_id"]
+        campaign_id = calling_config["default_campaign_id"]
 
-        # max_login_retry_count = 2
-        # is_logged_in = False
-        # last_login_error_message = None
+        max_login_retry_count = 2
+        is_logged_in = False
+        last_login_error_message = None
 
-        # for attempt in range(max_login_retry_count):
-        #     try:
-        #         result = smartflo_client.handle_login_session_api(
-        #             user=user, campaign_id=campaign_id
-        #         )
-        #         if result.get("is_valid"):
-        #             is_logged_in = True
-        #             break
-        #         last_login_error_message = result.get("reason") or "Session login failed"
+        for attempt in range(max_login_retry_count):
+            try:
+                result = smartflo_client.handle_login_session_api(
+                    user=user, campaign_id=campaign_id
+                )
+                if result.get("is_valid"):
+                    is_logged_in = True
+                    break
+                last_login_error_message = result.get("reason") or "Session login failed"
+                if "already logged in" in last_login_error_message.lower():
+                    is_logged_in = True
+                    break
 
-        #     except Exception as e:
-        #         err = str(e)
-        #         if "already logged in" in err.lower():
-        #             is_logged_in = True
-        #             break
-        #         last_login_error_message = err
+            except Exception as e:
+                err = str(e)
+                if "already logged in" in err.lower():
+                    is_logged_in = True
+                    break
+                last_login_error_message = err
 
-        #     sleep(2)
+            sleep(2)
 
-        # if not is_logged_in:
-        #     return {
-        #         "is_valid": False,
-        #         "step": "login",
-        #         "reason": last_login_error_message,
-        #     }
+        if not is_logged_in:
+            return {
+                "is_valid": False,
+                "step": "login",
+                "reason": last_login_error_message,
+            }
 
         max_dial_retry_count = 2
         max_offline_retry = 1
@@ -542,21 +651,33 @@ class CallService:
 
                     offline_retry_count += 1
 
-                    # try:
-                    #     smartflo_client.handle_logout(
-                    #         user=user, campaign_id=campaign_id
-                    #     )
-                    # except Exception:
-                    #     pass
+                    try:
+                        smartflo_client.handle_logout(
+                            user=user, campaign_id=campaign_id
+                        )
+                    except Exception:
+                        pass
 
-                    # sleep(0.5)
+                    sleep(0.5)
 
-                    # try:
-                    #     smartflo_client.handle_login_session_api(
-                    #         user=user, campaign_id=campaign_id
-                    #     )
-                    # except Exception:
-                    #     pass
+                    try:
+                        relogin = smartflo_client.handle_login_session_api(
+                            user=user, campaign_id=campaign_id
+                        )
+                        if relogin.get("is_valid"):
+                            pass
+                        else:
+                            relogin_reason = (relogin.get("reason") or "").lower()
+                            if "already logged in" not in relogin_reason:
+                                last_dial_error_message = (
+                                    relogin.get("reason") or "Session re-login failed"
+                                )
+                                break
+                    except Exception as relogin_err:
+                        relogin_err_s = str(relogin_err)
+                        if "already logged in" not in relogin_err_s.lower():
+                            last_dial_error_message = relogin_err_s
+                            break
 
                     sleep(0.5)
                     continue
@@ -569,7 +690,7 @@ class CallService:
         return {
             "is_valid": False,
             "step": "dial",
-            "reason": last_dial_error_message or "Failed to start click2call",
+            "reason": last_dial_error_message or "Failed to start agent call",
         }
     
     def _handle_pre_vendor_check(self, user: str):
@@ -589,8 +710,12 @@ class CallService:
 
             calling_number = (smartflo_credentials.get("callingNumber") or "").strip()
             extension_id = smartflo_credentials.get("extensionId")
-            default_campaign_id = smartflo_credentials.get("defaultCampaignId")
-
+            default_campaign_id = smartflo_credentials.get("defaultCampaignId") or smartflo_credentials.get(
+                "default_campaign_id"
+            )
+            default_campaign_name = smartflo_credentials.get("defaultCampaignName") or smartflo_credentials.get(
+                "default_campaign_name"
+            )
             if not calling_number:
                 raise ValueError(f"Calling number not found for user: {user}")
 
@@ -610,7 +735,8 @@ class CallService:
             "calling_config": {
                 "calling_number": calling_number,
                 "extension_id": extension_id,
-                "default_campaign_id": default_campaign_id
+                "default_campaign_id": default_campaign_id,
+                "default_campaign_name": default_campaign_name
             },
         }
 
@@ -676,7 +802,7 @@ class CallService:
             )
             call_session_record.save(ignore_permissions=True)
 
-            lead_id, lead_name, mobile_no, current_source, preferred_scheme = _call_session_lead_fields(call_session_record)
+            lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
             phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
             frappe.publish_realtime(
                 event="call_agent_connected",
@@ -688,11 +814,11 @@ class CallService:
                     "phone_number": phone_display,
                     "to_number": phone_display,
                     "status": EnumValues.CallSessionStatus.AGENT_CONNECTED,
-                    "calling_method": EnumValues.CallingMethod.Click2Call,
+                    "calling_method": EnumValues.CallingMethod.Agent,
                     "direction": _call_session_direction_to_ui(
                         call_session_record.get("direction")
                     ),
-                    "source": current_source,
+                    "source": source,
                     "preferred_scheme": preferred_scheme
                 },
                 user=call_session_record.get("agent"),
@@ -760,7 +886,7 @@ class CallService:
             enqueue_complete_callback_followups_for_lead(lead_fu)
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, current_source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -773,11 +899,11 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": start_stamp,
                 "status": EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction")
                 ),
-                "source": current_source,
+                "source": source,
                 "preferred_scheme": preferred_scheme
             },
             user=target_user,
@@ -895,6 +1021,9 @@ class CallService:
         recording_url_nc = payload.get("recording_url")
         if recording_url_nc:
             call_session_record.set("recording_url", recording_url_nc)
+        ring_seconds = _ring_duration_seconds_from_smartflo_agent_ring_time(payload)
+        if ring_seconds is not None:
+            call_session_record.set("ring_duration", ring_seconds)
         call_session_record.save(ignore_permissions=True)
 
         lead_for_nc = (call_session_record.get("lead") or "").strip()
@@ -905,7 +1034,7 @@ class CallService:
             )
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, current_source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -918,11 +1047,11 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL MISSED BY CUSTOMER",
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction") or EnumValues.CallDirection.OUTBOUND
                 ),
-                "source": current_source,
+                "source": source,
                 "preferred_scheme": preferred_scheme,
             },
             user=target_user,
@@ -1053,6 +1182,9 @@ class CallService:
         call_session_record.set("recording_url", recording_url)
         if bill_sec is not None:
             call_session_record.set("duration", flt(bill_sec))
+        ring_seconds = _ring_duration_seconds_from_smartflo_agent_ring_time(payload)
+        if ring_seconds is not None:
+            call_session_record.set("ring_duration", ring_seconds)
         if not (call_session_record.get("direction") or "").strip():
             call_session_record.set(
                 "direction",
@@ -1061,7 +1193,7 @@ class CallService:
         call_session_record.save(ignore_permissions=True)
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, current_source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -1075,11 +1207,11 @@ class CallService:
                 "to_number": phone_display,
                 "timestamp": payload.get("start_stamp"),
                 "status": "CALL DISCONNECTED",
-                "calling_method": EnumValues.CallingMethod.Click2Call,
+                "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
                     call_session_record.get("direction")
                 ),
-                "source": current_source,
+                "source": source,
                 "preferred_scheme": preferred_scheme,
                 "recording_url": recording_url,
             },
@@ -1112,6 +1244,7 @@ class CallService:
         expected_call_duration_minutes = data.get("expected_call_duration_minutes")
         scheduled_visit_date = data.get("scheduled_visit_date")
         is_visit_scheduled = data.get("is_visit_scheduled")
+        new_lead_name = str(data.get("lead_name") or "").strip()
         disposition_timing_raw = data.get("disposition_timing") or data.get("disposition_source")
         disposition_timing = (
             str(disposition_timing_raw).strip().upper()
@@ -1143,9 +1276,52 @@ class CallService:
                 "is_valid": False,
                 "reason": "disposition_status or disposition_code is required",
             }
+        remarks_required = False
+        try:
+            if status_pk:
+                remarks_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_pk, "is_remarks_required")
+                )
+            elif ds:
+                status_filters = {"custom_primary_status": ds}
+                if sub:
+                    status_filters["lead_status"] = sub
+                remarks_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_filters, "is_remarks_required")
+                )
+        except Exception:
+            log.exception("Failed to resolve CRM Lead Status remarks requirement")
+        if remarks_required and not remarks:
+            return {
+                "is_valid": False,
+                "reason": "Remarks are required for this disposition",
+            }
+        lead_name_required = False
+        try:
+            if status_pk:
+                lead_name_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_pk, "is_lead_name_required")
+                )
+            elif ds:
+                status_filters = {"custom_primary_status": ds}
+                if sub:
+                    status_filters["lead_status"] = sub
+                lead_name_required = bool(
+                    frappe.db.get_value("CRM Lead Status", status_filters, "is_lead_name_required")
+                )
+        except Exception:
+            log.exception("Failed to resolve CRM Lead Status lead name requirement")
+        if lead_name_required:
+            lead_doc = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
+            
+            current_lead_name = lead_doc.get("lead_name")
+
+            if not current_lead_name and new_lead_name is not None:
+                lead_doc.set("lead_name", new_lead_name)
+                lead_doc.save(ignore_permissions=True)
 
         match calling_method:
-            case EnumValues.CallingMethod.Click2Call:
+            case EnumValues.CallingMethod.Agent:
                 return self._handle_click2call_submit_disposition(
                     call_session_id=call_session_id,
                     disposition_status=ds,
@@ -1159,7 +1335,8 @@ class CallService:
                     disposition_timing=disposition_timing,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=new_lead_name,
                 )
             case EnumValues.CallingMethod.Dialer:
                 return self._handle_dialer_submit_disposition(
@@ -1175,13 +1352,47 @@ class CallService:
                     expected_call_duration_minutes=expected_call_duration_minutes,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=new_lead_name,
                 )
             case _:
                 return {
                     "is_valid": False,
                     "reason": f"Invalid calling method: {calling_method}",
                 }
+    def _enqueue_apply_default_campaign_id_to_call_session(self, call_session_id: str):
+        frappe.enqueue(
+            "core.services.call_service.apply_default_campaign_id_to_call_session",
+            queue="default",
+            enqueue_after_commit=True,
+            call_session_id=call_session_id,
+        )
+
+    def _apply_default_campaign_id_to_call_session(self, call_session_id: str):
+        call_session_doc = frappe.get_doc("Call Session", call_session_id)
+        if not call_session_doc:
+            raise ValueError("Invalid Call Session id: Call session record not found")
+        
+        agent = call_session_doc.get("agent")
+        smartflo_credentials = carrum_accounts.get_smartflo_credentials_for_frappe_user(agent)
+        if not smartflo_credentials:
+            return;
+
+        default_campaign_id = smartflo_credentials.get("defaultCampaignId") or smartflo_credentials.get(
+            "default_campaign_id"
+        )
+        default_campaign_name = smartflo_credentials.get("defaultCampaignName") or smartflo_credentials.get(
+            "default_campaign_name"
+        )
+        if not default_campaign_id:
+            return
+
+        call_session_doc.set("campaign_id", default_campaign_id)
+        if default_campaign_name:
+            call_session_doc.set("campaign_name", default_campaign_name)
+        call_session_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return;
 
     def _handle_click2call_submit_disposition(
         self,
@@ -1197,9 +1408,10 @@ class CallService:
         disposition_timing: str,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
-        """Smartflo store-disposition + Call Session update (Click2Call)."""
+        """Smartflo store-disposition + Call Session update (Agent calling)."""
         try:
             doc = frappe.get_doc("Call Session", call_session_id)
         except DoesNotExistError:
@@ -1227,24 +1439,28 @@ class CallService:
         #     body["disposition_code"] = str(disposition_code)
         # if sub_disposition is not None:
         #     body["sub_disposition_status"] = sub_disposition
-
-        lead_id = doc.get("lead")
-
-        doc.set("disposition_status", disposition_status or None)
-        doc.set("disposition_remarks", remarks or None)
-        doc.set("sub_disposition_status", sub_disposition or None)
-        doc.set("status", EnumValues.CallSessionStatus.DISPOSED)
-        doc.set("disposed_at", frappe.utils.now())
-        doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
         svd = (
             str(scheduled_visit_date).strip()
             if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
             else ""
         )
+        lead_id = doc.get("lead")
+        callback_dt = _disposition_datetime_or_none(callback_datetime)
+        visit_dt = _disposition_datetime_or_none(svd) if svd else None
+
+        doc.set("disposition_status", disposition_status or None)
+        doc.set("disposition_remarks", remarks or None)
+        doc.set("sub_disposition_status", sub_disposition or None)
+        doc.set("status", EnumValues.CallSessionStatus.DISPOSED)
+        doc.set("lead_callback_datetime", callback_dt)
+        doc.set("disposed_at", frappe.utils.now())
+        doc.set("disposition_timing", disposition_timing or "IMMEDIATE")
+    
         want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
+        self._enqueue_apply_default_campaign_id_to_call_session(call_session_id)
         if svd and want_visit:
             doc.set("is_visit_scheduled", 1)
-            doc.set("scheduled_visit_date", svd)
+            doc.set("scheduled_visit_date", visit_dt or svd)
         else:
             doc.set("is_visit_scheduled", 0)
             doc.set("scheduled_visit_date", None)
@@ -1272,7 +1488,8 @@ class CallService:
                     disposition_status,
                     sub_disposition,
                     remarks,
-                    status_pk=status_pk
+                    status_pk=status_pk,
+                    lead_display_name=lead_display_name,
                 )
 
             except Exception:
@@ -1281,11 +1498,11 @@ class CallService:
                     "update_lead_from_call_disposition_click2call",
                 )
             _set_lead_telecaller(lead_id, doc.get("agent"))
-        if callback_datetime:
+        if callback_dt:
             util_service.create_event_for_callback(
                 lead_id=lead_id,
                 call_session_id=call_session_id,
-                callback_datetime=callback_datetime,
+                callback_datetime=callback_dt,
                 callback_comments=callback_comments,
                 remind_before_minutes=remind_before_minutes,
                 expected_call_duration_minutes=expected_call_duration_minutes,
@@ -1323,7 +1540,8 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
         match default_telephony_vendor:
             case "Smartflo":
@@ -1340,7 +1558,8 @@ class CallService:
                     expected_call_duration_minutes,
                     scheduled_visit_date,
                     is_visit_scheduled,
-                    status_pk = status_pk
+                    status_pk = status_pk,
+                    lead_display_name=lead_display_name,
                 )
             case _:
                 return {
@@ -1362,7 +1581,8 @@ class CallService:
         expected_call_duration_minutes,
         scheduled_visit_date=None,
         is_visit_scheduled=None,
-        status_pk: str | None = None
+        status_pk: str | None = None,
+        lead_display_name: str | None = None,
     ):
         try:
             call_session_doc = frappe.get_doc("Call Session", call_session_id)
@@ -1394,12 +1614,15 @@ class CallService:
                 else ""
             )
             want_visit = bool(frappe.utils.cint(is_visit_scheduled)) if is_visit_scheduled is not None else bool(svd)
+            visit_dt = _disposition_datetime_or_none(svd) if svd else None
             if svd and want_visit:
                 call_session_doc.set("is_visit_scheduled", 1)
-                call_session_doc.set("scheduled_visit_date", svd)
+                call_session_doc.set("scheduled_visit_date", visit_dt or svd)
             else:
                 call_session_doc.set("is_visit_scheduled", 0)
                 call_session_doc.set("scheduled_visit_date", None)
+            callback_dt = _disposition_datetime_or_none(callback_datetime)
+            call_session_doc.set("lead_callback_datetime", callback_dt)
             _set_lead_source_during_call_on_session(call_session_doc)
             if lead_id:
                 try:
@@ -1408,7 +1631,8 @@ class CallService:
                         disposition_status,
                         sub_disposition_status,
                         remarks,
-                        status_pk
+                        status_pk,
+                        lead_display_name=lead_display_name,
                     )
                 except Exception:
                     frappe.log_error(
@@ -1417,11 +1641,11 @@ class CallService:
                     )
                 _set_lead_telecaller(lead_id, call_session_doc.get("agent"))
 
-            if callback_datetime:
+            if callback_dt:
                 util_service.create_event_for_callback(
                     lead_id=lead_id,
                     call_session_id=call_session_id,
-                    callback_datetime=callback_datetime,
+                    callback_datetime=callback_dt,
                     callback_comments=callback_comments,
                     remind_before_minutes=remind_before_minutes,
                     expected_call_duration_minutes=expected_call_duration_minutes,
@@ -1466,21 +1690,21 @@ class CallService:
             )
         )
 
-    def start_dialer_session(self, user:str, campaign_id: str):
+    def start_dialer_session(self, user:str, campaign_id: str, campaign_name: str):
         match default_telephony_vendor:
             case "Smartflo":
-                return self._handle_smartflo_start_dialer_session(user,campaign_id)
+                return self._handle_smartflo_start_dialer_session(user,campaign_id, campaign_name)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
-    def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str):
+    def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str, campaign_name: str):
         try:
             # handle dialer login first
-            result = smartflo_client.handle_login_session_api(user,campaign_id)
+            result = smartflo_client.handle_login_session_api(user, campaign_id)
             if not result.get("is_valid"):
-                if "already logged in" in result.get("reason").lower():
-                    pass
-                raise ValueError(result.get("reason"))
+                reason = (result.get("reason") or "").lower()
+                if "already logged in" not in reason:
+                    raise ValueError(result.get("reason") or "Session login failed")
         except Exception as e:
             err = str(e)
             if "already logged in" in err.lower():
@@ -1513,6 +1737,7 @@ class CallService:
                 "user": user,
                 "status": "ACTIVE",
                 "campaign_id": campaign_id,
+                "campaign_name": campaign_name,
                 "active_at": frappe.utils.now(),
             }
         )
@@ -1535,14 +1760,30 @@ class CallService:
             as_dict=True,
         )
         if not data:
-            raise ValueError("No active dialer session found")
+            warning = "Session already ended"
+            return {
+                "is_valid": True,
+                "reason": warning,
+                "warning": warning,
+            }
+        warning = None
         match default_telephony_vendor:
             case "Smartflo":
                 result = self._handle_smartflo_end_dialer_session(
                     user, campaign_id=data.campaign_id
                 )
                 if not result.get("is_valid"):
-                    raise ValueError(result.get("reason"))
+                    api_reason = result.get("reason")
+                    normalized_reason = str(api_reason or "").lower()
+                    already_ended_markers = (
+                        "agent is not logged",
+                        "session already ended",
+                        "already logged out",
+                    )
+                    if any(marker in normalized_reason for marker in already_ended_markers):
+                        warning = api_reason or "Session already ended"
+                    else:
+                        raise ValueError(api_reason or "Failed to end dialer session")
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
@@ -1567,7 +1808,8 @@ class CallService:
 
         return {
             "is_valid": True,
-            "reason": None,
+            "reason": warning,
+            "warning": warning,
         }
 
     def _handle_smartflo_end_dialer_session(self, user: str, campaign_id: str):
@@ -1584,8 +1826,9 @@ class CallService:
             "reason": None
         }
 
-    def start_dialer_break(self, user: str, break_code: str):
+    def start_dialer_break(self, user: str, break_code: str, break_name: str = ""):
         code = (break_code or "").strip()
+        name = (break_name or "").strip()
         if not code:
             raise ValueError("break_code is required")
 
@@ -1609,6 +1852,7 @@ class CallService:
         doc = frappe.new_doc(self.SESSION_BREAK_LOG_DOCTYPE)
         doc.set("user", user)
         doc.set("break_code", code)
+        doc.set("break_name", name)
         doc.set("start_time", frappe.utils.now())
         doc.set("user_dialer_session_log", data.name)
         doc.insert()
@@ -1834,6 +2078,8 @@ class CallService:
 
         start_date = payload.get("start_date")
         start_time = payload.get("start_time")
+        campaign_name = payload.get("campaign_name")
+        campaign_id = payload.get("campaign_id")
         agent_list = payload.get("agent") or []
         if isinstance(agent_list, dict):
             agent_email = agent_list.get("email")
@@ -1847,19 +2093,25 @@ class CallService:
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
                 frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
-                    call_to_number or ""
+                    lead_phone or ""
                 )
             )
-        
-        DID_SOURCE_MAPPING = frappe.get_doc("Global Config", {"key": "DID_SOURCE_MAPPING"})
-        did_source_map = {}
-        if DID_SOURCE_MAPPING:
-            did_source_map = json.loads(DID_SOURCE_MAPPING.value)
+        inbound_source = None
+        if did_number:
+            inbound_source = frappe.db.get_value(
+                EnumValues.ReferenceDocType.LEAD_SOURCE,
+                {
+                    "purpose": EnumValues.LeadSourcePurpose.Inbound,
+                    "did_number": did_number,
+                },
+                ["name", "source_name"],
+                as_dict=True,
+            )
 
-        newSource = did_source_map.get(did_number)
-        if newSource is not None:
-            lead.set('current_source',newSource)
-            lead.save(ignore_permissions=True) 
+        if inbound_source:
+            lead.set("source", inbound_source.get("source_name"))
+            lead.set("source_id", inbound_source.get("name"))
+            lead.save(ignore_permissions=True)
 
         
         new_call_session_doc = frappe.new_doc(
@@ -1873,6 +2125,8 @@ class CallService:
             agent_call_id=call_id,
             status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
             agent_answered_at=timestamp,
+            campaign_name=campaign_name,
+            campaign_id=campaign_id,
             lead_answered_at=timestamp,
             agent_answer_event_id=event_id,
             agent_answer_event_log=payload,
@@ -1880,6 +2134,7 @@ class CallService:
         )
 
         new_call_session_doc.insert(ignore_permissions=True)
+        
         if direction == EnumValues.CallDirection.OUTBOUND:
             enqueue_complete_callback_followups_for_lead(lead.name)
         frappe.db.commit()
@@ -1889,7 +2144,7 @@ class CallService:
             lead_name = lead.lead_name
             phone_display = (lead.get("mobile_no") or "").strip()
             start_stamp = timestamp
-            _lid, _ln, _mob, current_source, preferred_scheme = _call_session_lead_fields(
+            _lid, _ln, _mob, source, preferred_scheme = _call_session_lead_fields(
                 new_call_session_doc
             )
             frappe.publish_realtime(
@@ -1906,7 +2161,7 @@ class CallService:
                     "direction": _call_session_direction_to_ui(
                         new_call_session_doc.get("direction") or direction
                     ),
-                    "source": current_source,
+                    "source": source,
                     "preferred_scheme": preferred_scheme,
                 },
                 user=target_user,
@@ -1987,7 +2242,6 @@ class CallService:
         """
         Handle Smartflo Dialer Call Disconnected Event
         """
-
         frappe.logger().info(f"Dialer Disconnected Payload: {payload}")
 
         call_id = payload.get("call_id")
@@ -1996,9 +2250,17 @@ class CallService:
 
         event_id = payload.get("uuid")
         recording_url = payload.get("recording_url")
+     
+        call_direction = EnumValues.CallDirection.OUTBOUND if payload.get("direction") == "Dialer (outbound)" else EnumValues.CallDirection.INBOUND
+        caller_id_number = payload.get("caller_id_number")
+        call_to_number = payload.get("call_to_number")
 
-        row_name = frappe.db.get_value("Call Session", {"agent_call_id": call_id})
-        lead = self._create_lead_if_not_exists(payload.get("call_to_number"))
+
+        lead_phone = call_to_number if call_direction == EnumValues.CallDirection.OUTBOUND else caller_id_number
+        row_name = frappe.db.get_value(EnumValues.ReferenceDocType.CALL_SESSION, {"agent_call_id": call_id})
+        lead = self._create_lead_if_not_exists(lead_phone)
+        campaign_name = payload.get("campaign_name")
+        campaign_id = payload.get("campaign_id")
         if not lead or not getattr(lead, "name", None):
             frappe.throw(
                 frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
@@ -2006,24 +2268,38 @@ class CallService:
                 )
             )
 
-        call_direction = EnumValues.CallDirection.OUTBOUND if payload.get("direction") == "Dialer (outbound)" else EnumValues.CallDirection.INBOUND
+
+        session_status_value = (
+            EnumValues.CallSessionStatus.NOT_CONNECTED
+            if call_direction == EnumValues.CallDirection.OUTBOUND
+            else EnumValues.CallSessionStatus.MISSED
+        )
+        lead_telecaller = (getattr(lead, "telecaller", None) or "").strip() or None
+        
+        
+        if session_status_value == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
+            _notify_telecaller_missed_call(lead, lead_telecaller)
+
         if not row_name:
-            call_status = frappe.new_doc("Call Session")
-            call_status.agent_call_id = call_id
-            call_status.vendor_name = "Smartflo"
-            call_status.calling_method = "Dialer"
-            call_status.lead = lead.name
-            call_status.lead_phone = lead.get("mobile_no") or ""
-            call_status.direction = call_direction
-            call_status.status = EnumValues.CallSessionStatus.NOT_CONNECTED if call_direction == EnumValues.CallDirection.OUTBOUND else EnumValues.CallSessionStatus.MISSED
-            call_status.insert(ignore_permissions=True)
-            call_status.recording_url = recording_url
-            row_name = call_status.name
+            new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
+            new_session.agent_call_id = call_id
+            new_session.vendor_name = "Smartflo"
+            new_session.calling_method = EnumValues.CallingMethod.Dialer
+            new_session.lead = lead.name
+            new_session.agent = lead_telecaller or None
+            new_session.lead_phone = lead.get("mobile_no") or ""
+            new_session.direction = call_direction
+            new_session.campaign_name= campaign_name
+            new_session.campaign_id = campaign_id
+            new_session.status = session_status_value
+            new_session.insert(ignore_permissions=True)
+            new_session.recording_url = recording_url
+            row_name = new_session.name
 
         call_duration = payload.get("outbound_sec")
         row = frappe.get_doc("Call Session", row_name)
 
-        if call_duration is not None:
+        if call_duration is not None and call_duration != "":
             row.set("duration", call_duration)
             
         pre_status = (row.get("status") or "").strip().upper()
@@ -2084,6 +2360,14 @@ class CallService:
 
         return {"is_valid": True}
 
+    def enqueue_apply_campaign_id_to_click2_call(call_session_id: str):
+        frappe.enqueue(
+            "crm.api.call_session.apply_campaign_id_to_click2_call",
+            queue="default",
+            enqueue_after_commit=True,
+            call_session_id=call_session_id,
+        )
+
     def get_last_call(self, user: str):
         """Latest Call Session for this agent; shape matches LastCallStatusModal / CustomCallUI."""
         if not user or user == "Guest":
@@ -2118,18 +2402,18 @@ class CallService:
         ui_status = _call_session_status_to_ui_bucket(status)
         lead_id = row.get("lead")
         lead_name = None
-        current_source = None
+        source = None
         preferred_scheme = None
         if lead_id:
             lead_row = frappe.db.get_value(
                 "CRM Lead",
                 lead_id,
-                ["lead_name", "current_source", "preferred_scheme"],
+                ["lead_name", "source", "preferred_scheme"],
                 as_dict=True,
             )
             if lead_row:
                 lead_name = lead_row.get("lead_name")
-                current_source = lead_row.get("current_source")
+                source = lead_row.get("source")
                 preferred_scheme = lead_row.get("preferred_scheme")
 
         call_id = row.get("agent_call_id")
@@ -2160,7 +2444,7 @@ class CallService:
             "is_disposed": is_disposed,
             "start_time": start_time,
             "calling_method": (row.get("calling_method") or "Dialer").strip(),
-            "source": current_source,
+            "source": source,
             "preferred_scheme": preferred_scheme,
         }
 
@@ -2175,9 +2459,15 @@ class CallService:
         if not agent or agent != user:
             return {"is_valid": False, "reason": "not permitted"}
         rmk = frappe.db.get_value("Call Session", call_session_id, "disposition_remarks")
+        lead_id = frappe.db.get_value("Call Session", call_session_id, "lead")
+        lead_display_name = (
+            frappe.db.get_value("CRM Lead", lead_id, "lead_name") if lead_id else ""
+        )
         return {
             "is_valid": True,
             "disposition_remarks": "" if rmk is None else str(rmk),
+            "lead_id": lead_id or "",
+            "lead_name": "" if lead_display_name is None else str(lead_display_name),
         }
 
     def _update_call_session(self, payload:dict):
@@ -2206,9 +2496,21 @@ class CallService:
 _service = CallService()
 
 
-def start_call(calling_method: str, leadId: str, user: str, manual_dial: bool = False):
+def start_call(
+    calling_method: str,
+    leadId: str,
+    user: str,
+    manual_dial: bool = False,
+    campaign_id: str | None = None,
+    campaign_name: str | None = None,
+):
     return _service.start_call(
-        calling_method, leadId, user, manual_dial=bool(manual_dial)
+        calling_method,
+        leadId,
+        user,
+        manual_dial=bool(manual_dial),
+        campaign_id=campaign_id,
+        campaign_name=campaign_name,
     )
 
 
@@ -2271,11 +2573,14 @@ def update_lead_last_call_date_time(doc, method):
         update_modified=False,
     )
 
-def start_dialer_session(user,payload: dict):
-    campaign_id = payload.get("campaign_id")
+def start_dialer_session(user, payload: dict):
+    if not isinstance(payload, dict):
+        payload = {}
+    campaign_id = (payload.get("campaign_id") or "").strip()
     if not campaign_id:
         raise ValueError("campaign_id is required")
-    return _service.start_dialer_session(user,campaign_id)
+    campaign_name = (payload.get("campaign_name") or "").strip()
+    return _service.start_dialer_session(user, campaign_id, campaign_name)
 
 def end_dialer_session(user: str, payload):
     if not isinstance(payload, dict):
@@ -2285,10 +2590,13 @@ def end_dialer_session(user: str, payload):
 
 
 def toggle_dialer_break(user: str, payload: dict):
+    if not isinstance(payload, dict):
+        payload = {}
     break_type = (payload.get("break_type") or "").strip()
     break_code = payload.get("break_code")
     if break_type == "start":
-        return _service.start_dialer_break(user, break_code)
+        break_name = (payload.get("break_name") or "").strip()
+        return _service.start_dialer_break(user, break_code, break_name)
     if break_type == "end":
         return _service.end_dialer_break(user)
     raise ValueError("Invalid break_type; expected 'start' or 'end'")
@@ -2333,3 +2641,7 @@ def get_call_session_disposition_remarks(user: str, payload: dict):
 
 def update_call_session(payload: dict):
     return _service._update_call_session(payload)
+
+
+def apply_default_campaign_id_to_call_session(call_session_id: str):
+    return _service._apply_default_campaign_id_to_call_session(call_session_id)

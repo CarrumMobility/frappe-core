@@ -6,6 +6,8 @@ core.patches.v1_0.rename_call_session_custom_disposition_fields
 core.patches.v1_0.drop_call_session_disposition_id_column
 
 [post_model_sync]
+core.patches.v1_0.rename_agent_performance_unique_date_confirmed
+core.patches.v1_0.drop_agent_performance_unique_date_confirmed
 # Patches added in this section will be executed after doctypes are migrated
 core.patches.v1_0.add_event_callback_fields
 core.patches.v1_0.ensure_event_call_at_field
@@ -16,3 +18,5 @@ core.patches.v1_0.add_event_visit_date_category
 core.patches.v1_0.migrate_call_sessions_to_visit_date_events
 core.patches.v1_0.remove_event_visit_status_field
 core.patches.v1_0.drop_payment_logs_carrum_id_column
+core.patches.v1_0.rename_call_session_click2call_to_agent
+core.patches.v1_0.rename_call_session_missed_statuses

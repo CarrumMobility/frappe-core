@@ -1,6 +1,6 @@
 import time
 from core.integrations.smartflo import constants
-import requests
+from core.services import logged_requests as requests
 import frappe
 import core.integrations.smartflo.auth as auth
 from core.services.apihit_service import api_hit_service
@@ -212,7 +212,7 @@ def handle_click2call_start_api(
 
 def handle_click2call_end_api(*, user: str, telephony_call_id: str):
 	"""
-	Hang up a click-to-call leg. Smartflo expects JSON `call_id` = telephony session id
+	Hang up an agent-call leg. Smartflo expects JSON `call_id` = telephony session id
 	(e.g. 1775719461.306731) — the same value stored as Call Session `agent_call_id`, not the Frappe session name.
 	"""
 	url = constants.click2call_end_config["url"]
@@ -245,11 +245,16 @@ def handle_login_session_api(user: str, campaign_id):
 		url, None, method, payload, user, api_operation="login_session"
 	)
 	# Some Smartflo routes use "ok", others "success" (HTTP 200 body).
-	result = {
-		"is_valid": response.get("ok") is True or response.get("success") is True,
-		"reason": None,
-	}
-	return result
+	is_valid = response.get("ok") is True or response.get("success") is True
+	reason = None
+	if not is_valid:
+		reason = (
+			response.get("message")
+			or response.get("reason")
+			or response.get("error")
+			or "Session login failed"
+		)
+	return {"is_valid": is_valid, "reason": reason}
 
 def handle_logout(user: str, campaign_id: str):
 	url = constants.agent_logout_config["url"]

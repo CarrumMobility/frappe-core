@@ -16,6 +16,7 @@ class Userdialersessionlogs(Document):
 
 		active_at: DF.Datetime | None
 		campaign_id: DF.Data
+		campaign_name: DF.Data
 		inactive_at: DF.Datetime | None
 		status: DF.Literal["ACTIVE", "INACTIVE"]
 		user: DF.Link

@@ -28,17 +28,17 @@ class _CallDirection:
 
 class _CallingMethod:
 	Dialer = "Dialer"
-	Click2Call = "Click2Call"
+	Agent = "Agent"
 
 class _CallSessionStatus:
 	INITIATED = "INITIATED"
 	FAILED = "FAILED"
 	AGENT_CONNECTED = "AGENT_CONNECTED"
 	CUSTOMER_CONNECTED = "CUSTOMER_CONNECTED"
-	NOT_CONNECTED = "NOT_CONNECTED"
+	NOT_CONNECTED = "OB Missed"
 	DISCONNECTED = "DISCONNECTED"
 	DISPOSED = "DISPOSED"
-	MISSED = "MISSED"
+	MISSED = "IB Missed"
 
 
 class _ReferenceDocType:
@@ -48,6 +48,10 @@ class _ReferenceDocType:
 	CUSTOM_DOC_PERM = "Custom DocPerm"
 	CALL_SESSION = "Call Session"
 	CRM_LEAD_STATUS = "CRM Lead Status"
+	AGENT_PERFORMANCE = "Agent Performance"
+	USER = "User"
+	LEAD_WALKIN_DONE = "Lead walkin done"
+	LEAD_SOURCE = "CRM Lead Source"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -71,6 +75,8 @@ class _LEAD_ACTION_LIST:
 	REMOVE_ONBOARDING_DROP = "Remove Onboarding Drop"
 	MERGE_LEAD = "Merge Lead"
 	UNMERGE_LEAD = "Unmerge Lead"
+	MARK_ONBOARDING_DROP = "Mark Onboarding Drop"
+	MARK_WALK_IN_DONE = "Mark WalkIn Done"
 
 
 class _LEAD_ACTION_SLUG:
@@ -78,8 +84,10 @@ class _LEAD_ACTION_SLUG:
 
 	RAISE_DRIVER_REACTIVATION_REQUEST = "raise_driver_reactivation_request"
 	REMOVE_ONBOARDING_DROP = "remove_onboarding_drop"
+	MARK_ONBOARDING_DROP = "mark_onboarding_drop"
 	MERGE_LEAD = "merge_lead"
 	UNMERGE_LEAD = "unmerge_lead"
+	MARK_WALK_IN_DONE = "mark_walk_in_done"
 
 class _LeadStatus:
 	DROP = "Drop"
@@ -88,6 +96,18 @@ class _LeadStatus:
 	NOT_ELIGIBLE= "Not Eligible"
 	INTERESTED = "Interested"
 	NOT_INTERESTED = "Not Interested"
+
+class _LEAD_SOURCE:
+	GateApp = "Gate App"
+
+class _HUB_VISIT_STATUS:
+	NotInHub = "NOT_IN_HUB"
+	InHub = "IN_HUB"
+	HubVisited = "HUB_VISITED"
+
+class _LEAD_SOURCE_PURPOSE:
+	Inbound = "Inbound"
+	ManualSelection = "Manual Selection"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
@@ -103,5 +123,8 @@ class _EnumValues:
 	LEAD_ACTION_LIST = _LEAD_ACTION_LIST
 	LEAD_ACTION_SLUG = _LEAD_ACTION_SLUG
 	LeadStatus = _LeadStatus
+	LeadSource = _LEAD_SOURCE
+	HubVisitStatus = _HUB_VISIT_STATUS
+	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
 
 EnumValues = _EnumValues()

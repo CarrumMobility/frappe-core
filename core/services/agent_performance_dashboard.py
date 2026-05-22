@@ -1202,9 +1202,11 @@ def _event_breakup_fieldnames() -> list[str]:
         "call_at",
         "starts_on",
         "callback_status",
+        "event_day_dial_count",
         "reference_docname",
         "reference_doctype",
         "subject",
+        "preferred_scheme",
         "disposition_status",
         "sub_disposition_status",
         "disposition_remarks",
@@ -1234,11 +1236,45 @@ def _event_row_to_breakup(row: dict) -> dict:
         "visit_date": _format_event_breakup_datetime(visit_raw),
         "lead_id": lead_id,
         "callback_status": row.get("callback_status") or "",
+        "preferred_scheme": row.get("preferred_scheme") or "",
+        "event_day_dial_count": row.get("event_day_dial_count") or 0,
+        "last_7_day_dial_count": 0,
+        "owner": row.get("owner") or "",
         "subject": row.get("subject") or "",
         "primary_status": row.get("disposition_status") or "",
         "secondary_status": row.get("sub_disposition_status") or "",
         "disposition_remarks": row.get("disposition_remarks") or "",
     }
+
+
+def _enrich_event_breakup_rows(rows: list[dict]) -> list[dict]:
+    lead_ids = list(dict.fromkeys([r.get("lead_id") for r in rows if r.get("lead_id")]))
+    if lead_ids and frappe.db.exists("DocType", "CRM Lead"):
+        lead_cols = set(frappe.db.get_table_columns("CRM Lead") or [])
+        fields = ["name"]
+        if "preferred_scheme" in lead_cols:
+            fields.append("preferred_scheme")
+        if "last_7_day_dial_count" in lead_cols:
+            fields.append("last_7_day_dial_count")
+        lead_rows = frappe.get_all(
+            "CRM Lead",
+            filters={"name": ("in", lead_ids)},
+            fields=fields,
+            limit_page_length=0,
+        )
+        lead_map = {r.name: r for r in (lead_rows or [])}
+        for row in rows:
+            lead = lead_map.get(row.get("lead_id") or "")
+            if not lead:
+                continue
+            if not row.get("preferred_scheme"):
+                row["preferred_scheme"] = lead.get("preferred_scheme") or ""
+            row["last_7_day_dial_count"] = int(lead.get("last_7_day_dial_count") or 0)
+
+    name_map = _user_display_name_map([row.get("owner") for row in rows])
+    for row in rows:
+        row["owner"] = name_map.get(row.get("owner") or "", row.get("owner") or "")
+    return rows
 
 
 def _fetch_events_breakup(
@@ -1324,7 +1360,7 @@ def _fetch_events_breakup(
         params,
         as_dict=True,
     )
-    return [_event_row_to_breakup(r) for r in (rows or [])]
+    return _enrich_event_breakup_rows([_event_row_to_breakup(r) for r in (rows or [])])
 
 
 def _serialize_breakup_row(row, fields: list[str]) -> dict:
@@ -1582,6 +1618,7 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
             "link_route": "leads",
             "link_query": {"viewType": "list"},
             "link_hash": "activity",
+            "link_plain": True,
         },
         {"key": "status", "label": "Call Status"},
         {"key": "direction", "label": "Direction"},
@@ -1597,6 +1634,7 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
             "link_route": "leads",
             "link_query": {"viewType": "list"},
             "link_hash": "activity",
+            "link_plain": True,
         },
         {"key": "status", "label": "Call Status"},
         {"key": "direction", "label": "Direction"},
@@ -1608,26 +1646,41 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
 }
 
 _EVENT_FOLLOWUP_BREAKUP_COLUMNS = [
-    {"key": "id", "label": "Event", "link_doctype": "Event"},
-    {"key": "created_at", "label": "Created at"},
-    {"key": "visit_date", "label": "Visit date"},
-    {"key": "lead_id", "label": "Lead id", "link_route": "leads"},
-    {"key": "callback_status", "label": "Callback status"},
-    {"key": "primary_status", "label": "Primary status"},
-    {"key": "secondary_status", "label": "Secondary status"},
-    {"key": "disposition_remarks", "label": "Disposition remarks"},
+    {
+        "key": "lead_id",
+        "label": "Lead Id",
+        "link_route": "leads",
+        "link_query": {"viewType": "list"},
+        "link_hash": "activity",
+        "link_plain": True,
+    },
+    {"key": "primary_status", "label": "Primary Status"},
+    {"key": "visit_date", "label": "Next followup date"},
+    {"key": "callback_status", "label": "Followup status"},
+    {"key": "preferred_scheme", "label": "Preferred scheme"},
+    {"key": "event_day_dial_count", "label": "Dial attempt"},
+    {"key": "last_7_day_dial_count", "label": "7D attempts"},
+    {"key": "owner", "label": "Owner"},
+    {"key": "disposition_remarks", "label": "Remarks"},
 ]
 
 _EVENT_BREAKUP_COLUMNS = [
-    {"key": "id", "label": "Event", "link_doctype": "Event"},
-    {"key": "created_at", "label": "Created at"},
-    {"key": "visit_date", "label": "Visit date"},
-    {"key": "lead_id", "label": "Lead id", "link_doctype": "CRM Lead"},
-    {"key": "callback_status", "label": "Callback status"},
-    {"key": "subject", "label": "Subject"},
-    {"key": "primary_status", "label": "Primary status"},
-    {"key": "secondary_status", "label": "Secondary status"},
-    {"key": "disposition_remarks", "label": "Disposition remarks"},
+    {
+        "key": "lead_id",
+        "label": "Lead Id",
+        "link_route": "leads",
+        "link_query": {"viewType": "list"},
+        "link_hash": "activity",
+        "link_plain": True,
+    },
+    {"key": "primary_status", "label": "Primary Status"},
+    {"key": "visit_date", "label": "Next visit date"},
+    {"key": "callback_status", "label": "Visit status"},
+    {"key": "preferred_scheme", "label": "Preferred scheme"},
+    {"key": "event_day_dial_count", "label": "Dial attempt"},
+    {"key": "last_7_day_dial_count", "label": "7D attempts"},
+    {"key": "owner", "label": "Owner"},
+    {"key": "disposition_remarks", "label": "Remarks"},
 ]
 
 _BREAKUP_COLUMNS["schedules_followup"] = list(_EVENT_FOLLOWUP_BREAKUP_COLUMNS)

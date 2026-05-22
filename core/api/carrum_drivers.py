@@ -166,6 +166,8 @@ def _send_agreement_field_specs() -> list[dict]:
     """Ordered required fields for send agreement (label, category, validation source)."""
     return [
         {"fieldname": "aadhar_no", "label": _("Aadhar Number"), "category": "personal_bank"},
+        {"fieldname": "lead_name", "label": _("Name"), "category": "personal_bank"},
+        {"fieldname": "source", "label": _("Source"), "category": "personal_bank"},
         {"fieldname": "driving_license_number", "label": _("DL number"), "category": "personal_bank"},
         {"fieldname": "pancard_number", "label": _("Pancard number"), "category": "personal_bank"},
         {

@@ -1576,7 +1576,13 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
         {"key": "inactive_reason", "label": "Inactive reason"},
     ],
     "total_attempts": [
-        {"key": "lead_id", "label": "Lead Id", "link_doctype": "CRM Lead"},
+        {
+            "key": "lead_id",
+            "label": "Lead Id",
+            "link_route": "leads",
+            "link_query": {"viewType": "list"},
+            "link_hash": "activity",
+        },
         {"key": "status", "label": "Call Status"},
         {"key": "direction", "label": "Direction"},
         {"key": "primary_status", "label": "Primary status"},
@@ -1585,7 +1591,13 @@ _BREAKUP_COLUMNS: dict[str, list[dict]] = {
         {"key": "disposition_remarks", "label": "Disposition remarks"},
     ],
     "total_connects": [
-        {"key": "lead_id", "label": "Lead Id", "link_doctype": "CRM Lead"},
+        {
+            "key": "lead_id",
+            "label": "Lead Id",
+            "link_route": "leads",
+            "link_query": {"viewType": "list"},
+            "link_hash": "activity",
+        },
         {"key": "status", "label": "Call Status"},
         {"key": "direction", "label": "Direction"},
         {"key": "primary_status", "label": "Primary status"},

@@ -215,10 +215,16 @@ def _ring_duration_seconds_from_smartflo_agent_ring_time(payload: dict | None):
 
 
 def _call_session_status_to_ui_bucket(status: str | None) -> str:
-    s = (status or "").strip().upper()
-    if s == "DISPOSED":
+    s = (status or "").strip()
+    s_upper = s.upper()
+    if s_upper == "DISPOSED":
         return "disposed"
-    if s in (EnumValues.CallSessionStatus.DISCONNECTED, EnumValues.CallSessionStatus.MISSED, EnumValues.CallSessionStatus.FAILED):
+    if s in (
+        EnumValues.CallSessionStatus.DISCONNECTED,
+        EnumValues.CallSessionStatus.MISSED,
+        EnumValues.CallSessionStatus.NOT_CONNECTED,
+        EnumValues.CallSessionStatus.FAILED,
+    ) or s_upper in ("MISSED", "NOT_CONNECTED", "FAILED", "DISCONNECTED"):
         return "disconnected"
     if s in _CALL_SESSION_UI_ON_CALL:
         return "on_call"

@@ -43,7 +43,7 @@ class CallSession(Document):
 		lead_answered_at: DF.Datetime | None
 		lead_phone: DF.Data
 		scheduled_visit_date: DF.Datetime | None
-		status: DF.Literal["INITIATED", "FAILED", "AGENT_CONNECTED", "CUSTOMER_CONNECTED", "MISSED", "DISCONNECTED", "DISPOSED"]
+		status: DF.Literal["INITIATED", "FAILED", "AGENT_CONNECTED", "CUSTOMER_CONNECTED", "OB Missed", "IB Missed", "DISCONNECTED", "DISPOSED"]
 		sub_disposition_status: DF.Data | None
 		vendor_agent_id: DF.Data | None
 		vendor_name: DF.Literal["", "Smartflo", "Girnar"]

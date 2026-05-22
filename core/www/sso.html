@@ -39,7 +39,7 @@
         return '/login?redirect-to=' + encodeURIComponent(redirectTo);
       }
       function buildPostLoginUrl() {
-        return DESK_URL || redirectTo;
+        return redirectTo || DESK_URL;
       }
       function getCookies() {
         var cookies = {};

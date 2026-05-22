@@ -861,7 +861,7 @@ def _metric_definitions():
         },
         {
             "metric_name": "interest_pct",
-            "label": "Interest %",
+            "label": "% Interest",
             "definition": "Unique interests as a percentage of unique connects.",
             "group": "conversion_metrics",
             "format": "percent",
@@ -869,7 +869,7 @@ def _metric_definitions():
         },
         {
             "metric_name": "unique_schedules_walkin",
-            "label": "Unique schedules walkin",
+            "label": "Unique VDC",
             "definition": "Count of unique walk-in visit schedules created.",
             "group": "conversion_metrics",
             "format": "number",
@@ -877,7 +877,7 @@ def _metric_definitions():
         },
         {
             "metric_name": "schedules_walkin_pct",
-            "label": "Schedules walkin %",
+            "label": "%VDC",
             "definition": "Unique walk-in schedules as a percentage of unique interests.",
             "group": "conversion_metrics",
             "format": "percent",
@@ -886,7 +886,7 @@ def _metric_definitions():
         },
         {
             "metric_name": "schedules_followup",
-            "label": "New followup schedules",
+            "label": "Followup scheduled",
             "definition": "New follow-up schedules created in the selected period.",
             "group": "schedule_metrics",
             "format": "number",
@@ -907,7 +907,7 @@ def _metric_definitions():
         },
         {
             "metric_name": "new_walkin_schedules",
-            "label": "New walkin schedules",
+            "label": "Walkin scheduled",
             "definition": "New walk-in visit schedules created in the selected period.",
             "group": "schedule_metrics",
             "format": "number",

@@ -162,12 +162,12 @@ def _call_session_lead_fields(call_session_record):
     row = frappe.db.get_value(
         "CRM Lead",
         lead_id,
-        ["lead_name", "mobile_no", "source", "preferred_scheme"],
+        ["lead_name", "mobile_no", "source", "preferred_scheme_1"],
     )
     if not row:
         return lead_id, None, None, None, None
-    lead_name, mobile_no, source, preferred_scheme = row
-    return lead_id, lead_name, mobile_no, source, preferred_scheme
+    lead_name, mobile_no, source, preferred_scheme_1 = row
+    return lead_id, lead_name, mobile_no, source, preferred_scheme_1
 
 
 def _set_lead_source_during_call_on_session(doc):
@@ -379,7 +379,7 @@ class CallService:
                     call_session_doc.get("direction") or EnumValues.CallDirection.OUTBOUND
                 ),
                 "source": source_init,
-                "preferred_scheme": pref_sch_init,
+                "preferred_scheme_1": pref_sch_init,
             },
             user=frappe.session.user,
             after_commit=True,
@@ -802,7 +802,7 @@ class CallService:
             )
             call_session_record.save(ignore_permissions=True)
 
-            lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
+            lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
             phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
             frappe.publish_realtime(
                 event="call_agent_connected",
@@ -819,7 +819,7 @@ class CallService:
                         call_session_record.get("direction")
                     ),
                     "source": source,
-                    "preferred_scheme": preferred_scheme
+                    "preferred_scheme_1": preferred_scheme_1
                 },
                 user=call_session_record.get("agent"),
             )
@@ -886,7 +886,7 @@ class CallService:
             enqueue_complete_callback_followups_for_lead(lead_fu)
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -904,7 +904,7 @@ class CallService:
                     call_session_record.get("direction")
                 ),
                 "source": source,
-                "preferred_scheme": preferred_scheme
+                "preferred_scheme_1": preferred_scheme_1
             },
             user=target_user,
             after_commit=True
@@ -1034,7 +1034,7 @@ class CallService:
             )
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -1052,7 +1052,7 @@ class CallService:
                     call_session_record.get("direction") or EnumValues.CallDirection.OUTBOUND
                 ),
                 "source": source,
-                "preferred_scheme": preferred_scheme,
+                "preferred_scheme_1": preferred_scheme_1,
             },
             user=target_user,
             after_commit=True
@@ -1193,7 +1193,7 @@ class CallService:
         call_session_record.save(ignore_permissions=True)
 
         target_user = call_session_record.get("agent")
-        lead_id, lead_name, mobile_no, source, preferred_scheme = _call_session_lead_fields(call_session_record)
+        lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
         frappe.publish_realtime(
@@ -1212,7 +1212,7 @@ class CallService:
                     call_session_record.get("direction")
                 ),
                 "source": source,
-                "preferred_scheme": preferred_scheme,
+                "preferred_scheme_1": preferred_scheme_1,
                 "recording_url": recording_url,
             },
             user=target_user,
@@ -2144,7 +2144,7 @@ class CallService:
             lead_name = lead.lead_name
             phone_display = (lead.get("mobile_no") or "").strip()
             start_stamp = timestamp
-            _lid, _ln, _mob, source, preferred_scheme = _call_session_lead_fields(
+            _lid, _ln, _mob, source, preferred_scheme_1 = _call_session_lead_fields(
                 new_call_session_doc
             )
             frappe.publish_realtime(
@@ -2162,7 +2162,7 @@ class CallService:
                         new_call_session_doc.get("direction") or direction
                     ),
                     "source": source,
-                    "preferred_scheme": preferred_scheme,
+                    "preferred_scheme_1": preferred_scheme_1,
                 },
                 user=target_user,
                 after_commit=True
@@ -2403,18 +2403,18 @@ class CallService:
         lead_id = row.get("lead")
         lead_name = None
         source = None
-        preferred_scheme = None
+        preferred_scheme_1 = None
         if lead_id:
             lead_row = frappe.db.get_value(
                 "CRM Lead",
                 lead_id,
-                ["lead_name", "source", "preferred_scheme"],
+                ["lead_name", "source", "preferred_scheme_1"],
                 as_dict=True,
             )
             if lead_row:
                 lead_name = lead_row.get("lead_name")
                 source = lead_row.get("source")
-                preferred_scheme = lead_row.get("preferred_scheme")
+                preferred_scheme_1 = lead_row.get("preferred_scheme_1")
 
         call_id = row.get("agent_call_id")
         if call_id is not None:
@@ -2445,7 +2445,7 @@ class CallService:
             "start_time": start_time,
             "calling_method": (row.get("calling_method") or "Dialer").strip(),
             "source": source,
-            "preferred_scheme": preferred_scheme,
+            "preferred_scheme_1": preferred_scheme_1,
         }
 
     def get_call_session_disposition_remarks(self, user: str, payload: dict):

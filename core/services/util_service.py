@@ -8,24 +8,24 @@ from frappe.core.doctype.user.user import update_password as original_update_pas
 from frappe.utils.data import today
 
 def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
-	"""Set ``crm_lead_name`` and ``preferred_scheme`` from CRM Lead (custom Event fields)."""
+	"""Set ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead (custom Event fields)."""
 	lead_id = (lead_id or "").strip()
 	if not lead_id or not frappe.db.exists("CRM Lead", lead_id):
 		return
 	row = frappe.db.get_value(
 		"CRM Lead",
 		lead_id,
-		["lead_name", "preferred_scheme"],
+		["lead_name", "preferred_scheme_1"],
 		as_dict=True,
 	)
 	if not row:
 		return
 	ln = (row.get("lead_name") or "").strip()
-	ps = (row.get("preferred_scheme") or "").strip()
+	ps = (row.get("preferred_scheme_1") or "").strip()
 	if ln:
 		event_doc.set("crm_lead_name", ln)
 	if ps:
-		event_doc.set("preferred_scheme", ps)
+		event_doc.set("preferred_scheme_1", ps)
 
 
 class UtilService:

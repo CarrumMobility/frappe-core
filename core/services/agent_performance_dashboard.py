@@ -1206,7 +1206,7 @@ def _event_breakup_fieldnames() -> list[str]:
         "reference_docname",
         "reference_doctype",
         "subject",
-        "preferred_scheme",
+        "preferred_scheme_1",
         "disposition_status",
         "sub_disposition_status",
         "disposition_remarks",
@@ -1236,7 +1236,7 @@ def _event_row_to_breakup(row: dict) -> dict:
         "visit_date": _format_event_breakup_datetime(visit_raw),
         "lead_id": lead_id,
         "callback_status": row.get("callback_status") or "",
-        "preferred_scheme": row.get("preferred_scheme") or "",
+        "preferred_scheme_1": row.get("preferred_scheme_1") or "",
         "event_day_dial_count": row.get("event_day_dial_count") or 0,
         "last_7_day_dial_count": 0,
         "owner": row.get("owner") or "",
@@ -1252,8 +1252,8 @@ def _enrich_event_breakup_rows(rows: list[dict]) -> list[dict]:
     if lead_ids and frappe.db.exists("DocType", "CRM Lead"):
         lead_cols = set(frappe.db.get_table_columns("CRM Lead") or [])
         fields = ["name"]
-        if "preferred_scheme" in lead_cols:
-            fields.append("preferred_scheme")
+        if "preferred_scheme_1" in lead_cols:
+            fields.append("preferred_scheme_1")
         if "last_7_day_dial_count" in lead_cols:
             fields.append("last_7_day_dial_count")
         lead_rows = frappe.get_all(
@@ -1267,8 +1267,8 @@ def _enrich_event_breakup_rows(rows: list[dict]) -> list[dict]:
             lead = lead_map.get(row.get("lead_id") or "")
             if not lead:
                 continue
-            if not row.get("preferred_scheme"):
-                row["preferred_scheme"] = lead.get("preferred_scheme") or ""
+            if not row.get("preferred_scheme_1"):
+                row["preferred_scheme_1"] = lead.get("preferred_scheme_1") or ""
             row["last_7_day_dial_count"] = int(lead.get("last_7_day_dial_count") or 0)
 
     name_map = _user_display_name_map([row.get("owner") for row in rows])
@@ -1657,7 +1657,7 @@ _EVENT_FOLLOWUP_BREAKUP_COLUMNS = [
     {"key": "primary_status", "label": "Primary Status"},
     {"key": "visit_date", "label": "Next followup date"},
     {"key": "callback_status", "label": "Followup status"},
-    {"key": "preferred_scheme", "label": "Preferred scheme"},
+    {"key": "preferred_scheme_1", "label": "Preferred scheme"},
     {"key": "event_day_dial_count", "label": "Dial attempt"},
     {"key": "last_7_day_dial_count", "label": "7D attempts"},
     {"key": "owner", "label": "Owner"},
@@ -1676,7 +1676,7 @@ _EVENT_BREAKUP_COLUMNS = [
     {"key": "primary_status", "label": "Primary Status"},
     {"key": "visit_date", "label": "Next visit date"},
     {"key": "callback_status", "label": "Visit status"},
-    {"key": "preferred_scheme", "label": "Preferred scheme"},
+    {"key": "preferred_scheme_1", "label": "Preferred scheme"},
     {"key": "event_day_dial_count", "label": "Dial attempt"},
     {"key": "last_7_day_dial_count", "label": "7D attempts"},
     {"key": "owner", "label": "Owner"},

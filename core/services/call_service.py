@@ -219,12 +219,14 @@ def _call_session_status_to_ui_bucket(status: str | None) -> str:
     s_upper = s.upper()
     if s_upper == "DISPOSED":
         return "disposed"
+    if s == EnumValues.CallSessionStatus.NOT_CONNECTED or s_upper == "NOT_CONNECTED":
+        return EnumValues.CallSessionStatus.NOT_CONNECTED
+    if s == EnumValues.CallSessionStatus.MISSED or s_upper == "MISSED":
+        return EnumValues.CallSessionStatus.MISSED
     if s in (
         EnumValues.CallSessionStatus.DISCONNECTED,
-        EnumValues.CallSessionStatus.MISSED,
-        EnumValues.CallSessionStatus.NOT_CONNECTED,
         EnumValues.CallSessionStatus.FAILED,
-    ) or s_upper in ("MISSED", "NOT_CONNECTED", "FAILED", "DISCONNECTED"):
+    ) or s_upper in ("FAILED", "DISCONNECTED"):
         return "disconnected"
     if s in _CALL_SESSION_UI_ON_CALL:
         return "on_call"

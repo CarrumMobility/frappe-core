@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import json
-
+import core.constants.enums as EnumValues
 from frappe.utils.data import flt
 from core.services import logged_requests as requests
 
@@ -76,6 +76,26 @@ def _resolve_lead_for_carrum_user_id(user_id):
     return frappe.db.get_value(
         "CRM Lead", {"custom_account_id": user_id}, "name"
     )
+
+
+def _sync_lead_hub_from_carrum_user(lead, carrum_user):
+    """Persist current Carrum user's default hub on the lead."""
+    default_hub = (carrum_user or {}).get("defaultHub") or {}
+    default_hub_id = default_hub.get("id")
+    default_hub_name = default_hub.get("name")
+
+    updates = {}
+    if default_hub_id is not None and lead.get("hub_id") != default_hub_id:
+        updates["hub_id"] = default_hub_id
+    if default_hub_name is not None and lead.get("custom_hub_name") != default_hub_name:
+        updates["custom_hub_name"] = default_hub_name
+
+    if updates:
+        frappe.db.set_value("CRM Lead", lead.name, updates)
+        for fieldname, value in updates.items():
+            lead.set(fieldname, value)
+
+    return lead.get("hub_id")
 
 
 def _fetch_crm_lead_status_primary_secondary(filters):
@@ -290,19 +310,6 @@ def maybe_update_lead_status_after_payment_capture(lead):
         _apply_crm_lead_status_row(lead, psd_row, milestone="psd")
 
 
-def _resolve_payment_doc(doctype=None, name=None, lead_id=None):
-    """Validate CRM Lead or CRM Deal exists; return (doctype, name)."""
-    dt = doctype
-    nm = name or lead_id
-    if not nm:
-        frappe.throw(_("Document name is required"))
-    if not dt:
-        dt = "CRM Lead"
-    if dt not in ("CRM Lead", "CRM Deal"):
-        frappe.throw(_("Unsupported doctype for payment"))
-    frappe.get_doc(dt, nm)
-    return dt, nm
-
 @frappe.whitelist()
 def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     """
@@ -341,23 +348,20 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     if not token:
         frappe.throw(_("Carrum token is not configured (carrum_token)"))
 
-    lead_val = frappe.db.get_value(
-        "CRM Lead",
-        lead_id,
-        ["mobile_no", "lead_name", "hub_fee",'custom_account_id', 'source'],
-    )
-    if not lead_val:
-        frappe.throw(_("CRM Lead not found"))
+    lead = frappe.get_doc(EnumValues._ReferenceDocType.CRM_LEAD, lead_id)
+    phone_number = lead.mobile_no
 
-    phone_number, lead_name, hub_fee, custom_account_id, source = lead_val
-    if not lead_name or not str(lead_name).strip():
-        frappe.throw(_("Lead name is required before sending a payment link"))
     if not phone_number or not str(phone_number).strip():
         frappe.throw(_("Set mobile number on the lead before sending a payment link"))
 
+    lead_name = lead.lead_name
+    hub_fee = lead.hub_fee
+    source = lead.source
+    if not lead_name or not str(lead_name).strip():
+        frappe.throw(_("Lead name is required before sending a payment link"))
+
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    default_hub = carrum_user.get("defaultHub")
-    default_hub_id = default_hub.get("id") if default_hub is not None else None
+    default_hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
 
     account_id = frappe.conf.get("carrum_account_id")
@@ -479,11 +483,11 @@ def add_other_payment(
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
     lead = frappe.get_doc("CRM Lead", lead_id)
+    hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
 
     phone_number = lead.mobile_no
     lead_name = lead.lead_name
     hub_fee = lead.hub_fee
-    hub_id = lead.hub_id
     lead_account_id = lead.custom_account_id
     source = lead.source or "crm_other_payment"
 
@@ -588,8 +592,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         frappe.throw(_("Hub fee is required payment"))
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    default_hub = carrum_user.get("defaultHub")
-    default_hub_id = default_hub.get("id") if default_hub is not None else None
+    default_hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
     source = lead.source or "crm_cash_payment"
     out = {
@@ -696,7 +699,7 @@ def webhook_capture():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    if frappe.db.exists("payment_logs", transactionId):
+    if frappe.db.exists(EnumValues.ReferenceDocType.PAYMENT_LOGS, transactionId):
         return {
             "message": "already captured",
             "payment_log_id": transactionId,

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import core.constants.enums as EnumValues
 from frappe.utils.data import flt
 from core.services import logged_requests as requests
@@ -7,7 +8,10 @@ from core.services import logged_requests as requests
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.api.carrum_drivers import get_portal_driver_detail
 import frappe
-from frappe import _
+from frappe import _, logger
+
+logger = frappe.logger("core.api.carrum_payment")
+logger.setLevel(logging.INFO)
 
 UTC = timezone.utc
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -80,6 +84,9 @@ def _resolve_lead_for_carrum_user_id(user_id):
 
 def _sync_lead_hub_from_carrum_user(lead, carrum_user):
     """Persist current Carrum user's default hub on the lead."""
+    logger.info("==========sync_lead_hub_from_carrum_user==========")
+    logger.info(lead)
+    logger.info(carrum_user)
     default_hub = (carrum_user or {}).get("defaultHub") or {}
     default_hub_id = default_hub.get("id")
     default_hub_name = default_hub.get("name")
@@ -91,10 +98,10 @@ def _sync_lead_hub_from_carrum_user(lead, carrum_user):
         updates["custom_hub_name"] = default_hub_name
 
     if updates:
-        frappe.db.set_value("CRM Lead", lead.name, updates)
+        frappe.db.set_value(EnumValues.ReferenceDocType.CRM_LEAD, lead.name, updates)
         for fieldname, value in updates.items():
             lead.set(fieldname, value)
-
+    logger.info("==========sync_lead_hub_from_carrum_user==========")
     return lead.get("hub_id")
 
 

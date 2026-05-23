@@ -98,7 +98,7 @@ def _sync_lead_hub_from_carrum_user(lead, carrum_user):
         updates["custom_hub_name"] = default_hub_name
 
     if updates:
-        frappe.db.set_value(EnumValues.ReferenceDocType.CRM_LEAD, lead.name, updates)
+        frappe.db.set_value("CRM Lead", lead.name, updates)
         for fieldname, value in updates.items():
             lead.set(fieldname, value)
     logger.info("==========sync_lead_hub_from_carrum_user==========")
@@ -355,7 +355,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     if not token:
         frappe.throw(_("Carrum token is not configured (carrum_token)"))
 
-    lead = frappe.get_doc(EnumValues._ReferenceDocType.CRM_LEAD, lead_id)
+    lead = frappe.get_doc("CRM Lead", lead_id)
     phone_number = lead.mobile_no
 
     if not phone_number or not str(phone_number).strip():
@@ -706,7 +706,7 @@ def webhook_capture():
 
     transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    if frappe.db.exists(EnumValues.ReferenceDocType.PAYMENT_LOGS, transactionId):
+    if frappe.db.exists("payment_logs", transactionId):
         return {
             "message": "already captured",
             "payment_log_id": transactionId,

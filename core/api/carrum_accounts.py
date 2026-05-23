@@ -203,7 +203,7 @@ def get_dms():
     hubId = carrum_user.get("defaultHub").get("id")
     old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
     old_carrum_token = frappe.conf.get("old_carrum_token")
-    url = f"{old_carrum_base_url}/api/v1/account/all?role_name=Driver%20Manager&hub_id={hubId}"
+    url = f"{old_carrum_base_url}/api/v1/account/all?role_name=driver_manager&hub_id={hubId}"
     response = requests.get(url, headers={"Authorization": old_carrum_token})
     data = response.json()
     # data = data.get("results") or []

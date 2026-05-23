@@ -2170,6 +2170,7 @@ class CallService:
                 user=target_user,
                 after_commit=True
             )
+            logging.info("Call Customer Connected Socket Event Published to %s", target_user)
             frappe.db.commit()
         return {"message": "outbound connected"}
 

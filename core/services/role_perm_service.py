@@ -32,18 +32,19 @@ CRM_AGENT_PERMISSIONS = {
 	"FCRM Note": ["create", "read", "select", "write"],
 	"FCRM Event": ["create", "read", "select", "write"],
 	"FCRM Settings": ["read", "select"],
-	"User dialer session logs": ["read", "select"],
+	"User dialer session logs": ["read", "select", "write", "create", "delete"],
+	"User dialer session break logs": ["read", "select", "write", "create", "delete"],
 	"payment_logs": ["read", "select"],
 	"Lead walkin done": ["create", "read", "select", "write"],
 }
 
 # Permissions merged on top of ``TEMPLATE_ROLE_NAME`` (union per doctype).
 ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
-	"hub_manager": CRM_AGENT_PERMISSIONS,
+	"Hub Manager": CRM_AGENT_PERMISSIONS,
 	"telecaller": CRM_AGENT_PERMISSIONS,
 	"telecaller_lead": CRM_AGENT_PERMISSIONS,
 	"onboarding": CRM_AGENT_PERMISSIONS,
-	"driver_manager": CRM_AGENT_PERMISSIONS,
+	"Driver Manager": CRM_AGENT_PERMISSIONS,
 }
 
 TEMPLATE_ROLE_NAME = "Sales User"
@@ -57,7 +58,7 @@ _STARTUP_ENQUEUE_DONE = False
 class RolePermService:
 	def __init__(self):
 		self.roles = {
-			"hub_manager": {
+			"Hub Manager": {
 				"role_name": EnumValues.Roles.HUB_MANAGER,
 				"desk_access": 0,
 			},
@@ -73,7 +74,7 @@ class RolePermService:
 				"role_name": EnumValues.Roles.ONBOARDING,
 				"desk_access": 0,
 			},
-			"driver_manager": {
+			"Driver Manager": {
 				"role_name": EnumValues.Roles.DRIVER_MANAGER,
 				"desk_access": 0,
 			},

@@ -4,9 +4,9 @@ import frappe
 
 
 def execute():
-    roles = ['hub_manager', 'Telecaller', 'Telecaller Lead', 'driver', 'driver_manager', 'Onboarding']
+    roles = ['Hub Manager', 'Telecaller', 'Telecaller Lead', 'driver', 'Driver Manager', 'Onboarding']
     role_permissions = {
-        "hub_manager": {
+        "Hub Manager": {
                 "tabCRM Lead": ["create", "read","select","write"],
                 "tabCall Session": ["create", "read", "select", "write"],
                 "tabCall Log": ["create", "read", "select", "write"],
@@ -29,7 +29,7 @@ def execute():
         "driver": {
             "tabCRM Lead": ["create", "read", "write"]
         },
-        "driver_manager": {
+        "Driver Manager": {
             "tabCRM Lead": ["create", "read", "write"]
         }
     }

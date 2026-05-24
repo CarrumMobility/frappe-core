@@ -279,3 +279,12 @@ def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
         if username:
             usernames.append(username)
     return list(dict.fromkeys(usernames))
+
+
+def get_dm_of_all_businessTypes(hubId: str):
+    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+    url = f"{old_carrum_base_url}/api/v1/account/driver_manager_for_frappe?hubId={hubId}"
+    response = requests.get(url, headers={"Authorization": old_carrum_token})
+    data = response.json()
+    return data

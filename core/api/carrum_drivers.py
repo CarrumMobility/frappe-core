@@ -3,9 +3,8 @@ import json
 from datetime import date, datetime
 from uuid import UUID
 from core.constants.enums import EnumValues
-from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
-from crm.fcrm.doctype.crm_lead.crm_lead import LEAD_ID_PATTERN, apply_default_crm_lead_status_to_doc
+from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from core.services.util_service import util_service
 from crm.utils import parse_phone_number
 from core.services import logged_requests as re
@@ -972,9 +971,7 @@ def lead_creation_webhook():
     if not isinstance(data, dict):
         data = {}
     logger.info("lead_creation_webhook payload: %s", data)
-    raw_display = data.get("displayId")
 
-    displayId = str(raw_display).strip().upper() if raw_display is not None else ""
     phone_raw =  data.get("phone")
     phoneNo = str(phone_raw).strip() if phone_raw is not None else ""
 
@@ -982,13 +979,6 @@ def lead_creation_webhook():
     if source is not None and isinstance(source, str):
         source = source.strip()
 
-    if not displayId:
-        frappe.throw(_("displayId is required"), frappe.ValidationError)
-    if not LEAD_ID_PATTERN.match(displayId):
-        frappe.throw(
-            _("displayId must be a lead ID like AAAA0001, got {0}").format(displayId),
-            frappe.ValidationError,
-        )
     if not phoneNo:
         frappe.throw(_("phone is required"), frappe.ValidationError)
 
@@ -1003,25 +993,19 @@ def lead_creation_webhook():
             parsed.get("error"),
         )
 
-    if frappe.db.exists("CRM Lead", displayId):
-        return "Lead already exists"
-
-    lead = frappe.new_doc("CRM Lead")
-    lead.flags.skip_crm_lead_auto_id = True
+    lead = frappe.new_doc(EnumValues.ReferenceDocType.CRM_LEAD)
     lead.mobile_no = mobile_no
     if not apply_default_crm_lead_status_to_doc(lead):
         frappe.throw(
             _("No CRM Lead Status is configured. Add one in CRM Lead Status."),
             frappe.ValidationError,
         )
-    lead.lead_type = "DRIVER"
+    lead.lead_type = EnumValues.LeadType.DRIVER
     lead.lead_name = None
 
-    meta = frappe.get_meta("CRM Lead")
+    meta = frappe.get_meta(EnumValues.ReferenceDocType.CRM_LEAD)
     if source and meta.get_field("source"):
         lead.set("source", source)
-
-    lead.insert(set_name=displayId, ignore_permissions=True)
 
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}
@@ -1057,12 +1041,12 @@ def driver_status_update_webhook():
         frappe.throw(_("accountId is required"))
 
     lead_name = frappe.db.get_value(
-        "CRM Lead", {"custom_account_id": account_id}, "name"
+        EnumValues.ReferenceDocType.CRM_LEAD, {"custom_account_id": account_id}, "name"
     )
     if not lead_name:
         frappe.throw(_("Lead not found with account ID: {0}").format(account_id))
 
-    lead = frappe.get_doc("CRM Lead", lead_name)
+    lead = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, lead_name)
 
     new_status = payload.get("newStatus")
     if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:

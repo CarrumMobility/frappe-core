@@ -82,26 +82,26 @@ def _resolve_lead_for_carrum_user_id(user_id):
     )
 
 
-def _sync_lead_hub_from_carrum_user(lead, carrum_user):
+def _sync_lead_hub_from_carrum_user(lead):
     """Persist current Carrum user's default hub on the lead."""
     logger.info("==========sync_lead_hub_from_carrum_user==========")
     logger.info(lead)
-    logger.info(carrum_user)
-    default_hub = (carrum_user or {}).get("defaultHub") or {}
-    default_hub_id = default_hub.get("id")
-    default_hub_name = default_hub.get("name")
+    # logger.info(carrum_user)
+    # default_hub = (carrum_user or {}).get("defaultHub") or {}
+    # # default_hub_id = default_hub.get("id")
+    # # default_hub_name = default_hub.get("name")
 
-    updates = {}
-    if default_hub_id is not None and lead.get("hub_id") != default_hub_id:
-        updates["hub_id"] = default_hub_id
-    if default_hub_name is not None and lead.get("custom_hub_name") != default_hub_name:
-        updates["custom_hub_name"] = default_hub_name
+    # updates = {}
+    # if default_hub_id is not None and lead.get("hub_id") != default_hub_id:
+    #     updates["hub_id"] = default_hub_id
+    # if default_hub_name is not None and lead.get("custom_hub_name") != default_hub_name:
+    #     updates["custom_hub_name"] = default_hub_name
 
-    if updates:
-        frappe.db.set_value("CRM Lead", lead.name, updates)
-        for fieldname, value in updates.items():
-            lead.set(fieldname, value)
-    logger.info("==========sync_lead_hub_from_carrum_user==========")
+    # if updates:
+    #     frappe.db.set_value("CRM Lead", lead.name, updates)
+    #     for fieldname, value in updates.items():
+    #         lead.set(fieldname, value)
+    # logger.info("==========sync_lead_hub_from_carrum_user==========")
     return lead.get("hub_id")
 
 
@@ -368,7 +368,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         frappe.throw(_("Lead name is required before sending a payment link"))
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    default_hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
+    hub_id = lead.hub_id
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
 
     account_id = frappe.conf.get("carrum_account_id")
@@ -381,7 +381,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         "displayId": lead_id,
         "leadName": lead_name or "",
         "hubFee": hub_fee,
-        "hubId": default_hub_id,
+        "hubId": hub_id,
         "amount": amount,
         "tag_type": tag_type,
         "source": source,
@@ -490,7 +490,7 @@ def add_other_payment(
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
     lead = frappe.get_doc("CRM Lead", lead_id)
-    hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
+    hub_id = lead.hub_id
 
     phone_number = lead.mobile_no
     lead_name = lead.lead_name
@@ -599,7 +599,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         frappe.throw(_("Hub fee is required payment"))
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    default_hub_id = _sync_lead_hub_from_carrum_user(lead, carrum_user)
+    hub_id = lead.hub_id
     carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
     source = lead.source or "crm_cash_payment"
     out = {
@@ -607,7 +607,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         "displayId": lead_id,
         "leadName": lead_name,
         "hubFee": hub_fee,
-        "hubId": default_hub_id,
+        "hubId": hub_id,
         "amount": amount_val,
         "tag_type": tag_type,
         "weekType": "currentWeek",

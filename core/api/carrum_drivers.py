@@ -201,8 +201,6 @@ def _fetch_portal_driver_detail_http(name: str):
     headers = {"Authorization": token}
 
     try:
-        print(url)
-        print("url")
         response = re.get(url, headers=headers, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception(

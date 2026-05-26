@@ -15,63 +15,6 @@ logger.setLevel(logging.INFO)
 UTC = timezone.utc
 IST = timezone(timedelta(hours=5, minutes=30))
 
-
-def _payment_log_image_csv_from_payload(image_urls_raw):
-	"""
-	Normalize webhook ``imageUrls`` (list or str) to a comma-separated string for ``payment_logs.image``.
-	"""
-	if image_urls_raw is None:
-		return None
-	urls = []
-	if isinstance(image_urls_raw, str):
-		s = image_urls_raw.strip()
-		if not s:
-			return None
-		try:
-			parsed = json.loads(s)
-		except (ValueError, TypeError):
-			parsed = None
-		if isinstance(parsed, list):
-			urls = [str(u).strip() for u in parsed if str(u).strip()]
-		elif isinstance(parsed, str) and parsed.strip():
-			urls = [parsed.strip()]
-		else:
-			urls = [p.strip() for p in s.split(",") if p.strip()]
-	elif isinstance(image_urls_raw, (list, tuple)):
-		urls = [str(u).strip() for u in image_urls_raw if str(u).strip()]
-	else:
-		return None
-	if not urls:
-		return None
-	return ",".join(urls)
-
-
-def _parse_transaction_timestamp_utc_to_naive_ist(dt_raw):
-    """
-    Carrum webhooks send transaction time in UTC (ISO ending in Z, or naive UTC string).
-    Normalize to a naive datetime in IST for ``payment_logs.transaction_date``.
-    """
-    from frappe.utils import now_datetime
-
-    if dt_raw is None:
-        return now_datetime()
-    s = str(dt_raw).strip()
-    if not s:
-        return now_datetime()
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(s)
-    except ValueError:
-        frappe.logger().warning(
-            "payment_webhook: could not parse transactionDate=%r", dt_raw
-        )
-        return now_datetime()
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(IST).replace(tzinfo=None)
-
-
 def _resolve_lead_for_carrum_user_id(user_id):
     """Return CRM Lead name for ``custom_account_id`` / Carrum ``userId``, or None."""
     if not user_id:
@@ -79,29 +22,6 @@ def _resolve_lead_for_carrum_user_id(user_id):
     return frappe.db.get_value(
         "CRM Lead", {"custom_account_id": user_id}, "name"
     )
-
-
-def _sync_lead_hub_from_carrum_user(lead):
-    """Persist current Carrum user's default hub on the lead."""
-    logger.info("==========sync_lead_hub_from_carrum_user==========")
-    logger.info(lead)
-    # logger.info(carrum_user)
-    # default_hub = (carrum_user or {}).get("defaultHub") or {}
-    # # default_hub_id = default_hub.get("id")
-    # # default_hub_name = default_hub.get("name")
-
-    # updates = {}
-    # if default_hub_id is not None and lead.get("hub_id") != default_hub_id:
-    #     updates["hub_id"] = default_hub_id
-    # if default_hub_name is not None and lead.get("custom_hub_name") != default_hub_name:
-    #     updates["custom_hub_name"] = default_hub_name
-
-    # if updates:
-    #     frappe.db.set_value("CRM Lead", lead.name, updates)
-    #     for fieldname, value in updates.items():
-    #         lead.set(fieldname, value)
-    # logger.info("==========sync_lead_hub_from_carrum_user==========")
-    return lead.get("hub_id")
 
 
 def _fetch_crm_lead_status_primary_secondary(filters):
@@ -174,40 +94,6 @@ def _apply_crm_lead_status_row(lead, row, *, milestone=None):
         lead.set("fsd_received_at", now)
 
     lead.save(ignore_permissions=True)
-
-
-def _portal_driver_detail_results(envelope):
-    """
-    Normalize Carrum driver API payload to the ``results`` object (mirrors
-    ``getPortalDriverDetailResults`` in the CRM frontend).
-    """
-    if not isinstance(envelope, dict):
-        return None
-    if not envelope.get("success") or envelope.get("data") is None:
-        return None
-    top = envelope["data"]
-    if not isinstance(top, dict):
-        return None
-    results = top.get("results")
-    if isinstance(results, dict) and (
-        "walletData" in results
-        or "scheme_id" in results
-        or "chequeData" in results
-        or "scheme_alias_detail" in results
-        or "assignedVehicle" in results
-    ):
-        return results
-    msg = top.get("message")
-    if isinstance(msg, dict):
-        inner = msg.get("data") or msg
-        if isinstance(inner, dict) and isinstance(inner.get("results"), dict):
-            return inner["results"]
-    if "scheme_id" in top or "chequeData" in top:
-        return top
-    if isinstance(top.get("results"), dict):
-        return top["results"]
-    return None
-
 
 def _wallet_data_for_lead_account(account_id, *, wallet_data=None):
     """``walletData`` from legacy Carrum portal (hubFee / securityDeposit ``remaining``)."""

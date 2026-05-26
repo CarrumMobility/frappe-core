@@ -880,7 +880,7 @@ def send_agreement(leadId: str):
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
     bank_ifsc_code = lead.bank_ifsc
-    lead_hub_id = lead.hub_id
+    business_type_id = lead.business_type_id
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city
@@ -930,7 +930,7 @@ def send_agreement(leadId: str):
         "Witness2": "previous_employer_name", # previous_employer_name
         "Witness3": "father_name", # father_name
         "Witness4": "sarpanch", # sarpanch
-        "hubId": lead_hub_id
+        "hubId": business_type_id
     }
     headers = {
         "Authorization": token,

@@ -166,20 +166,6 @@ def _carrum_portal_auth_config():
     return str(base).rstrip("/"), token
 
 
-def _resolve_lead_name_for_portal_driver_detail(
-    name: str | None = None, account_id: str | None = None
-) -> str:
-    """Resolve CRM Lead ``name`` (display ID) from ``name`` or legacy ``account_id``."""
-    lead_name = (name or "").strip()
-    if lead_name:
-        return lead_name
-    aid = (account_id or "").strip()
-    if not aid:
-        return ""
-    return (
-        frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name") or ""
-    ).strip()
-
 
 def _carrum_error_message(resp_body) -> str:
     if not isinstance(resp_body, dict):
@@ -207,25 +193,20 @@ def _is_account_not_found_for_lead_display_id(response, resp_body) -> bool:
     return _ACCOUNT_NOT_FOUND_FOR_LEAD_DISPLAY_ID in msg
 
 
-def _fetch_portal_driver_detail_http(lead_display_id: str):
-    """
-    GET Carrum driver detail by CRM Lead display ID (``CRM Lead.name``).
-
-    Returns ``(ok, payload_or_none, skipped_reason_or_none)``.
-    """
-    lead_name = (lead_display_id or "").strip()
-    if not lead_name:
-        return False, None, "missing_lead_display_id"
-
+def _fetch_portal_driver_detail_http(name: str):
+    if not name:
+        return False, None, "missing_name"
     base, token = _carrum_portal_auth_config()
-    url = f"{base}/api/v1/driver/accounts/{lead_name}"
+    url = f"{base}/api/v1/driver/accounts/{name}"
     headers = {"Authorization": token}
 
     try:
+        print(url)
+        print("url")
         response = re.get(url, headers=headers, timeout=60)
     except re.exceptions.RequestException as e:
         logger.exception(
-            "portal driver detail request failed for lead=%s: %s", lead_name, e
+            "portal driver detail request failed for lead=%s: %s", name, e
         )
         return False, None, "request_failed"
 
@@ -238,7 +219,7 @@ def _fetch_portal_driver_detail_http(lead_display_id: str):
 
     if _is_account_not_found_for_lead_display_id(response, resp_body):
         logger.info(
-            "portal driver detail: no Carrum account for lead display ID %s", lead_name
+            "portal driver detail: no Carrum account for lead display ID %s", name
         )
         return True, None, "account_not_found_for_lead_display_id"
 
@@ -246,7 +227,7 @@ def _fetch_portal_driver_detail_http(lead_display_id: str):
         logger.error(
             "portal driver detail HTTP %s for lead=%s: %s",
             response.status_code,
-            lead_name,
+            name,
             (response.text or "")[:500],
         )
         return False, None, "http_error"
@@ -254,7 +235,7 @@ def _fetch_portal_driver_detail_http(lead_display_id: str):
     if resp_body is None:
         logger.error(
             "portal driver detail non-JSON for lead=%s (HTTP %s)",
-            lead_name,
+            name,
             response.status_code,
         )
         return False, None, "invalid_json"
@@ -1020,7 +1001,7 @@ def upload_agreement(leadId: str | None = None):
 
 
 @frappe.whitelist()
-def get_portal_driver_detail(name: str | None = None, account_id: str | None = None):
+def get_portal_driver_detail(name: str | None = None):
     """
     Portal driver detail from legacy Carrum by CRM Lead display ID (``CRM Lead.name``).
 
@@ -1033,16 +1014,15 @@ def get_portal_driver_detail(name: str | None = None, account_id: str | None = N
     :param name: CRM Lead ``name`` (display ID). Preferred.
     :param account_id: Deprecated — resolves lead via ``custom_account_id`` when ``name`` omitted.
     """
-    lead_name = _resolve_lead_name_for_portal_driver_detail(name, account_id)
-    if not lead_name:
+    if not name:
         frappe.throw(_("Lead name is required."))
 
-    if not frappe.db.exists("CRM Lead", lead_name):
-        frappe.throw(_("CRM Lead not found: {0}").format(lead_name))
+    if not frappe.db.exists("CRM Lead", name):
+        frappe.throw(_("CRM Lead not found: {0}").format(name))
 
-    lead = frappe.get_doc("CRM Lead", lead_name)
+    lead = frappe.get_doc("CRM Lead", name)
 
-    ok, payload, skipped = _fetch_portal_driver_detail_http(lead_name)
+    ok, payload, skipped = _fetch_portal_driver_detail_http(name)
     if skipped == "account_not_found_for_lead_display_id":
         return {
             "success": True,

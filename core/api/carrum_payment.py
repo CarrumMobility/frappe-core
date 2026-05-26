@@ -6,7 +6,6 @@ from frappe.utils.data import flt
 from core.services import logged_requests as requests
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
-from core.api.carrum_drivers import get_portal_driver_detail
 import frappe
 from frappe import _, logger
 
@@ -210,27 +209,46 @@ def _portal_driver_detail_results(envelope):
     return None
 
 
-def _wallet_data_for_lead_account(account_id):
+def _wallet_data_for_lead_account(account_id, *, wallet_data=None):
     """``walletData`` from legacy Carrum portal (hubFee / securityDeposit ``remaining``)."""
+    if wallet_data is not None:
+        return wallet_data if isinstance(wallet_data, dict) else None
+
     aid = (account_id or "").strip()
     if not aid:
         return None
+
+    lead_name = frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": aid}, "name"
+    )
+    if not lead_name:
+        return None
+
     try:
-        r = get_portal_driver_detail(aid)
+        from core.api.carrum_drivers import (
+            _extract_portal_driver_results,
+            _fetch_portal_driver_detail_http,
+        )
+
+        ok, payload, _skipped = _fetch_portal_driver_detail_http(lead_name)
+        if not ok or not payload:
+            return None
+        results = _extract_portal_driver_results(payload)
     except Exception:
         frappe.logger().exception(
-            "webhook_capture: get_portal_driver_detail failed for account_id=%s",
+            "webhook_capture: portal driver detail failed for account_id=%s lead=%s",
             aid,
+            lead_name,
         )
         return None
-    results = _portal_driver_detail_results(r)
+
     if not isinstance(results, dict):
         return None
     wd = results.get("walletData")
     return wd if isinstance(wd, dict) else None
 
 
-def maybe_update_lead_status_after_payment_capture(lead):
+def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
     """
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
@@ -254,7 +272,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
     if not account_id:
         return
 
-    wallet = _wallet_data_for_lead_account(account_id)
+    wallet = _wallet_data_for_lead_account(account_id, wallet_data=wallet_data)
     if not wallet:
         return
 
@@ -691,20 +709,20 @@ def webhook_capture():
     if not d or not isinstance(d, dict):
         frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
-    amount = d.get("amount")
-    utr = d.get("utrNumber")
-    transactionDt = d.get("transactionDate")
+    # amount = d.get("amount")
+    # utr = d.get("utrNumber")
+    # transactionDt = d.get("transactionDate")
     user_id = d.get("userId")
     _raw_tid = d.get("transactionId")
     transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
-    imageUrls = d.get("imageUrls")
+    # imageUrls = d.get("imageUrls")
 
     if not user_id:
         frappe.throw(_("userId is required"), title=_("Payment webhook"))
     if not transactionId:
         frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
 
-    transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
+    # transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
     if frappe.db.exists("payment_logs", transactionId):
         return {
@@ -720,42 +738,42 @@ def webhook_capture():
         )
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
-    new_total_paid = flt(lead.total_paid_amount) + flt(amount)
-    lead.db_set("total_paid_amount", new_total_paid)
+    # new_total_paid = flt(lead.total_paid_amount) + flt(amount)
+    # lead.db_set("total_paid_amount", new_total_paid)
 
     # CRM Lead ``primary_status`` / ``secondary_status`` align with **CRM Lead Status**
     # ``custom_primary_status`` / ``lead_status``. Transitions use Carrum portal wallet
     # (``get_portal_driver_detail`` → ``walletData``), same as the CRM payment summary UI.
     maybe_update_lead_status_after_payment_capture(lead)
 
-    paymentTag = d.get("paymentTag") or {}
-    hubFeeTag = flt(paymentTag.get("hubFeeTag"))
-    sdTag = flt(paymentTag.get("sdTag"))
-    settlementTag = flt(paymentTag.get("settlementTag"))
-    interestTag = flt(paymentTag.get("interestTag"))
+    # paymentTag = d.get("paymentTag") or {}
+    # hubFeeTag = flt(paymentTag.get("hubFeeTag"))
+    # sdTag = flt(paymentTag.get("sdTag"))
+    # settlementTag = flt(paymentTag.get("settlementTag"))
+    # interestTag = flt(paymentTag.get("interestTag"))
 
-    sdBreakupAmount = hubFeeTag + sdTag
-    settlementBreakupAmount = settlementTag + interestTag
+    # sdBreakupAmount = hubFeeTag + sdTag
+    # settlementBreakupAmount = settlementTag + interestTag
 
-    raw_plain = json.loads(frappe.as_json(d))
+    # raw_plain = json.loads(frappe.as_json(d))
 
-    image_csv = _payment_log_image_csv_from_payload(imageUrls)
+    # image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-    pl_kwargs = {
-        "doctype": "payment_logs",
-        "__newname": transactionId,
-        "amount": amount,
-        "lead": lead_id,
-        "raw": raw_plain,
-        "utr": utr,
-        "sd_breakup_amount": sdBreakupAmount,
-        "settlement_breakup_amount": settlementBreakupAmount,
-        "transaction_date": transaction_date,
-        "status": "Captured",
-    }
-    if image_csv:
-        pl_kwargs["image"] = image_csv
-    frappe.get_doc(pl_kwargs).save()
+    # pl_kwargs = {
+    #     "doctype": "payment_logs",
+    #     "__newname": transactionId,
+    #     "amount": amount,
+    #     "lead": lead_id,
+    #     "raw": raw_plain,
+    #     "utr": utr,
+    #     "sd_breakup_amount": sdBreakupAmount,
+    #     "settlement_breakup_amount": settlementBreakupAmount,
+    #     "transaction_date": transaction_date,
+    #     "status": "Captured",
+    # }
+    # if image_csv:
+    #     pl_kwargs["image"] = image_csv
+    # frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",
@@ -765,75 +783,75 @@ def webhook_capture():
 @frappe.whitelist()
 def webhook_failed():
     """Failed payment webhook; ``transactionDate`` is UTC (naive or ISO-Z). Stored as IST."""
-    d = frappe.request.get_json()
-    if not d or not isinstance(d, dict):
-        frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
+    # d = frappe.request.get_json()
+    # if not d or not isinstance(d, dict):
+    #     frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
-    amount = d.get("amount")
-    utr = d.get("utrNumber")
-    transactionDt = d.get("transactionDate")
-    user_id = d.get("userId")
-    _raw_tid = d.get("transactionId")
-    transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
-    imageUrls = d.get("imageUrls")
-    status = (d.get("status") or "").strip().lower()
-    statusMap = {
-        "reject": "Rejected",
-        "rejected": "Rejected",
-        "rejet": "Rejected",
-        "transferred": "Transferred",
-    }
-    finalStatus = statusMap.get(status, "Failed")
-    if not user_id:
-        frappe.throw(_("userId is required"), title=_("Payment webhook"))
-    if not transactionId:
-        frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
+    # amount = d.get("amount")
+    # utr = d.get("utrNumber")
+    # transactionDt = d.get("transactionDate")
+    # user_id = d.get("userId")
+    # _raw_tid = d.get("transactionId")
+    # transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
+    # imageUrls = d.get("imageUrls")
+    # status = (d.get("status") or "").strip().lower()
+    # statusMap = {
+    #     "reject": "Rejected",
+    #     "rejected": "Rejected",
+    #     "rejet": "Rejected",
+    #     "transferred": "Transferred",
+    # }
+    # finalStatus = statusMap.get(status, "Failed")
+    # if not user_id:
+    #     frappe.throw(_("userId is required"), title=_("Payment webhook"))
+    # if not transactionId:
+    #     frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
 
-    transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
+    # transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
-    if frappe.db.exists("payment_logs", transactionId):
-        return {
-            "message": "already saved",
-            "payment_log_id": transactionId,
-        }
+    # if frappe.db.exists("payment_logs", transactionId):
+    #     return {
+    #         "message": "already consumed",
+    #         "payment_log_id": transactionId,
+    #     }
 
-    lead_id = _resolve_lead_for_carrum_user_id(user_id)
-    if not lead_id:
-        frappe.throw(
-            _("Lead not found for user_id: {0}").format(user_id),
-            title=_("Payment webhook"),
-        )
+    # lead_id = _resolve_lead_for_carrum_user_id(user_id)
+    # if not lead_id:
+    #     frappe.throw(
+    #         _("Lead not found for user_id: {0}").format(user_id),
+    #         title=_("Payment webhook"),
+    #     )
 
-    paymentTag = d.get("paymentTag") or {}
-    hubFeeTag = flt(paymentTag.get("hubFeeTag"))
-    sdTag = flt(paymentTag.get("sdTag"))
-    settlementTag = flt(paymentTag.get("settlementTag"))
-    interestTag = flt(paymentTag.get("interestTag"))
+    # paymentTag = d.get("paymentTag") or {}
+    # hubFeeTag = flt(paymentTag.get("hubFeeTag"))
+    # sdTag = flt(paymentTag.get("sdTag"))
+    # settlementTag = flt(paymentTag.get("settlementTag"))
+    # interestTag = flt(paymentTag.get("interestTag"))
 
-    sdBreakupAmount = hubFeeTag + sdTag
-    settlementBreakupAmount = settlementTag + interestTag
+    # sdBreakupAmount = hubFeeTag + sdTag
+    # settlementBreakupAmount = settlementTag + interestTag
 
-    raw_plain = json.loads(frappe.as_json(d))
+    # raw_plain = json.loads(frappe.as_json(d))
 
-    image_csv = _payment_log_image_csv_from_payload(imageUrls)
+    # image_csv = _payment_log_image_csv_from_payload(imageUrls)
 
-    pl_kwargs = {
-        "doctype": "payment_logs",
-        "__newname": transactionId,
-        "amount": amount,
-        "lead": lead_id,
-        "raw": raw_plain,
-        "utr": utr,
-        "sd_breakup_amount": sdBreakupAmount,
-        "settlement_breakup_amount": settlementBreakupAmount,
-        "transaction_date": transaction_date,
-        "status": finalStatus,
-    }
-    if image_csv:
-        pl_kwargs["image"] = image_csv
-    frappe.get_doc(pl_kwargs).save()
+    # pl_kwargs = {
+    #     "doctype": "payment_logs",
+    #     "__newname": transactionId,
+    #     "amount": amount,
+    #     "lead": lead_id,
+    #     "raw": raw_plain,
+    #     "utr": utr,
+    #     "sd_breakup_amount": sdBreakupAmount,
+    #     "settlement_breakup_amount": settlementBreakupAmount,
+    #     "transaction_date": transaction_date,
+    #     "status": finalStatus,
+    # }
+    # if image_csv:
+    #     pl_kwargs["image"] = image_csv
+    # frappe.get_doc(pl_kwargs).save()
 
     return {
         "message": "ok",
-        "lead_id": lead_id,
+    # "lead_id": lead_id,
     }

@@ -17,6 +17,8 @@ class _Roles:
 	TELECALLER_LEAD = "Telecaller Lead"
 	ONBOARDING = "Onboarding"
 	DRIVER_MANAGER = "Driver Manager"
+	ADMIN = "Admin"
+	ADMINISTRATOR = "Administrator"
 
 class _LeadType:
 	LEAD = "LEAD"

@@ -6,7 +6,6 @@ from frappe.utils.data import flt
 from core.services import logged_requests as requests
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
-from core.api.carrum_drivers import get_portal_driver_detail
 import frappe
 from frappe import _, logger
 
@@ -210,27 +209,46 @@ def _portal_driver_detail_results(envelope):
     return None
 
 
-def _wallet_data_for_lead_account(account_id):
+def _wallet_data_for_lead_account(account_id, *, wallet_data=None):
     """``walletData`` from legacy Carrum portal (hubFee / securityDeposit ``remaining``)."""
+    if wallet_data is not None:
+        return wallet_data if isinstance(wallet_data, dict) else None
+
     aid = (account_id or "").strip()
     if not aid:
         return None
+
+    lead_name = frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": aid}, "name"
+    )
+    if not lead_name:
+        return None
+
     try:
-        r = get_portal_driver_detail(aid)
+        from core.api.carrum_drivers import (
+            _extract_portal_driver_results,
+            _fetch_portal_driver_detail_http,
+        )
+
+        ok, payload, _skipped = _fetch_portal_driver_detail_http(lead_name)
+        if not ok or not payload:
+            return None
+        results = _extract_portal_driver_results(payload)
     except Exception:
         frappe.logger().exception(
-            "webhook_capture: get_portal_driver_detail failed for account_id=%s",
+            "webhook_capture: portal driver detail failed for account_id=%s lead=%s",
             aid,
+            lead_name,
         )
         return None
-    results = _portal_driver_detail_results(r)
+
     if not isinstance(results, dict):
         return None
     wd = results.get("walletData")
     return wd if isinstance(wd, dict) else None
 
 
-def maybe_update_lead_status_after_payment_capture(lead):
+def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
     """
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
@@ -254,7 +272,7 @@ def maybe_update_lead_status_after_payment_capture(lead):
     if not account_id:
         return
 
-    wallet = _wallet_data_for_lead_account(account_id)
+    wallet = _wallet_data_for_lead_account(account_id, wallet_data=wallet_data)
     if not wallet:
         return
 

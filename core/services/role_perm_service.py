@@ -45,6 +45,7 @@ ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
 	"Telecaller Lead": CRM_AGENT_PERMISSIONS,
 	"Onboarding": CRM_AGENT_PERMISSIONS,
 	"Driver Manager": CRM_AGENT_PERMISSIONS,
+	"Admin": CRM_AGENT_PERMISSIONS,
 }
 
 TEMPLATE_ROLE_NAME = "Sales User"
@@ -62,15 +63,15 @@ class RolePermService:
 				"role_name": EnumValues.Roles.HUB_MANAGER,
 				"desk_access": 0,
 			},
-			"telecaller": {
+			"Telecaller": {
 				"role_name": EnumValues.Roles.TELECALLER,
 				"desk_access": 0,
 			},
-			"telecaller_lead": {
+			"Telecaller Lead": {
 				"role_name": EnumValues.Roles.TELECALLER_LEAD,
 				"desk_access": 0,
 			},
-			"onboarding": {
+			"Onboarding": {
 				"role_name": EnumValues.Roles.ONBOARDING,
 				"desk_access": 0,
 			},
@@ -78,6 +79,10 @@ class RolePermService:
 				"role_name": EnumValues.Roles.DRIVER_MANAGER,
 				"desk_access": 0,
 			},
+			"Admin": {
+				"role_name": EnumValues.Roles.ADMIN,
+				"desk_access": 0,
+			}
 		}
 		self._sales_user_perm_cache: dict[str, set[str]] | None = None
 

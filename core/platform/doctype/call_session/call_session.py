@@ -55,6 +55,22 @@ class CallSession(Document):
 		ring_duration: DF.Duration | None
 	# end: auto-generated types
 
+	def validate(self) -> None:
+		self._validate_agent_call_id_immutable()
+
+	def _validate_agent_call_id_immutable(self) -> None:
+		"""``agent_call_id`` is set once from telephony webhooks and must not be edited."""
+		current = (self.agent_call_id or "").strip()
+		if not current or self.is_new():
+			return
+		previous = frappe.db.get_value(self.doctype, self.name, "agent_call_id")
+		if (previous or "").strip() and (previous or "").strip() != current:
+			frappe.throw(
+				_("Agent call id cannot be changed once set."),
+				frappe.ValidationError,
+				title=_("Agent call id locked"),
+			)
+
 	@staticmethod
 	def default_list_data():
 		columns = [

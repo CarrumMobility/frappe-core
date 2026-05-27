@@ -41,9 +41,9 @@ CRM_AGENT_PERMISSIONS = {
 # Permissions merged on top of ``TEMPLATE_ROLE_NAME`` (union per doctype).
 ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
 	"Hub Manager": CRM_AGENT_PERMISSIONS,
-	"telecaller": CRM_AGENT_PERMISSIONS,
-	"telecaller_lead": CRM_AGENT_PERMISSIONS,
-	"onboarding": CRM_AGENT_PERMISSIONS,
+	"Telecaller": CRM_AGENT_PERMISSIONS,
+	"Telecaller Lead": CRM_AGENT_PERMISSIONS,
+	"Onboarding": CRM_AGENT_PERMISSIONS,
 	"Driver Manager": CRM_AGENT_PERMISSIONS,
 	"Admin": CRM_AGENT_PERMISSIONS,
 }

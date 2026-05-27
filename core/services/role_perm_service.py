@@ -63,15 +63,15 @@ class RolePermService:
 				"role_name": EnumValues.Roles.HUB_MANAGER,
 				"desk_access": 0,
 			},
-			"telecaller": {
+			"Telecaller": {
 				"role_name": EnumValues.Roles.TELECALLER,
 				"desk_access": 0,
 			},
-			"telecaller_lead": {
+			"Telecaller Lead": {
 				"role_name": EnumValues.Roles.TELECALLER_LEAD,
 				"desk_access": 0,
 			},
-			"onboarding": {
+			"Onboarding": {
 				"role_name": EnumValues.Roles.ONBOARDING,
 				"desk_access": 0,
 			},

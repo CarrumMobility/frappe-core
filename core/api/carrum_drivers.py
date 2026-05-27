@@ -42,8 +42,8 @@ class UpdateDriverDtoSchema(BaseModel):
         if v is None or v == "":
             return None
         val = int(v)
-        if val < 1 or val > 10:
-            raise ValueError(_("Tenure must be between 1 and 10"))
+        if val < 1:
+            raise ValueError(_("Tenure must be greater than 0"))
         return val
 
     @field_validator("uber_id", mode="before")

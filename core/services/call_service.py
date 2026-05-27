@@ -59,6 +59,27 @@ def _disposition_datetime_or_none(value):
         return None
 
 
+def _schedule_timestamp_ist_or_none(value):
+    """Smartflo schedule_timestamp is Asia/Kolkata wall time; store as naive IST (no UTC shift)."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        dt = get_datetime(s)
+        if not dt:
+            return None
+        if dt.tzinfo is not None:
+            import pytz
+
+            ist = pytz.timezone("Asia/Kolkata")
+            return dt.astimezone(ist).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
+
 def _set_lead_telecaller(lead_id: str | None, agent: str | None) -> None:
     """Set ``CRM Lead.telecaller`` to the disposing agent.
 
@@ -2230,12 +2251,16 @@ class CallService:
             else (payload.get("disposition_code") or "").strip()
         ) or None
         row.set("vendor_disposition_code", disposition_code)
-        
+        callback_dt = _schedule_timestamp_ist_or_none(payload.get("schedule_timestamp"))
+        if callback_dt:
+            row.set("lead_callback_datetime", callback_dt)
+
         if not row.get("disposed_at"):
             row.set("disposed_at", frappe.utils.now())
         row.set("status", EnumValues.CallSessionStatus.DISPOSED)
         if not (row.get("lead_source_during_call") or "").strip():
             _set_lead_source_during_call_on_session(row)
+
         row.save(ignore_permissions=True)
         frappe.db.commit()
         return {"is_valid": True}

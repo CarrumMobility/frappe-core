@@ -45,6 +45,7 @@ ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
 	"telecaller_lead": CRM_AGENT_PERMISSIONS,
 	"onboarding": CRM_AGENT_PERMISSIONS,
 	"Driver Manager": CRM_AGENT_PERMISSIONS,
+	"Admin": CRM_AGENT_PERMISSIONS,
 }
 
 TEMPLATE_ROLE_NAME = "Sales User"

@@ -79,6 +79,10 @@ class RolePermService:
 				"role_name": EnumValues.Roles.DRIVER_MANAGER,
 				"desk_access": 0,
 			},
+			"Admin": {
+				"role_name": EnumValues.Roles.ADMIN,
+				"desk_access": 0,
+			}
 		}
 		self._sales_user_perm_cache: dict[str, set[str]] | None = None
 

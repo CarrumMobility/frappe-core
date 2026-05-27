@@ -2223,6 +2223,14 @@ class CallService:
 
         row.set("disposition_event_id", event_id)
         row.set("disposition_raw", payload)
+        disposition = payload.get("disposition")
+        disposition_code = (
+            (disposition.get("code") or "").strip()
+            if isinstance(disposition, dict)
+            else (payload.get("disposition_code") or "").strip()
+        ) or None
+        row.set("vendor_disposition_code", disposition_code)
+        
         if not row.get("disposed_at"):
             row.set("disposed_at", frappe.utils.now())
         row.set("status", EnumValues.CallSessionStatus.DISPOSED)

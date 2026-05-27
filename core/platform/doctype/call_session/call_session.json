@@ -41,7 +41,8 @@
         "recording_url",
         "campaign_id",
         "campaign_name",
-        "lead_callback_datetime"
+        "lead_callback_datetime",
+        "vendor_disposition_code"
     ],
     "fields": [
         {
@@ -88,7 +89,10 @@
         {
             "fieldname": "agent_call_id",
             "fieldtype": "Data",
-            "label": "Agent call id"
+            "label": "Agent call id",
+            "read_only": 1,
+            "unique": 1,
+            "no_copy": 1
         },
         {
             "fieldname": "status",
@@ -248,6 +252,11 @@
             "fieldname": "ring_duration",
             "fieldtype": "Duration",
             "label": "Ring duration"
+        },
+        {
+            "fieldname": "vendor_disposition_code",
+            "fieldtype": "Data",
+            "label": "Vendor disposition code"
         }
     ],
     "grid_page_length": 50,

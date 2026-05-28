@@ -17,9 +17,6 @@ def get_scheme_list():
 			"success": False,
 		}
 
-	print("====================business_type_id===================")
-	print(business_type_id)
-	print("================================================")
 	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={business_type_id}"
 
 	response = re.get(url, headers={"Authorization": carrum_token})

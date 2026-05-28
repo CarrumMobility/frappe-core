@@ -111,6 +111,9 @@ class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
 
+class _CallLockEventType:
+	DialerCallConnected = "dialer_call_connected"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -128,5 +131,6 @@ class _EnumValues:
 	LeadSource = _LEAD_SOURCE
 	HubVisitStatus = _HUB_VISIT_STATUS
 	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
+	CallLockEventType = _CallLockEventType
 
 EnumValues = _EnumValues()

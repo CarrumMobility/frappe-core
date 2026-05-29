@@ -376,7 +376,8 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
         )
         return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-        return False
+        # apply psd status to lead
+        pass
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
         _apply_webhook_crm_lead_status_row(
             lead,

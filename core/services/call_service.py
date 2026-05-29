@@ -1,5 +1,6 @@
 import logging
 import re
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from time import sleep
 from core.api import carrum_accounts
@@ -144,15 +145,37 @@ def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
         frappe.log_error(frappe.get_traceback(), "notify_telecaller_missed_call_dialer_disconnect")
 
 
-def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
-    """Best-effort distributed lock; returns True if caller should proceed."""
+def _webhook_lock_key(key_suffix: str) -> str:
+    return f"smartflo_webhook:{key_suffix}"
+
+
+def _webhook_release_lock(key_suffix: str) -> None:
+    try:
+        frappe.cache().delete_value(_webhook_lock_key(key_suffix))
+    except Exception:
+        pass
+
+
+@contextmanager
+def _webhook_lock(key_suffix: str, ttl: int = 60):
+    """Hold a webhook lock for the critical section; release when done (TTL is crash safety)."""
+    held = False
     try:
         cache = frappe.cache()
-        k = cache.make_key(f"smartflo_webhook:{key_suffix}")
+        k = cache.make_key(_webhook_lock_key(key_suffix))
         acquired = cache.set(k, "1", nx=True, ex=ttl)
-        return acquired is not False and acquired is not None
+        held = acquired is not False and acquired is not None
+        yield held
     except Exception:
-        return True
+        yield True
+    finally:
+        if held:
+            _webhook_release_lock(key_suffix)
+
+
+@contextmanager
+def _webhook_lock_noop():
+    yield True
 
 
 def _hangup_at_from_smartflo_payload(payload: dict):
@@ -459,7 +482,22 @@ class CallService:
         session_name = self._resolve_dialer_call_session_name(call_session_id, user)
         call_session_doc = frappe.get_doc("Call Session", session_name)
         call_id = call_session_doc.agent_call_id
-        smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
+        try:
+            smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
+        except Exception as e:
+            alreadyDisconnectedErrorMsg = "Please enter a valid call id"
+            print("======= exception while hanging up call")
+            print(str(e) == alreadyDisconnectedErrorMsg)
+            print("======= exception while hanging up call")
+            if str(e) == alreadyDisconnectedErrorMsg:
+                pass
+            else:
+                raise e
+
+        # update call session status to disconnected
+        call_session_doc.status = EnumValues.CallSessionStatus.DISCONNECTED
+        call_session_doc.save(ignore_permissions=True)
+
 
         return {
             "is_valid": True,
@@ -799,59 +837,60 @@ class CallService:
             return {"is_valid": False, "reason": "missing custom_identifier"}
 
         lock_suffix = f"agent_connected:{call_id or agent_answer_event_id or call_record_id}"
-        if not _webhook_acquire_lock(lock_suffix):
-            return {"is_valid": False, "reason": "Already processing the record"}
+        with _webhook_lock(lock_suffix) as acquired:
+            if not acquired:
+                return {"is_valid": False, "reason": "Already processing the record"}
 
-        try:
-            call_session_record = frappe.get_doc("Call Session", call_record_id)
-        except DoesNotExistError:
-            return {"is_valid": False, "reason": "Call session record not found"}
+            try:
+                call_session_record = frappe.get_doc("Call Session", call_record_id)
+            except DoesNotExistError:
+                return {"is_valid": False, "reason": "Call session record not found"}
 
-        try:
-            if (
-                call_session_record.get("agent_call_id")
-                and call_session_record.get("agent_call_id") == call_id
-                and call_session_record.get("status") == EnumValues.CallSessionStatus.AGENT_CONNECTED
-            ):
+            try:
+                if (
+                    call_session_record.get("agent_call_id")
+                    and call_session_record.get("agent_call_id") == call_id
+                    and call_session_record.get("status") == EnumValues.CallSessionStatus.AGENT_CONNECTED
+                ):
+                    return {"is_valid": True, "reason": None}
+
+                call_session_record.set("agent_answered_at", start_stamp)
+                call_session_record.set("status", EnumValues.CallSessionStatus.AGENT_CONNECTED)
+                call_session_record.set("agent_call_id", call_id)
+                call_session_record.set("agent_answer_event_id", agent_answer_event_id)
+                call_session_record.set("agent_answer_event_log", payload)
+                call_session_record.set(
+                    "direction",
+                    _direction_inbound_outbound_from_vendor_payload(payload),
+                )
+                call_session_record.save(ignore_permissions=True)
+
+                lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
+                phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
+                frappe.publish_realtime(
+                    event="call_agent_connected",
+                    message={
+                        "call_session_id": call_session_record.name,
+                        "lead_id": lead_id,
+                        "lead_name": lead_name,
+                        "timestamp": start_stamp,
+                        "phone_number": phone_display,
+                        "to_number": phone_display,
+                        "status": EnumValues.CallSessionStatus.AGENT_CONNECTED,
+                        "calling_method": EnumValues.CallingMethod.Agent,
+                        "direction": _call_session_direction_to_ui(
+                            call_session_record.get("direction")
+                        ),
+                        "source": source,
+                        "preferred_scheme_1": preferred_scheme_1
+                    },
+                    user=call_session_record.get("agent"),
+                )
+                frappe.db.commit()
+
                 return {"is_valid": True, "reason": None}
-
-            call_session_record.set("agent_answered_at", start_stamp)
-            call_session_record.set("status", EnumValues.CallSessionStatus.AGENT_CONNECTED)
-            call_session_record.set("agent_call_id", call_id)
-            call_session_record.set("agent_answer_event_id", agent_answer_event_id)
-            call_session_record.set("agent_answer_event_log", payload)
-            call_session_record.set(
-                "direction",
-                _direction_inbound_outbound_from_vendor_payload(payload),
-            )
-            call_session_record.save(ignore_permissions=True)
-
-            lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
-            phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
-            frappe.publish_realtime(
-                event="call_agent_connected",
-                message={
-                    "call_session_id": call_session_record.name,
-                    "lead_id": lead_id,
-                    "lead_name": lead_name,
-                    "timestamp": start_stamp,
-                    "phone_number": phone_display,
-                    "to_number": phone_display,
-                    "status": EnumValues.CallSessionStatus.AGENT_CONNECTED,
-                    "calling_method": EnumValues.CallingMethod.Agent,
-                    "direction": _call_session_direction_to_ui(
-                        call_session_record.get("direction")
-                    ),
-                    "source": source,
-                    "preferred_scheme_1": preferred_scheme_1
-                },
-                user=call_session_record.get("agent"),
-            )
-            frappe.db.commit()
-
-            return {"is_valid": True, "reason": None}
-        except Exception as e:
-            return {"is_valid": False, "reason": str(e)}
+            except Exception as e:
+                return {"is_valid": False, "reason": str(e)}
 
     def handle_customer_call_connected_webhook(self, vendor_name: str, payload: dict):
         match vendor_name:
@@ -2083,135 +2122,135 @@ class CallService:
         if not call_id:
             frappe.throw(frappe._("missing call_id"))
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=60):
-            return {"message": "outbound connected (duplicate or in-flight event skipped)"}
+        with _webhook_lock(f"LOCK:{call_id}", ttl=60) as acquired:
+            if not acquired:
+                return {"message": "outbound connected (duplicate or in-flight event skipped)"}
 
-        if frappe.db.get_value(
-            EnumValues.ReferenceDocType.CALL_SESSION,
-            {"agent_call_id": call_id},
-            "name",
-        ):
-            return {"message": "outbound connected (duplicate event skipped)"}
+            if frappe.db.get_value(
+                EnumValues.ReferenceDocType.CALL_SESSION,
+                {"agent_call_id": call_id},
+                "name",
+            ):
+                return {"message": "outbound connected (duplicate event skipped)"}
 
-        event_id = payload.get("uuid")
+            event_id = payload.get("uuid")
 
-        direction = payload.get("direction")
-        if direction == "Dialer (outbound)":
-            direction = EnumValues.CallDirection.OUTBOUND
-        else:
-            direction = EnumValues.CallDirection.INBOUND
+            direction = payload.get("direction")
+            if direction == "Dialer (outbound)":
+                direction = EnumValues.CallDirection.OUTBOUND
+            else:
+                direction = EnumValues.CallDirection.INBOUND
 
-        call_to_number = payload.get("call_to_number")
-        caller_id_number = payload.get("caller_id_number")
+            call_to_number = payload.get("call_to_number")
+            caller_id_number = payload.get("caller_id_number")
 
-        lead_phone = None
-        did_number = None
-        if direction == EnumValues.CallDirection.OUTBOUND:
-            lead_phone = call_to_number
-            did_number = caller_id_number
-        else:
-            lead_phone = caller_id_number
-            did_number = call_to_number
+            lead_phone = None
+            did_number = None
+            if direction == EnumValues.CallDirection.OUTBOUND:
+                lead_phone = call_to_number
+                did_number = caller_id_number
+            else:
+                lead_phone = caller_id_number
+                did_number = call_to_number
 
-        start_date = payload.get("start_date")
-        start_time = payload.get("start_time")
-        campaign_name = payload.get("campaign_name")
-        campaign_id = payload.get("campaign_id")
-        agent_list = payload.get("agent") or []
-        if isinstance(agent_list, dict):
-            agent_email = agent_list.get("email")
-        else:
-            agent_email = agent_list[0].get("email") if agent_list else None
+            start_date = payload.get("start_date")
+            start_time = payload.get("start_time")
+            campaign_name = payload.get("campaign_name")
+            campaign_id = payload.get("campaign_id")
+            agent_list = payload.get("agent") or []
+            if isinstance(agent_list, dict):
+                agent_email = agent_list.get("email")
+            else:
+                agent_email = agent_list[0].get("email") if agent_list else None
 
-        targetUser = self._get_user_for_agent_email(agent_email)
-        timestamp = self._parse_call_timestamp(start_date, start_time)
+            targetUser = self._get_user_for_agent_email(agent_email)
+            timestamp = self._parse_call_timestamp(start_date, start_time)
 
-        lead = self._create_lead_if_not_exists(lead_phone)
-        if not lead or not getattr(lead, "name", None):
-            frappe.throw(
-                frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
-                    lead_phone or ""
+            lead = self._create_lead_if_not_exists(lead_phone)
+            if not lead or not getattr(lead, "name", None):
+                frappe.throw(
+                    frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
+                        lead_phone or ""
+                    )
                 )
-            )
-        inbound_source = None
-        if did_number:
-            inbound_source = frappe.db.get_value(
-                EnumValues.ReferenceDocType.LEAD_SOURCE,
-                {
-                    "purpose": EnumValues.LeadSourcePurpose.Inbound,
-                    "did_number": did_number,
-                },
-                ["name", "source_name"],
-                as_dict=True,
-            )
+            inbound_source = None
+            if did_number:
+                inbound_source = frappe.db.get_value(
+                    EnumValues.ReferenceDocType.LEAD_SOURCE,
+                    {
+                        "purpose": EnumValues.LeadSourcePurpose.Inbound,
+                        "did_number": did_number,
+                    },
+                    ["name", "source_name"],
+                    as_dict=True,
+                )
 
-        if inbound_source:
-            lead.set("source", inbound_source.get("source_name"))
-            lead.set("source_id", inbound_source.get("name"))
-            lead.save(ignore_permissions=True)
+            if inbound_source:
+                lead.set("source", inbound_source.get("source_name"))
+                lead.set("source_id", inbound_source.get("name"))
+                lead.save(ignore_permissions=True)
 
-        
-        new_call_session_doc = frappe.new_doc(
-            doctype=EnumValues.ReferenceDocType.CALL_SESSION,
-            calling_method=EnumValues.CallingMethod.Dialer,
-            direction=direction,
-            agent=targetUser,
-            vendor_agent_id=agent_email,
-            lead=lead.name,
-            lead_phone=lead_phone,
-            agent_call_id=call_id,
-            status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
-            agent_answered_at=timestamp,
-            campaign_name=campaign_name,
-            campaign_id=campaign_id,
-            lead_answered_at=timestamp,
-            agent_answer_event_id=event_id,
-            agent_answer_event_log=payload,
-            vendor_name=default_telephony_vendor,
-        )
-
-        new_call_session_doc.insert(ignore_permissions=True)
-
-        if direction == EnumValues.CallDirection.OUTBOUND:
-            enqueue_complete_callback_followups_for_lead(lead.name)
-
-        if targetUser is not None:
-            lead_id = lead.name
-            lead_name = lead.lead_name
-            phone_display = (lead.get("mobile_no") or "").strip()
-            start_stamp = (
-                timestamp.isoformat(sep=" ", timespec="seconds")
-                if isinstance(timestamp, datetime)
-                else timestamp
-            )
-            _lid, _ln, _mob, source, preferred_scheme_1 = _call_session_lead_fields(
-                new_call_session_doc
-            )
-            websocketEventName = EnumValues.CallLockEventType.DialerCallConnected
-            msgBody = {
-                "call_session_id": new_call_session_doc.name,
-                "call_id": call_id,
-                "lead_id": lead_id,
-                "lead_name": lead_name,
-                "phone_number": phone_display,
-                "to_number": phone_display,
-                "timestamp": start_stamp,
-                "status": "CONNECTED",
-                "calling_method": EnumValues.CallingMethod.Dialer,
-                "direction": _call_session_direction_to_ui(
-                    new_call_session_doc.get("direction") or direction
-                ),
-                "source": source,
-                "preferred_scheme_1": preferred_scheme_1,
-            }
-            frappe.publish_realtime(
-                event=websocketEventName,
-                message=msgBody,
-                user=targetUser,
+            new_call_session_doc = frappe.new_doc(
+                doctype=EnumValues.ReferenceDocType.CALL_SESSION,
+                calling_method=EnumValues.CallingMethod.Dialer,
+                direction=direction,
+                agent=targetUser,
+                vendor_agent_id=agent_email,
+                lead=lead.name,
+                lead_phone=lead_phone,
+                agent_call_id=call_id,
+                status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                agent_answered_at=timestamp,
+                campaign_name=campaign_name,
+                campaign_id=campaign_id,
+                lead_answered_at=timestamp,
+                agent_answer_event_id=event_id,
+                agent_answer_event_log=payload,
+                vendor_name=default_telephony_vendor,
             )
 
-        frappe.db.commit()
-        return {"message": "outbound connected"}
+            new_call_session_doc.insert(ignore_permissions=True)
+
+            if direction == EnumValues.CallDirection.OUTBOUND:
+                enqueue_complete_callback_followups_for_lead(lead.name)
+
+            if targetUser is not None:
+                lead_id = lead.name
+                lead_name = lead.lead_name
+                phone_display = (lead.get("mobile_no") or "").strip()
+                start_stamp = (
+                    timestamp.isoformat(sep=" ", timespec="seconds")
+                    if isinstance(timestamp, datetime)
+                    else timestamp
+                )
+                _lid, _ln, _mob, source, preferred_scheme_1 = _call_session_lead_fields(
+                    new_call_session_doc
+                )
+                websocketEventName = EnumValues.CallLockEventType.DialerCallConnected
+                msgBody = {
+                    "call_session_id": new_call_session_doc.name,
+                    "call_id": call_id,
+                    "lead_id": lead_id,
+                    "lead_name": lead_name,
+                    "phone_number": phone_display,
+                    "to_number": phone_display,
+                    "timestamp": start_stamp,
+                    "status": "CONNECTED",
+                    "calling_method": EnumValues.CallingMethod.Dialer,
+                    "direction": _call_session_direction_to_ui(
+                        new_call_session_doc.get("direction") or direction
+                    ),
+                    "source": source,
+                    "preferred_scheme_1": preferred_scheme_1,
+                }
+                frappe.publish_realtime(
+                    event=websocketEventName,
+                    message=msgBody,
+                    user=targetUser,
+                )
+
+            frappe.db.commit()
+            return {"message": "outbound connected"}
 
     def dialer_call_disposed_webhook(self, user: str, payload: dict):
         result = {}
@@ -2253,35 +2292,37 @@ class CallService:
         if duration is not None:
             row.set("duration", duration)
 
-        if event_id:
-            if not _webhook_acquire_lock(f"dialer_disposed:{event_id}", ttl=120):
+        lock_suffix = f"dialer_disposed:{event_id}" if event_id else None
+        with _webhook_lock(lock_suffix, ttl=120) if lock_suffix else _webhook_lock_noop() as acquired:
+            if not acquired:
                 return {"is_valid": True, "skipped": True}
-            row.reload()
-            if (row.get("disposition_event_id") or "").strip() == event_id:
-                return {"is_valid": True, "skipped": True}
+            if event_id:
+                row.reload()
+                if (row.get("disposition_event_id") or "").strip() == event_id:
+                    return {"is_valid": True, "skipped": True}
 
-        row.set("disposition_event_id", event_id)
-        row.set("disposition_raw", payload)
-        disposition = payload.get("disposition")
-        disposition_code = (
-            (disposition.get("code") or "").strip()
-            if isinstance(disposition, dict)
-            else (payload.get("disposition_code") or "").strip()
-        ) or None
-        row.set("vendor_disposition_code", disposition_code)
-        callback_dt = _schedule_timestamp_ist_or_none(payload.get("schedule_timestamp"))
-        if callback_dt:
-            row.set("lead_callback_datetime", callback_dt)
+            row.set("disposition_event_id", event_id)
+            row.set("disposition_raw", payload)
+            disposition = payload.get("disposition")
+            disposition_code = (
+                (disposition.get("code") or "").strip()
+                if isinstance(disposition, dict)
+                else (payload.get("disposition_code") or "").strip()
+            ) or None
+            row.set("vendor_disposition_code", disposition_code)
+            callback_dt = _schedule_timestamp_ist_or_none(payload.get("schedule_timestamp"))
+            if callback_dt:
+                row.set("lead_callback_datetime", callback_dt)
 
-        if not row.get("disposed_at"):
-            row.set("disposed_at", frappe.utils.now())
-        row.set("status", EnumValues.CallSessionStatus.DISPOSED)
-        if not (row.get("lead_source_during_call") or "").strip():
-            _set_lead_source_during_call_on_session(row)
+            if not row.get("disposed_at"):
+                row.set("disposed_at", frappe.utils.now())
+            row.set("status", EnumValues.CallSessionStatus.DISPOSED)
+            if not (row.get("lead_source_during_call") or "").strip():
+                _set_lead_source_during_call_on_session(row)
 
-        row.save(ignore_permissions=True)
-        frappe.db.commit()
-        return {"is_valid": True}
+            row.save(ignore_permissions=True)
+            frappe.db.commit()
+            return {"is_valid": True}
     
     def dialer_call_disconnected(self, user: str, payload: dict):
         match default_telephony_vendor:
@@ -2300,148 +2341,149 @@ class CallService:
         if not call_id:
             return {"is_valid": False, "reason": "missing call_id"}
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=120):
-            return {
-                "is_valid": True,
-                "skipped": True,
-                "reason": "Already processing record with call_id",
-            }
+        with _webhook_lock(f"LOCK:{call_id}", ttl=120) as acquired:
+            if not acquired:
+                return {
+                    "is_valid": True,
+                    "skipped": True,
+                    "reason": "Already processing record with call_id",
+                }
 
-        direction_raw = (payload.get("direction") or "").strip().lower()
-        call_direction = (
-            EnumValues.CallDirection.OUTBOUND
-            if direction_raw in ("dialer (outbound)", "outbound")
-            else EnumValues.CallDirection.INBOUND
-        )
-        missed_status = (
-            EnumValues.CallSessionStatus.NOT_CONNECTED
-            if call_direction == EnumValues.CallDirection.OUTBOUND
-            else EnumValues.CallSessionStatus.MISSED
-        )
-
-        caller_id_number = payload.get("caller_id_number")
-        call_to_number = payload.get("call_to_number")
-        lead_phone = (
-            call_to_number
-            if call_direction == EnumValues.CallDirection.OUTBOUND
-            else caller_id_number
-        )
-
-        row_name = frappe.db.get_value(
-            EnumValues.ReferenceDocType.CALL_SESSION,
-            {"agent_call_id": call_id},
-            "name",
-        )
-
-        lead = self._create_lead_if_not_exists(lead_phone)
-        if not lead or not getattr(lead, "name", None):
-            frappe.throw(
-                frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
-                    lead_phone or ""
-                )
+            direction_raw = (payload.get("direction") or "").strip().lower()
+            call_direction = (
+                EnumValues.CallDirection.OUTBOUND
+                if direction_raw in ("dialer (outbound)", "outbound")
+                else EnumValues.CallDirection.INBOUND
+            )
+            missed_status = (
+                EnumValues.CallSessionStatus.NOT_CONNECTED
+                if call_direction == EnumValues.CallDirection.OUTBOUND
+                else EnumValues.CallSessionStatus.MISSED
             )
 
-        lead_telecaller = (getattr(lead, "telecaller", None) or "").strip() or None
-        event_id = payload.get("uuid")
-        recording_url = payload.get("recording_url")
-        campaign_name = payload.get("campaign_name")
-        campaign_id = payload.get("campaign_id")
+            caller_id_number = payload.get("caller_id_number")
+            call_to_number = payload.get("call_to_number")
+            lead_phone = (
+                call_to_number
+                if call_direction == EnumValues.CallDirection.OUTBOUND
+                else caller_id_number
+            )
 
-        if row_name:
-            row = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, row_name)
-            pre_status = (row.get("status") or "").strip().upper()
+            row_name = frappe.db.get_value(
+                EnumValues.ReferenceDocType.CALL_SESSION,
+                {"agent_call_id": call_id},
+                "name",
+            )
 
-            if pre_status in (
-                EnumValues.CallSessionStatus.DISCONNECTED,
-                EnumValues.CallSessionStatus.DISPOSED,
-            ):
-                frappe.db.commit()
-                return {"is_valid": True, "skipped": True}
-
-            if pre_status != EnumValues.CallSessionStatus.CUSTOMER_CONNECTED:
+            lead = self._create_lead_if_not_exists(lead_phone)
+            if not lead or not getattr(lead, "name", None):
                 frappe.throw(
-                    frappe._(
-                        "Invalid dialer disconnect webhook state for call {0}: "
-                        "Call Session {1} status is {2}, expected {3}"
-                    ).format(
-                        call_id,
-                        row_name,
-                        row.get("status") or "",
-                        EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                    frappe._("Could not resolve or create CRM Lead for customer number {0}").format(
+                        lead_phone or ""
                     )
                 )
 
+            lead_telecaller = (getattr(lead, "telecaller", None) or "").strip() or None
+            event_id = payload.get("uuid")
+            recording_url = payload.get("recording_url")
+            campaign_name = payload.get("campaign_name")
+            campaign_id = payload.get("campaign_id")
+
+            if row_name:
+                row = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, row_name)
+                pre_status = (row.get("status") or "").strip().upper()
+
+                if pre_status in (
+                    EnumValues.CallSessionStatus.DISCONNECTED,
+                    EnumValues.CallSessionStatus.DISPOSED,
+                ):
+                    frappe.db.commit()
+                    return {"is_valid": True, "skipped": True}
+
+                if pre_status != EnumValues.CallSessionStatus.CUSTOMER_CONNECTED:
+                    frappe.throw(
+                        frappe._(
+                            "Invalid dialer disconnect webhook state for call {0}: "
+                            "Call Session {1} status is {2}, expected {3}"
+                        ).format(
+                            call_id,
+                            row_name,
+                            row.get("status") or "",
+                            EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                        )
+                    )
+
+                call_duration = payload.get("outbound_sec")
+                if call_duration is not None and call_duration != "":
+                    row.set("duration", call_duration)
+                row.hangup_event_id = event_id
+                row.hangup_event_log = payload
+                row.hangup_at = frappe.utils.now()
+                if recording_url:
+                    row.recording_url = recording_url
+                row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
+                row.save(ignore_permissions=True)
+                frappe.db.commit()
+
+                target_user = row.agent
+                if target_user:
+                    phone_display = (row.lead_phone or "").strip()
+                    frappe.publish_realtime(
+                        event="call_disconnected",
+                        message={
+                            "call_session_id": row.name,
+                            "call_id": (row.get("agent_call_id") or "").strip(),
+                            "lead_id": row.lead,
+                            "phone_number": phone_display,
+                            "to_number": phone_display,
+                            "timestamp": row.lead_answered_at,
+                            "status": "CALL DISCONNECTED",
+                            "calling_method": EnumValues.CallingMethod.Dialer,
+                            "message": "Call Disconnected",
+                            "direction": _call_session_direction_to_ui(row.get("direction")),
+                            "recording_url": row.get("recording_url"),
+                        },
+                        user=target_user,
+                    )
+                return {"is_valid": True}
+
+            # No Call Session — treat as missed (OB Missed / IB Missed)
+            if missed_status == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
+                _notify_telecaller_missed_call(lead, lead_telecaller)
+
+            new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
+            new_session.agent_call_id = call_id
+            new_session.vendor_name = default_telephony_vendor
+            new_session.calling_method = EnumValues.CallingMethod.Dialer
+            new_session.lead = lead.name
+            new_session.agent = lead_telecaller or None
+            new_session.lead_phone = lead.get("mobile_no") or lead_phone or ""
+            new_session.direction = call_direction
+            new_session.campaign_name = campaign_name
+            new_session.campaign_id = campaign_id
+            new_session.status = missed_status
+            new_session.hangup_event_id = event_id
+            new_session.hangup_event_log = payload
+            new_session.hangup_at = frappe.utils.now()
+            if recording_url:
+                new_session.recording_url = recording_url
             call_duration = payload.get("outbound_sec")
             if call_duration is not None and call_duration != "":
-                row.set("duration", call_duration)
-            row.hangup_event_id = event_id
-            row.hangup_event_log = payload
-            row.hangup_at = frappe.utils.now()
-            if recording_url:
-                row.recording_url = recording_url
-            row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
-            row.save(ignore_permissions=True)
-            frappe.db.commit()
+                new_session.duration = call_duration
+            new_session.insert(ignore_permissions=True)
 
-            target_user = row.agent
-            if target_user:
-                phone_display = (row.lead_phone or "").strip()
-                frappe.publish_realtime(
-                    event="call_disconnected",
-                    message={
-                        "call_session_id": row.name,
-                        "call_id": (row.get("agent_call_id") or "").strip(),
-                        "lead_id": row.lead,
-                        "phone_number": phone_display,
-                        "to_number": phone_display,
-                        "timestamp": row.lead_answered_at,
-                        "status": "CALL DISCONNECTED",
-                        "calling_method": EnumValues.CallingMethod.Dialer,
-                        "message": "Call Disconnected",
-                        "direction": _call_session_direction_to_ui(row.get("direction")),
-                        "recording_url": row.get("recording_url"),
-                    },
-                    user=target_user,
+            if missed_status == EnumValues.CallSessionStatus.NOT_CONNECTED:
+                _enqueue_apply_not_connected_dial_for_today_lead_callback(
+                    lead.name,
+                    lock_key=(
+                        str(event_id or "").strip()
+                        or call_id
+                        or None
+                    ),
                 )
+
+            frappe.db.commit()
             return {"is_valid": True}
-
-        # No Call Session — treat as missed (OB Missed / IB Missed)
-        if missed_status == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
-            _notify_telecaller_missed_call(lead, lead_telecaller)
-
-        new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
-        new_session.agent_call_id = call_id
-        new_session.vendor_name = default_telephony_vendor
-        new_session.calling_method = EnumValues.CallingMethod.Dialer
-        new_session.lead = lead.name
-        new_session.agent = lead_telecaller or None
-        new_session.lead_phone = lead.get("mobile_no") or lead_phone or ""
-        new_session.direction = call_direction
-        new_session.campaign_name = campaign_name
-        new_session.campaign_id = campaign_id
-        new_session.status = missed_status
-        new_session.hangup_event_id = event_id
-        new_session.hangup_event_log = payload
-        new_session.hangup_at = frappe.utils.now()
-        if recording_url:
-            new_session.recording_url = recording_url
-        call_duration = payload.get("outbound_sec")
-        if call_duration is not None and call_duration != "":
-            new_session.duration = call_duration
-        new_session.insert(ignore_permissions=True)
-
-        if missed_status == EnumValues.CallSessionStatus.NOT_CONNECTED:
-            _enqueue_apply_not_connected_dial_for_today_lead_callback(
-                lead.name,
-                lock_key=(
-                    str(event_id or "").strip()
-                    or call_id
-                    or None
-                ),
-            )
-
-        frappe.db.commit()
-        return {"is_valid": True}
 
     def enqueue_apply_campaign_id_to_click2_call(call_session_id: str):
         frappe.enqueue(

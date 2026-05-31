@@ -91,7 +91,6 @@
             "fieldtype": "Data",
             "label": "Agent call id",
             "read_only": 1,
-            "unique": 1,
             "no_copy": 1
         },
         {

@@ -614,6 +614,77 @@ def approve_referral_on_carrum_portal(
 	)
 
 
+def approve_reward_ledger_on_carrum_portal(
+	ledger_id=None,
+	logged_in_user_id=None,
+	amount=None,
+	remarks=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Approve a reward ledger entry on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/approve``
+	with query ``loggedInUserId`` and JSON body ``amount``, optional ``remarks``.
+
+	Returns:
+		Same framed dict as ``CarrumHttpClient.request``.
+	"""
+	ledger_key = (str(ledger_id).strip() if ledger_id is not None else "") or ""
+	if not ledger_key:
+		return {
+			"success": False,
+			"error": _("Ledger id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	amount_str = str(amount).strip() if amount is not None else ""
+	if not amount_str:
+		return {
+			"success": False,
+			"error": _("Approval amount is required"),
+			"request_url": None,
+		}
+
+	try:
+		approval_amount = float(amount_str)
+	except (TypeError, ValueError):
+		return {
+			"success": False,
+			"error": _("Approval amount must be a valid number"),
+			"request_url": None,
+		}
+
+	payload = {
+		"amount": int(approval_amount)
+		if approval_amount.is_integer()
+		else approval_amount
+	}
+	remarks_str = str(remarks).strip() if remarks is not None else ""
+	if remarks_str:
+		payload["remarks"] = remarks_str
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/approve",
+		params={"loggedInUserId": user_key},
+		json=payload,
+		log_tag="approve-reward-ledger",
+	)
+
+
 def approve_referral_by_referral_id_on_carrum_portal(
 	amount=None,
 	referral_id=None,

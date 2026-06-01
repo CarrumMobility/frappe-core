@@ -277,7 +277,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
 
     account_id = frappe.conf.get("carrum_account_id")
     source = source or "crm_payment_link"
-    if not hub_fee:
+    if hub_fee in (None, ""):
         frappe.throw(_("Hub fee is required"))
 
     payload = {
@@ -450,7 +450,7 @@ def add_other_payment(
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
         return {
             "is_valid": False,
-            "reason": message
+            "reason": message,
         }
 
     if response.ok != True:
@@ -499,8 +499,9 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     hub_fee = lead.hub_fee
     custom_account_id = lead.custom_account_id
 
-    if not hub_fee:
-        frappe.throw(_("Hub fee is required payment"))
+    if hub_fee in (None, ""):
+        frappe.throw(_("Hub fee is required"))
+
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     hub_id = lead.hub_id

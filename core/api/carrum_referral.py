@@ -15,6 +15,7 @@ def create_lead_referral_on_portal(
 	referrerId,
 	hubId,
 	agentReferrerId=None,
+	configId=None,
 	base_url=None,
 	token=None,
 ):
@@ -23,6 +24,7 @@ def create_lead_referral_on_portal(
 
 	Payload includes ``refereeId``, ``referrerId``, and ``hubId``.
 	``referrerId`` / ``hubId`` may be None (sent as JSON null).
+	``configId`` is sent for vendor referral scheme configuration when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -42,6 +44,9 @@ def create_lead_referral_on_portal(
 	}
 	if(agentReferrerId):
 		payload["agentReferrerId"] = agentReferrerId
+	if configId:
+		payload["configId"] = str(configId).strip()
+	print(payload,'payload')
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",

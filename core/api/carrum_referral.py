@@ -940,3 +940,21 @@ def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, base_url=Non
 		params=params,
 		log_tag="referral-config-list",
 	)
+
+
+def get_vendor_referral_configs_from_portal(agent_id=None, base_url=None, token=None):
+	agent_key = (str(agent_id).strip() if agent_id is not None else "") or ""
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path="/api/v1/referral-rewards/configs/vendor",
+		params={"agentId": agent_key},
+		log_tag="vendor-referral-config-list",
+	)

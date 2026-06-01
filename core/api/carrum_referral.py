@@ -619,6 +619,7 @@ def approve_reward_ledger_on_carrum_portal(
 	logged_in_user_id=None,
 	amount=None,
 	remarks=None,
+	adjust_in_hissab=None,
 	base_url=None,
 	token=None,
 ):
@@ -674,6 +675,8 @@ def approve_reward_ledger_on_carrum_portal(
 	remarks_str = str(remarks).strip() if remarks is not None else ""
 	if remarks_str:
 		payload["remarks"] = remarks_str
+	if adjust_in_hissab in (True, 1, "1", "true", "True"):
+		payload["adjustInHissab"] = True
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(

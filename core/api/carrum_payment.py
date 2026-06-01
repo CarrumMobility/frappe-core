@@ -402,7 +402,7 @@ def add_other_payment(
     lead_account_id = lead.custom_account_id
     source = lead.source or "crm_other_payment"
 
-    if not hub_fee:
+    if hub_fee in (None, ""):
         frappe.throw(_("Hub fee is required payment"))
 
     if not str(amount or "").strip() and not str(utr or "").strip():

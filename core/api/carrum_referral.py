@@ -963,3 +963,32 @@ def get_vendor_referral_configs_from_portal(agent_id=None, base_url=None, token=
 		params={"agentId": agent_key},
 		log_tag="vendor-referral-config-list",
 	)
+
+
+def create_vendor_referral_config_on_portal(
+	agent_id=None,
+	referral_milestones=None,
+	is_active=True,
+	base_url=None,
+	token=None,
+):
+	agent_key = (str(agent_id).strip() if agent_id is not None else "") or ""
+	if not agent_key:
+		return {
+			"success": False,
+			"error": _("Agent id is required"),
+			"request_url": None,
+		}
+
+	payload = {
+		"agentId": agent_key,
+		"referralMilestones": referral_milestones or [],
+		"isActive": bool(is_active),
+	}
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path="/api/v1/referral-rewards/configs/vendor",
+		json=payload,
+		log_tag="vendor-referral-config-create",
+	)

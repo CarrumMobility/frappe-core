@@ -16,6 +16,7 @@ import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from core.services.util_service import UtilService
+import ast
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
 util_service = UtilService()
@@ -323,6 +324,16 @@ def _click2call_campaign_from_config(
     cname = (campaign_name or "").strip() or (calling_config.get("default_campaign_name") or "").strip()
     return cid or None, cname or None
 
+def get_username_from_user(user: str):
+    user_detail = frappe.db.get_value("User", user, ["first_name", 'last_name'], as_dict=True)
+    if not user_detail:
+        return None
+    first_name = user_detail.first_name
+    last_name = user_detail.last_name
+    name = (str(first_name or "") + " " + str(last_name or "")).strip()
+    if not name:
+        return user
+    return name
 
 class CallService:
     def __init__(self):
@@ -404,6 +415,12 @@ class CallService:
         )
 
         if call_initiated_result["is_valid"] == False:
+            reason = call_initiated_result["reason"]
+            print("reason.lower: " + reason.lower())
+            if "originate failed" in reason.lower():
+                print("IN condition to raise error")
+                raise ValueError("Please connect the softphone before initiating the call")
+
             # update call session status to failed with reason
             call_session_doc.db_set("status", EnumValues.CallSessionStatus.FAILED)
             call_session_doc.db_set("failure_reason", call_initiated_result["reason"])
@@ -652,11 +669,13 @@ class CallService:
         max_login_retry_count = 2
         is_logged_in = False
         last_login_error_message = None
-
+        username = get_username_from_user(user)
         for attempt in range(max_login_retry_count):
             try:
                 result = smartflo_client.handle_login_session_api(
-                    user=user, campaign_id=campaign_id
+                    user=user, 
+                    username=username,
+                    campaign_id=campaign_id
                 )
                 if result.get("is_valid"):
                     is_logged_in = True
@@ -668,7 +687,22 @@ class CallService:
 
             except Exception as e:
                 err = str(e)
-                if "already logged in" in err.lower():
+                if "you can only be logged in to one campaign at a time." in err.lower():
+                    err = ast.literal_eval(err.split("|")[1].strip())
+                    campaignToLogout = err.get("data")
+                    for campaign in campaignToLogout:
+                        campaign_id = campaign.get("id")
+                        try:
+                            smartflo_client.handle_logout(user, campaign_id)
+                        except Exception as e:
+                            print("error while logging out")
+                            print(e)
+                            frappe.log_error(
+                                frappe.get_traceback(),
+                                "smartflo_logout_error",
+                            )
+                            continue
+                elif "already logged in" in err.lower():
                     is_logged_in = True
                     break
                 last_login_error_message = err
@@ -724,7 +758,7 @@ class CallService:
 
                     try:
                         relogin = smartflo_client.handle_login_session_api(
-                            user=user, campaign_id=campaign_id
+                            user=user,username=username, campaign_id=campaign_id
                         )
                         if relogin.get("is_valid"):
                             pass
@@ -1762,15 +1796,34 @@ class CallService:
 
     def _handle_smartflo_start_dialer_session(self, user: str,campaign_id: str, campaign_name: str):
         try:
-            # handle dialer login first
-            result = smartflo_client.handle_login_session_api(user, campaign_id)
+            username = get_username_from_user(user)
+            result = smartflo_client.handle_login_session_api(user=user,username=username, campaign_id=campaign_id)
             if not result.get("is_valid"):
                 reason = (result.get("reason") or "").lower()
                 if "already logged in" not in reason:
                     raise ValueError(result.get("reason") or "Session login failed")
         except Exception as e:
             err = str(e)
-            if "already logged in" in err.lower():
+            """
+             To handle this error condition - You can only be logged in to one campaign at a time. Please logout from the following campaign(s) before logging in again. | {'data': [{'id': 442227, 'name': 'test camp'}]}
+            """
+            if "you can only be logged in to one campaign at a time." in err.lower():
+                err = ast.literal_eval(err.split("|")[1].strip())
+                print("====")
+                campaignToLogout = err.get("data")
+                for campaign in campaignToLogout:
+                    campaign_id = campaign.get("id")
+                    campaign_name = campaign.get("name")
+                    try:
+                        smartflo_client.handle_logout(user, campaign_id)
+                    except Exception as e:
+                        print("error while logging out")
+                        print(e)
+                        frappe.log_error(
+                            frappe.get_traceback(),
+                            "smartflo_logout_error",
+                        )
+            elif "already logged in" in err.lower():
                 pass
             else:
                 raise e
@@ -2243,6 +2296,7 @@ class CallService:
                     "source": source,
                     "preferred_scheme_1": preferred_scheme_1,
                 }
+
                 frappe.publish_realtime(
                     event=websocketEventName,
                     message=msgBody,

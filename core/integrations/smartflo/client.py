@@ -231,15 +231,17 @@ def handle_get_live_call_detail_api():
 		url, None, method, payload, user=None, isAdmin=True, api_operation="get_live_call_detail"
 	)
 
-def handle_login_session_api(user: str, campaign_id):
+def handle_login_session_api(user: str,username: str, campaign_id):
 	url = constants.login_session_config['url']
 	method = constants.login_session_config['method']
 	try:
 		campaign_id_int = int(str(campaign_id).strip())
 	except (TypeError, ValueError):
 		frappe.throw(frappe._("Invalid Smartflo campaign_id: {0}").format(campaign_id))
+		
 	payload = {
 		"campaign_id": campaign_id_int,
+		'user_name': username
 	}
 	response = _smartflo_api_client(
 		url, None, method, payload, user, api_operation="login_session"

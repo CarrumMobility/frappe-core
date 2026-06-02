@@ -277,7 +277,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
 
     account_id = frappe.conf.get("carrum_account_id")
     source = source or "crm_payment_link"
-    if not hub_fee:
+    if hub_fee in (None, ""):
         frappe.throw(_("Hub fee is required"))
 
     payload = {
@@ -294,9 +294,6 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     if account_id is not None:
         payload["accountId"] = account_id
 
-    print("==========sendPaymentLink==========")
-    print(payload)
-
     headers = {"Authorization": token, "Content-Type": "application/json"}
     print(url)
     print(headers)
@@ -304,8 +301,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         response = requests.post(url, json=payload, headers=headers, timeout=60)
     except requests.RequestException as e:
         frappe.throw(_("Could not reach payment service: {0}").format(str(e)))
-    print(response)
-    print('==========sendPaymentLink==========')
+    
     if response.status_code >= 400:
         body = (response.text or "")[:500]
 
@@ -402,7 +398,7 @@ def add_other_payment(
     lead_account_id = lead.custom_account_id
     source = lead.source or "crm_other_payment"
 
-    if not hub_fee:
+    if hub_fee in (None, ""):
         frappe.throw(_("Hub fee is required payment"))
 
     if not str(amount or "").strip() and not str(utr or "").strip():
@@ -424,10 +420,6 @@ def add_other_payment(
     if lead_account_id is not None:
         payload['accountId'] = lead_account_id
 
-    print("==========add_other_payment==========")
-    print(payload)
-    print("==========add_other_payment==========")
-    
     old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
     old_carrum_token = frappe.conf.get("old_carrum_token")
     headers = {"Authorization": old_carrum_token, "Content-Type": "application/json"}
@@ -444,8 +436,6 @@ def add_other_payment(
             "reason": _("Invalid JSON from payment service")
         }
 
-    print(data)
-    
     if data.get('status') != "success":
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
         return {
@@ -499,7 +489,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     hub_fee = lead.hub_fee
     custom_account_id = lead.custom_account_id
 
-    if not hub_fee:
+    if hub_fee in (None, ""):
         frappe.throw(_("Hub fee is required payment"))
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
@@ -595,20 +585,14 @@ def webhook_capture():
     if not d or not isinstance(d, dict):
         frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
 
-    # amount = d.get("amount")
-    # utr = d.get("utrNumber")
-    # transactionDt = d.get("transactionDate")
     user_id = d.get("userId")
     _raw_tid = d.get("transactionId")
     transactionId = str(_raw_tid).strip() if _raw_tid is not None else ""
-    # imageUrls = d.get("imageUrls")
 
     if not user_id:
         frappe.throw(_("userId is required"), title=_("Payment webhook"))
     if not transactionId:
         frappe.throw(_("transactionId is required"), title=_("Payment webhook"))
-
-    # transaction_date = _parse_transaction_timestamp_utc_to_naive_ist(transactionDt)
 
     if frappe.db.exists("payment_logs", transactionId):
         return {
@@ -624,43 +608,8 @@ def webhook_capture():
         )
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
-    # new_total_paid = flt(lead.total_paid_amount) + flt(amount)
-    # lead.db_set("total_paid_amount", new_total_paid)
-
-    # CRM Lead ``primary_status`` / ``secondary_status`` align with **CRM Lead Status**
-    # ``custom_primary_status`` / ``lead_status``. Transitions use Carrum portal wallet
-    # (``get_portal_driver_detail`` → ``walletData``), same as the CRM payment summary UI.
     maybe_update_lead_status_after_payment_capture(lead)
-
-    # paymentTag = d.get("paymentTag") or {}
-    # hubFeeTag = flt(paymentTag.get("hubFeeTag"))
-    # sdTag = flt(paymentTag.get("sdTag"))
-    # settlementTag = flt(paymentTag.get("settlementTag"))
-    # interestTag = flt(paymentTag.get("interestTag"))
-
-    # sdBreakupAmount = hubFeeTag + sdTag
-    # settlementBreakupAmount = settlementTag + interestTag
-
-    # raw_plain = json.loads(frappe.as_json(d))
-
-    # image_csv = _payment_log_image_csv_from_payload(imageUrls)
-
-    # pl_kwargs = {
-    #     "doctype": "payment_logs",
-    #     "__newname": transactionId,
-    #     "amount": amount,
-    #     "lead": lead_id,
-    #     "raw": raw_plain,
-    #     "utr": utr,
-    #     "sd_breakup_amount": sdBreakupAmount,
-    #     "settlement_breakup_amount": settlementBreakupAmount,
-    #     "transaction_date": transaction_date,
-    #     "status": "Captured",
-    # }
-    # if image_csv:
-    #     pl_kwargs["image"] = image_csv
-    # frappe.get_doc(pl_kwargs).save()
-
+    
     return {
         "message": "ok",
         "lead_id": lead_id,

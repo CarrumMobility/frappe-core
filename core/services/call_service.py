@@ -463,6 +463,9 @@ class CallService:
         call_id = call_session_doc.agent_call_id
         try:
             smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
+            call_session_doc.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
+            call_session_doc.set("hangup_at", frappe.utils.now())
+            call_session_doc.save(ignore_permissions=True)
         except Exception as e:
             callAlreadyDisconnected = "please enter a valid call id"
             if callAlreadyDisconnected in str(e).lower():
@@ -2093,7 +2096,7 @@ class CallService:
 
         eventName = f"LOCK:{call_id}"
         try:
-            with fileLock(eventName, timeout=0):
+            with fileLock(eventName, timeout=30):
                 return self._dialer_call_connected_locked(user, payload, call_id)
         except LockTimeoutError:
             return {"message": "outbound connected (duplicate or in-flight event skipped)"}
@@ -2302,7 +2305,7 @@ class CallService:
                 result = self._handle_smartflo_dialer_call_disconnected(payload)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
-                return {"message": "call disconnected"}
+                return result
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
@@ -2315,7 +2318,7 @@ class CallService:
 
         eventName = f"LOCK:{call_id}"
         try:
-            with fileLock(eventName, timeout=0):
+            with fileLock(eventName, timeout=30):
                 return self._handle_smartflo_dialer_call_disconnected_locked(payload, call_id)
         except LockTimeoutError:
             return {
@@ -2369,23 +2372,31 @@ class CallService:
             row = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, row_name)
             pre_status = (row.get("status") or "").strip().upper()
 
-            if pre_status in (
-                EnumValues.CallSessionStatus.DISCONNECTED,
-                EnumValues.CallSessionStatus.DISPOSED,
+            if pre_status == EnumValues.CallSessionStatus.DISPOSED:
+                frappe.db.commit()
+                return {"is_valid": True, "skipped": True}
+
+            if (
+                pre_status == EnumValues.CallSessionStatus.DISCONNECTED
+                and row.get("hangup_event_id")
             ):
                 frappe.db.commit()
                 return {"is_valid": True, "skipped": True}
 
-            if pre_status != EnumValues.CallSessionStatus.CUSTOMER_CONNECTED:
+            if pre_status not in (
+                EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                EnumValues.CallSessionStatus.DISCONNECTED,
+            ):
                 frappe.throw(
                     frappe._(
                         "Invalid dialer disconnect webhook state for call {0}: "
-                        "Call Session {1} status is {2}, expected {3}"
+                        "Call Session {1} status is {2}, expected {3} or {4}"
                     ).format(
                         call_id,
                         row_name,
                         row.get("status") or "",
                         EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                        EnumValues.CallSessionStatus.DISCONNECTED,
                     )
                 )
 

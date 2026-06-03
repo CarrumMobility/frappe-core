@@ -14,6 +14,8 @@ import frappe
 import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
+from frappe.utils.file_lock import LockTimeoutError
+from frappe.utils.synchronization import filelock as fileLock
 from core.services.util_service import UtilService
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
@@ -2083,9 +2085,14 @@ class CallService:
         if not call_id:
             frappe.throw(frappe._("missing call_id"))
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=60):
+        eventName = f"LOCK:{call_id}"
+        try:
+            with fileLock(eventName, timeout=0):
+                return self._dialer_call_connected_locked(user, payload, call_id)
+        except LockTimeoutError:
             return {"message": "outbound connected (duplicate or in-flight event skipped)"}
 
+    def _dialer_call_connected_locked(self, user: str, payload: dict, call_id: str):
         if frappe.db.get_value(
             EnumValues.ReferenceDocType.CALL_SESSION,
             {"agent_call_id": call_id},
@@ -2300,13 +2307,18 @@ class CallService:
         if not call_id:
             return {"is_valid": False, "reason": "missing call_id"}
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=120):
+        eventName = f"LOCK:{call_id}"
+        try:
+            with fileLock(eventName, timeout=0):
+                return self._handle_smartflo_dialer_call_disconnected_locked(payload, call_id)
+        except LockTimeoutError:
             return {
                 "is_valid": True,
                 "skipped": True,
                 "reason": "Already processing record with call_id",
             }
 
+    def _handle_smartflo_dialer_call_disconnected_locked(self, payload: dict, call_id: str):
         direction_raw = (payload.get("direction") or "").strip().lower()
         call_direction = (
             EnumValues.CallDirection.OUTBOUND

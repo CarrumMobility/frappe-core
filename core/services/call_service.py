@@ -14,6 +14,8 @@ import frappe
 import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
+from frappe.utils.file_lock import LockTimeoutError
+from frappe.utils.synchronization import filelock as fileLock
 from core.services.util_service import UtilService
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
@@ -384,7 +386,7 @@ class CallService:
             # update call session status to failed with reason
             call_session_doc.db_set("status", EnumValues.CallSessionStatus.FAILED)
             call_session_doc.db_set("failure_reason", call_initiated_result["reason"])
-            raise ValueError(f"Call initiation failed: {call_initiated_result['reason']}")
+            raise ValueError(call_initiated_result["reason"])
 
         _pli, _pln, _pm, source_init, pref_sch_init = _call_session_lead_fields(
             call_session_doc
@@ -459,8 +461,17 @@ class CallService:
         session_name = self._resolve_dialer_call_session_name(call_session_id, user)
         call_session_doc = frappe.get_doc("Call Session", session_name)
         call_id = call_session_doc.agent_call_id
-        smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
-
+        try:
+            smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
+        except Exception as e:
+            callAlreadyDisconnected = "please enter a valid call id"
+            if callAlreadyDisconnected in str(e).lower():
+                pass 
+            else:
+                raise e
+        call_session_doc.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
+        call_session_doc.set("hangup_at", frappe.utils.now())
+        call_session_doc.save(ignore_permissions=True)
         return {
             "is_valid": True,
             "reason": None,
@@ -611,111 +622,46 @@ class CallService:
     ):
         campaign_id = calling_config["default_campaign_id"]
 
-        max_login_retry_count = 2
-        is_logged_in = False
-        last_login_error_message = None
+        try:
+            result = smartflo_client.handle_login_session_api(
+                user=user, campaign_id=campaign_id
+            )
+            login_reason = result.get("reason") or "Session login failed"
+            if not result.get("is_valid") and "already logged in" not in login_reason.lower():
+                return {
+                    "is_valid": False,
+                    "step": "login",
+                    "reason": login_reason,
+                }
+        except Exception as e:
+            login_error = str(e)
+            if "already logged in" not in login_error.lower():
+                return {
+                    "is_valid": False,
+                    "step": "login",
+                    "reason": login_error,
+                }
 
-        for attempt in range(max_login_retry_count):
-            try:
-                result = smartflo_client.handle_login_session_api(
-                    user=user, campaign_id=campaign_id
-                )
-                if result.get("is_valid"):
-                    is_logged_in = True
-                    break
-                last_login_error_message = result.get("reason") or "Session login failed"
-                if "already logged in" in last_login_error_message.lower():
-                    is_logged_in = True
-                    break
+        try:
+            extension_id = calling_config["extension_id"]
+            calling_number = calling_config["calling_number"]
 
-            except Exception as e:
-                err = str(e)
-                if "already logged in" in err.lower():
-                    is_logged_in = True
-                    break
-                last_login_error_message = err
+            smartflo_client.handle_click2call_start_api(
+                user=user,
+                agent_number=extension_id,
+                destination_number=mobile_no,
+                caller_id=calling_number,
+                custom_identifier=call_session_id,
+                use_async=not manual_dial,
+            )
 
-            sleep(2)
-
-        if not is_logged_in:
+            return {"is_valid": True, "reason": None}
+        except Exception as e:
             return {
                 "is_valid": False,
-                "step": "login",
-                "reason": last_login_error_message,
+                "step": "dial",
+                "reason": str(e) or "Failed to start agent call",
             }
-
-        max_dial_retry_count = 2
-        max_offline_retry = 1
-        offline_retry_count = 0
-
-        last_dial_error_message = None
-
-        for attempt in range(max_dial_retry_count + max_offline_retry):
-            try:
-                extension_id = calling_config["extension_id"]
-                calling_number = calling_config["calling_number"]
-
-                smartflo_client.handle_click2call_start_api(
-                    user=user,
-                    agent_number=extension_id,
-                    destination_number=mobile_no,
-                    caller_id=calling_number,
-                    custom_identifier=call_session_id,
-                    use_async=not manual_dial,
-                )
-
-                return {"is_valid": True, "reason": None}
-
-            except Exception as e:
-                error_msg = str(e).lower()
-                last_dial_error_message = str(e)
-                if "agent is offline" in error_msg:
-                    if offline_retry_count >= max_offline_retry:
-                        break
-
-                    offline_retry_count += 1
-
-                    try:
-                        smartflo_client.handle_logout(
-                            user=user, campaign_id=campaign_id
-                        )
-                    except Exception:
-                        pass
-
-                    sleep(0.5)
-
-                    try:
-                        relogin = smartflo_client.handle_login_session_api(
-                            user=user, campaign_id=campaign_id
-                        )
-                        if relogin.get("is_valid"):
-                            pass
-                        else:
-                            relogin_reason = (relogin.get("reason") or "").lower()
-                            if "already logged in" not in relogin_reason:
-                                last_dial_error_message = (
-                                    relogin.get("reason") or "Session re-login failed"
-                                )
-                                break
-                    except Exception as relogin_err:
-                        relogin_err_s = str(relogin_err)
-                        if "already logged in" not in relogin_err_s.lower():
-                            last_dial_error_message = relogin_err_s
-                            break
-
-                    sleep(0.5)
-                    continue
-
-                if attempt >= max_dial_retry_count - 1:
-                    break
-
-                sleep(0.5)
-
-        return {
-            "is_valid": False,
-            "step": "dial",
-            "reason": last_dial_error_message or "Failed to start agent call",
-        }
     
     def _handle_pre_vendor_check(self, user: str):
         match default_telephony_vendor:
@@ -2083,9 +2029,14 @@ class CallService:
         if not call_id:
             frappe.throw(frappe._("missing call_id"))
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=60):
+        eventName = f"LOCK:{call_id}"
+        try:
+            with fileLock(eventName, timeout=30):
+                return self._dialer_call_connected_locked(user, payload, call_id)
+        except LockTimeoutError:
             return {"message": "outbound connected (duplicate or in-flight event skipped)"}
 
+    def _dialer_call_connected_locked(self, user: str, payload: dict, call_id: str):
         if frappe.db.get_value(
             EnumValues.ReferenceDocType.CALL_SESSION,
             {"agent_call_id": call_id},
@@ -2289,7 +2240,7 @@ class CallService:
                 result = self._handle_smartflo_dialer_call_disconnected(payload)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
-                return {"message": "call disconnected"}
+                return result
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
 
@@ -2300,13 +2251,18 @@ class CallService:
         if not call_id:
             return {"is_valid": False, "reason": "missing call_id"}
 
-        if not _webhook_acquire_lock(f"LOCK:{call_id}", ttl=120):
+        eventName = f"LOCK:{call_id}"
+        try:
+            with fileLock(eventName, timeout=30):
+                return self._handle_smartflo_dialer_call_disconnected_locked(payload, call_id)
+        except LockTimeoutError:
             return {
                 "is_valid": True,
                 "skipped": True,
                 "reason": "Already processing record with call_id",
             }
 
+    def _handle_smartflo_dialer_call_disconnected_locked(self, payload: dict, call_id: str):
         direction_raw = (payload.get("direction") or "").strip().lower()
         call_direction = (
             EnumValues.CallDirection.OUTBOUND
@@ -2351,23 +2307,31 @@ class CallService:
             row = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, row_name)
             pre_status = (row.get("status") or "").strip().upper()
 
-            if pre_status in (
-                EnumValues.CallSessionStatus.DISCONNECTED,
-                EnumValues.CallSessionStatus.DISPOSED,
+            if pre_status == EnumValues.CallSessionStatus.DISPOSED:
+                frappe.db.commit()
+                return {"is_valid": True, "skipped": True}
+
+            if (
+                pre_status == EnumValues.CallSessionStatus.DISCONNECTED
+                and row.get("hangup_event_id")
             ):
                 frappe.db.commit()
                 return {"is_valid": True, "skipped": True}
 
-            if pre_status != EnumValues.CallSessionStatus.CUSTOMER_CONNECTED:
+            if pre_status not in (
+                EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                EnumValues.CallSessionStatus.DISCONNECTED,
+            ):
                 frappe.throw(
                     frappe._(
                         "Invalid dialer disconnect webhook state for call {0}: "
-                        "Call Session {1} status is {2}, expected {3}"
+                        "Call Session {1} status is {2}, expected {3} or {4}"
                     ).format(
                         call_id,
                         row_name,
                         row.get("status") or "",
                         EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                        EnumValues.CallSessionStatus.DISCONNECTED,
                     )
                 )
 
@@ -2451,13 +2415,22 @@ class CallService:
             call_session_id=call_session_id,
         )
 
-    def get_last_call(self, user: str):
+    def get_last_connected_call(self, user: str):
         """Latest Call Session for this agent; shape matches LastCallStatusModal / CustomCallUI."""
         if not user or user == "Guest":
             return None
         rows = frappe.get_all(
             "Call Session",
-            filters={"agent": user},
+            filters={
+                "agent": user,
+                "status": [
+                    "not in",
+                    [
+                        EnumValues.CallSessionStatus.NOT_CONNECTED,
+                        EnumValues.CallSessionStatus.MISSED,
+                    ],
+                ],
+            },
             order_by="modified desc",
             limit_page_length=1,
             fields=[
@@ -2696,8 +2669,8 @@ def dialer_call_disconnected(user: str, payload: dict):
 def dialer_call_disposed(user: str, payload: dict):
     return _service.dialer_call_disposed_webhook(user, payload)
 
-def get_last_call(user: str):
-    return _service.get_last_call(user)
+def get_last_connected_call(user: str):
+    return _service.get_last_connected_call(user)
 
 def create_callback_event(
     lead_id,

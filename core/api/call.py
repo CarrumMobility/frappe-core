@@ -133,9 +133,9 @@ def dialer_call_disposed_webhook():
     return call_service.dialer_call_disposed(user=user, payload=payload)
 
 @frappe.whitelist()
-def get_last_call():
+def get_last_connected_call():
     """Latest Call Session for the current user (Dialer / Agent); UI shape matches LastCallStatusModal."""
-    return call_service.get_last_call(user=frappe.session.user)
+    return call_service.get_last_connected_call(user=frappe.session.user)
 
 @frappe.whitelist(methods=["POST"])
 def get_call_session_disposition_remarks():

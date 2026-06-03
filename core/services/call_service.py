@@ -461,8 +461,14 @@ class CallService:
         session_name = self._resolve_dialer_call_session_name(call_session_id, user)
         call_session_doc = frappe.get_doc("Call Session", session_name)
         call_id = call_session_doc.agent_call_id
-        smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
-
+        try:
+            smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
+        except Exception as e:
+            callAlreadyDisconnected = "please enter a valid call id"
+            if callAlreadyDisconnected in str(e).lower():
+                pass 
+            else:
+                raise e
         return {
             "is_valid": True,
             "reason": None,
@@ -2463,13 +2469,22 @@ class CallService:
             call_session_id=call_session_id,
         )
 
-    def get_last_call(self, user: str):
+    def get_last_connected_call(self, user: str):
         """Latest Call Session for this agent; shape matches LastCallStatusModal / CustomCallUI."""
         if not user or user == "Guest":
             return None
         rows = frappe.get_all(
             "Call Session",
-            filters={"agent": user},
+            filters={
+                "agent": user,
+                "status": [
+                    "not in",
+                    [
+                        EnumValues.CallSessionStatus.NOT_CONNECTED,
+                        EnumValues.CallSessionStatus.MISSED,
+                    ],
+                ],
+            },
             order_by="modified desc",
             limit_page_length=1,
             fields=[
@@ -2708,8 +2723,8 @@ def dialer_call_disconnected(user: str, payload: dict):
 def dialer_call_disposed(user: str, payload: dict):
     return _service.dialer_call_disposed_webhook(user, payload)
 
-def get_last_call(user: str):
-    return _service.get_last_call(user)
+def get_last_connected_call(user: str):
+    return _service.get_last_connected_call(user)
 
 def create_callback_event(
     lead_id,

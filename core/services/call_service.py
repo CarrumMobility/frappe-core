@@ -636,8 +636,6 @@ class CallService:
         except Exception as e:
             login_error = str(e)
             if "already logged in" not in login_error.lower():
-                pass
-            else:
                 return {
                     "is_valid": False,
                     "step": "login",

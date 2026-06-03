@@ -386,7 +386,7 @@ class CallService:
             # update call session status to failed with reason
             call_session_doc.db_set("status", EnumValues.CallSessionStatus.FAILED)
             call_session_doc.db_set("failure_reason", call_initiated_result["reason"])
-            raise ValueError(f"Call initiation failed: {call_initiated_result['reason']}")
+            raise ValueError(call_initiated_result["reason"])
 
         _pli, _pln, _pm, source_init, pref_sch_init = _call_session_lead_fields(
             call_session_doc
@@ -622,111 +622,46 @@ class CallService:
     ):
         campaign_id = calling_config["default_campaign_id"]
 
-        max_login_retry_count = 2
-        is_logged_in = False
-        last_login_error_message = None
+        try:
+            result = smartflo_client.handle_login_session_api(
+                user=user, campaign_id=campaign_id
+            )
+            login_reason = result.get("reason") or "Session login failed"
+            if not result.get("is_valid") and "already logged in" not in login_reason.lower():
+                return {
+                    "is_valid": False,
+                    "step": "login",
+                    "reason": login_reason,
+                }
+        except Exception as e:
+            login_error = str(e)
+            if "already logged in" not in login_error.lower():
+                return {
+                    "is_valid": False,
+                    "step": "login",
+                    "reason": login_error,
+                }
 
-        for attempt in range(max_login_retry_count):
-            try:
-                result = smartflo_client.handle_login_session_api(
-                    user=user, campaign_id=campaign_id
-                )
-                if result.get("is_valid"):
-                    is_logged_in = True
-                    break
-                last_login_error_message = result.get("reason") or "Session login failed"
-                if "already logged in" in last_login_error_message.lower():
-                    is_logged_in = True
-                    break
+        try:
+            extension_id = calling_config["extension_id"]
+            calling_number = calling_config["calling_number"]
 
-            except Exception as e:
-                err = str(e)
-                if "already logged in" in err.lower():
-                    is_logged_in = True
-                    break
-                last_login_error_message = err
+            smartflo_client.handle_click2call_start_api(
+                user=user,
+                agent_number=extension_id,
+                destination_number=mobile_no,
+                caller_id=calling_number,
+                custom_identifier=call_session_id,
+                use_async=not manual_dial,
+            )
 
-            sleep(2)
-
-        if not is_logged_in:
+            return {"is_valid": True, "reason": None}
+        except Exception as e:
             return {
                 "is_valid": False,
-                "step": "login",
-                "reason": last_login_error_message,
+                "step": "dial",
+                "reason": str(e) or "Failed to start agent call",
             }
-
-        max_dial_retry_count = 2
-        max_offline_retry = 1
-        offline_retry_count = 0
-
-        last_dial_error_message = None
-
-        for attempt in range(max_dial_retry_count + max_offline_retry):
-            try:
-                extension_id = calling_config["extension_id"]
-                calling_number = calling_config["calling_number"]
-
-                smartflo_client.handle_click2call_start_api(
-                    user=user,
-                    agent_number=extension_id,
-                    destination_number=mobile_no,
-                    caller_id=calling_number,
-                    custom_identifier=call_session_id,
-                    use_async=not manual_dial,
-                )
-
-                return {"is_valid": True, "reason": None}
-
-            except Exception as e:
-                error_msg = str(e).lower()
-                last_dial_error_message = str(e)
-                if "agent is offline" in error_msg:
-                    if offline_retry_count >= max_offline_retry:
-                        break
-
-                    offline_retry_count += 1
-
-                    try:
-                        smartflo_client.handle_logout(
-                            user=user, campaign_id=campaign_id
-                        )
-                    except Exception:
-                        pass
-
-                    sleep(0.5)
-
-                    try:
-                        relogin = smartflo_client.handle_login_session_api(
-                            user=user, campaign_id=campaign_id
-                        )
-                        if relogin.get("is_valid"):
-                            pass
-                        else:
-                            relogin_reason = (relogin.get("reason") or "").lower()
-                            if "already logged in" not in relogin_reason:
-                                last_dial_error_message = (
-                                    relogin.get("reason") or "Session re-login failed"
-                                )
-                                break
-                    except Exception as relogin_err:
-                        relogin_err_s = str(relogin_err)
-                        if "already logged in" not in relogin_err_s.lower():
-                            last_dial_error_message = relogin_err_s
-                            break
-
-                    sleep(0.5)
-                    continue
-
-                if attempt >= max_dial_retry_count - 1:
-                    break
-
-                sleep(0.5)
-
-        return {
-            "is_valid": False,
-            "step": "dial",
-            "reason": last_dial_error_message or "Failed to start agent call",
-        }
     
     def _handle_pre_vendor_check(self, user: str):
         match default_telephony_vendor:

@@ -52,7 +52,7 @@ def _lead_status_row_is_onboarding_drop(lead):
     )
 
 
-def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
+def _lead_eligible_for_wallet_driver_stage(lead, driver_row, *, force=False):
     """
     Payment milestones (driver creation → PSD → FSD) apply when the lead is on the
     configured **driver creation** CRM Lead Status row, or when the lead is still in
@@ -69,7 +69,9 @@ def _lead_eligible_for_wallet_driver_stage(lead, driver_row):
     p = (getattr(lead, "primary_status", None) or "").strip()
     if p == "Drop" and _lead_status_row_is_onboarding_drop(lead):
         return True
-    if not p or p in ("Drop", "Converted"):
+    if not p:
+        return False
+    if p in ("Drop", "Converted") and not force:
         return False
     return True
 
@@ -134,7 +136,7 @@ def _wallet_data_for_lead_account(account_id, *, wallet_data=None):
     return wd if isinstance(wd, dict) else None
 
 
-def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
+def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None, force=False):
     """
     After a captured payment, optionally update CRM Lead ``primary_status`` /
     ``secondary_status`` using Carrum wallet balances (same source as the payment summary UI).
@@ -151,6 +153,8 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
     Stage-1 eligibility includes leads in an **open** primary bucket (not ``Drop`` /
     ``Converted``) even when their secondary does not yet match the driver-creation row,
     and leads on **onboarding drop** (``Drop`` + ``CRM Lead Status.is_onboarding_drop``).
+    Pass ``force=True`` to also allow ``Drop`` / ``Converted`` primary buckets through
+    the same wallet-based progression.
 
     If portal wallet data cannot be loaded, status is left unchanged.
     """
@@ -204,7 +208,7 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
     # Stage 1 -> 2 or 1 -> 3 (if both dues are already cleared)
     if (
         driver_row
-        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row, force=force)
         and fsd_row
         and is_hub_fee_cleared
         and is_security_deposit_cleared
@@ -214,7 +218,7 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None):
 
     if (
         driver_row
-        and _lead_eligible_for_wallet_driver_stage(lead, driver_row)
+        and _lead_eligible_for_wallet_driver_stage(lead, driver_row, force=force)
         and psd_row
         and is_hub_fee_cleared
     ):

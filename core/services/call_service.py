@@ -1,3 +1,4 @@
+import ast
 import logging
 import re
 from datetime import datetime, timedelta
@@ -21,6 +22,7 @@ log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
 util_service = UtilService()
 default_telephony_vendor = "Smartflo"
+
 
 
 def _enqueue_apply_not_connected_dial_for_today_lead_callback(
@@ -346,9 +348,6 @@ class CallService:
             raise ValueError(f"Pre vendor check failed: {pre_vendor_check_result['invalid_reason']}")
 
         calling_config = dict(pre_vendor_check_result["calling_config"])
-        log.info(f"calling_config: {calling_config}")
-        log.info(f"campaign_id: {campaign_id}")
-        log.info(f"campaign_name: {campaign_name}")
         resolved_campaign_id, resolved_campaign_name = _click2call_campaign_from_config(
             calling_config,
             campaign_id=campaign_id,
@@ -381,12 +380,13 @@ class CallService:
             calling_config,
             manual_dial=bool(manual_dial),
         )
-
         if call_initiated_result["is_valid"] == False:
             # update call session status to failed with reason
             call_session_doc.db_set("status", EnumValues.CallSessionStatus.FAILED)
             call_session_doc.db_set("failure_reason", call_initiated_result["reason"])
-            raise ValueError(call_initiated_result["reason"])
+            print(call_initiated_result["reason"])
+            # raise ValueError(call_initiated_result["reason"])
+            return call_initiated_result
 
         _pli, _pln, _pm, source_init, pref_sch_init = _call_session_lead_fields(
             call_session_doc
@@ -412,6 +412,7 @@ class CallService:
         )
 
         return {
+            "is_valid": True,
             "status": "success",
             "call_session_id": call_session_doc.name,
             "direction": _call_session_direction_to_ui(
@@ -621,7 +622,6 @@ class CallService:
         manual_dial: bool = False,
     ):
         campaign_id = calling_config["default_campaign_id"]
-
         try:
             result = smartflo_client.handle_login_session_api(
                 user=user, campaign_id=campaign_id
@@ -635,7 +635,33 @@ class CallService:
                 }
         except Exception as e:
             login_error = str(e)
-            if "already logged in" not in login_error.lower():
+            normalized_login_error = login_error.lower()
+            valid_err_string = "logged in to one campaign at a time"
+            
+            if valid_err_string in normalized_login_error:
+                already_logged_in_campaign = ast.literal_eval(login_error.split("|", 1)[1].strip())
+                error_data = already_logged_in_campaign["data"]
+                for campaign in error_data:
+                    logged_in_campaign_id = campaign["id"]
+                    smartflo_client.handle_logout(
+                        user=user, campaign_id=logged_in_campaign_id
+                    )
+                    
+
+                retry_result = smartflo_client.handle_login_session_api(
+                    user=user, campaign_id=campaign_id
+                )
+                retry_reason = retry_result.get("reason") or "Session login failed"
+                if not retry_result.get("is_valid"):
+                    return {
+                        "is_valid": False,
+                        "step": "login",
+                        "reason": retry_reason,
+                    }
+
+
+
+            if "already logged in" not in normalized_login_error:
                 return {
                     "is_valid": False,
                     "step": "login",
@@ -657,6 +683,14 @@ class CallService:
 
             return {"is_valid": True, "reason": None}
         except Exception as e:
+            errStr = str(e).lower()
+            originFailedMsg = 'originate failed'
+            if originFailedMsg in errStr:
+                return {
+                    "is_valid": False,
+                    "step": "dial",
+                    "reason": "Login smartflo softphone & accept call from CRM"
+                }
             return {
                 "is_valid": False,
                 "step": "dial",
@@ -1676,11 +1710,36 @@ class CallService:
                 if "already logged in" not in reason:
                     raise ValueError(result.get("reason") or "Session login failed")
         except Exception as e:
-            err = str(e)
-            if "already logged in" in err.lower():
-                pass
-            else:
-                raise e
+            login_error = str(e)
+            normalized_login_error = login_error.lower()
+            valid_err_string = "logged in to one campaign at a time"
+
+            if valid_err_string in normalized_login_error:
+                already_logged_in_campaign = ast.literal_eval(login_error.split("|", 1)[1].strip())
+                error_data = already_logged_in_campaign["data"]
+                for campaign in error_data:
+                    logged_in_campaign_id = campaign["id"]
+                    smartflo_client.handle_logout(
+                        user=user, campaign_id=logged_in_campaign_id
+                    )
+
+                retry_result = smartflo_client.handle_login_session_api(
+                    user=user, campaign_id=campaign_id
+                )
+                retry_reason = retry_result.get("reason") or "Session login failed"
+                if not retry_result.get("is_valid"):
+                    return {
+                        "is_valid": False,
+                        "step": "login",
+                        "reason": retry_reason,
+                    }
+
+            if "already logged in" not in normalized_login_error:
+                return {
+                    "is_valid": False,
+                    "step": "login",
+                    "reason": login_error,
+                }
 
         try:
             # handle dialer session start

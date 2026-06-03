@@ -880,7 +880,7 @@ def send_agreement(leadId: str):
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
     bank_ifsc_code = lead.bank_ifsc
-    business_type_id = lead.business_type_id
+    business_type_id = lead.business_type_id or lead.preferred_business_type_1
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city

@@ -463,15 +463,15 @@ class CallService:
         call_id = call_session_doc.agent_call_id
         try:
             smartflo_client.handle_dialer_hangup_api(user=user, call_session_id=call_id)
-            call_session_doc.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
-            call_session_doc.set("hangup_at", frappe.utils.now())
-            call_session_doc.save(ignore_permissions=True)
         except Exception as e:
             callAlreadyDisconnected = "please enter a valid call id"
             if callAlreadyDisconnected in str(e).lower():
                 pass 
             else:
                 raise e
+        call_session_doc.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
+        call_session_doc.set("hangup_at", frappe.utils.now())
+        call_session_doc.save(ignore_permissions=True)
         return {
             "is_valid": True,
             "reason": None,

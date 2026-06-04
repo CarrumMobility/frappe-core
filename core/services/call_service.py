@@ -2487,6 +2487,7 @@ class CallService:
                     [
                         EnumValues.CallSessionStatus.NOT_CONNECTED,
                         EnumValues.CallSessionStatus.MISSED,
+                        EnumValues.CallSessionStatus.FAILED
                     ],
                 ],
             },

@@ -1605,12 +1605,18 @@ class CallService:
             call_session_doc.set("sub_disposition_status", sub_disposition_status or None)
             call_session_doc.set("disposition_remarks", remarks)
             call_session_doc.set("disposition_timing", disposition_timing)
-
-            smartflo_client.handle_store_disposition_api(
-                user=frappe.session.user,
-                call_id=call_id,
-                disposition_code=disposition_code,
-            )
+            try:
+                smartflo_client.handle_store_disposition_api(
+                    user=frappe.session.user,
+                    call_id=call_id,
+                    disposition_code=disposition_code,
+                )
+            except Exception as e:
+                # if either below alreadyDisposeErr or alreadyDisposeErr2 is in error message then don't raise the error 
+                alreadyDisposeErr = "please enter a valid call id record"
+                alreadyDisposeErr2 = "disposition status for this call is already updated once. only disposition note can be changed now"
+                if alreadyDisposeErr not in str(e).lower() or alreadyDisposeErr2 not in str(e).lower():
+                    raise e
 
             svd = (
                 str(scheduled_visit_date).strip()
@@ -2483,11 +2489,11 @@ class CallService:
             filters={
                 "agent": user,
                 "status": [
-                    "not in",
+                    "in",
                     [
-                        EnumValues.CallSessionStatus.NOT_CONNECTED,
-                        EnumValues.CallSessionStatus.MISSED,
-                        EnumValues.CallSessionStatus.FAILED
+                        EnumValues.CallSessionStatus.DISCONNECTED,
+                        EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
+                        EnumValues.CallSessionStatus.AGENT_CONNECTED
                     ],
                 ],
             },

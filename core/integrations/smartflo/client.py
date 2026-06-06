@@ -99,7 +99,9 @@ def _smartflo_api_client(
 	t0 = time.perf_counter()
 	api_name = f"Smartflo:{api_operation}"
 	by_user = _created_by_user(user)
-
+	print(f"====by_user=== isAdmin: start : {isAdmin}")
+	print(by_user)
+	print("====by_user=== end")
 	def _request(access_token: str):
 		request_headers = dict(headers or {})
 		request_headers["Authorization"] = f"Bearer {access_token}"

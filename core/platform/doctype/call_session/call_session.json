@@ -42,7 +42,8 @@
         "campaign_id",
         "campaign_name",
         "lead_callback_datetime",
-        "vendor_disposition_code"
+        "vendor_disposition_code",
+        "is_auto_disposed"
     ],
     "fields": [
         {
@@ -261,6 +262,11 @@
             "fieldname": "redial_time",
             "fieldtype": "Datetime",
             "label": "Redial time"
+        },
+        {
+            "fieldname": "is_auto_disposed",
+            "fieldtype": "Check",
+            "label": "Is auto disposed"
         }
     ],
     "grid_page_length": 50,

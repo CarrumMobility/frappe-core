@@ -148,9 +148,13 @@ def get_token(user: str, *, refresh: bool = False) -> str:
 		if cached:
 			return cached
 
+	print("====user=== start")
+	print(user)
+	print("====user=== end")
 	creds = get_smartflo_credentials_for_frappe_user(user)
 	email = (creds or {}).get("email")
 	password = (creds or {}).get("password")
+	print(email, password)
 	if not creds or not email or not password:
 		frappe.throw(
 			frappe._(

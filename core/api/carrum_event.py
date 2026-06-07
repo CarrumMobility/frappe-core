@@ -7,7 +7,7 @@ from core.constants.enums import EnumValues
 log = frappe.logger("core_api_carrum_event")
 log.setLevel("INFO")
 
-TRIGGER_RECONCILIATION_EVENT_URL = f"{frappe.conf.get('carrum_base_url')}/api/v1/event/trigger-reconciliation-event"
+TRIGGER_RECONCILIATION_EVENT_URL = f"{frappe.conf.get('carrum_base_url')}/api/v1/crm/crmEvent"
 
 @frappe.whitelist(methods=['POST'])
 def handle_carrum_event():

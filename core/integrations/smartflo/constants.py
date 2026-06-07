@@ -58,3 +58,8 @@ dialer_hangup_config= {
     "url": "https://api-smartflo.tatateleservices.com/v1/dialer/disconnect_call",
     "method": "POST",
 }
+
+get_cdr_info_config = {
+    "url": "https://api-smartflo.tatateleservices.com/v1/call/records",
+    "method": "GET"
+}

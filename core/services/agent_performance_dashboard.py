@@ -1077,8 +1077,6 @@ def _valid_doctype_fields(doctype: str, fieldnames: list[str]) -> list[str]:
 
 
 def _call_session_connected_field() -> str:
-    if frappe.db.has_column(CALL_SESSION_DOCTYPE, "connected_at"):
-        return "connected_at"
     return "lead_answered_at"
 
 
@@ -1110,7 +1108,6 @@ def _fetch_call_sessions_breakup(
         return []
 
     from frappe.query_builder import DocType
-    from frappe.query_builder.functions import Coalesce
 
     connected_field = _call_session_connected_field()
     start_dt, end_dt = _breakup_datetime_bounds(from_date, to_date)
@@ -1132,19 +1129,18 @@ def _fetch_call_sessions_breakup(
         if col is not None:
             select_cols.append(col)
 
-    date_expr = Coalesce(connected_col, CS.creation)
 
     def _run_query(extra_filters: list) -> list:
         q = (
             frappe.qb.from_(CS)
             .select(*select_cols)
             .where(CS.agent.isin(agent_ids))
-            .where(date_expr >= start_dt)
-            .where(date_expr <= end_dt)
+            .where(CS.creation >= start_dt)
+            .where(CS.creation <= end_dt)
         )
         for cond in extra_filters:
             q = q.where(cond)
-        return q.orderby(date_expr, order=frappe.qb.desc).run(as_dict=True)
+        return q.orderby(CS.creation, order=frappe.qb.desc).run(as_dict=True)
 
     raw_rows: list[dict] = []
     if mode == "attempts":

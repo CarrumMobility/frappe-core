@@ -49,6 +49,23 @@ def _enqueue_apply_not_connected_dial_for_today_lead_callback(
         )
 
 
+def _trigger_reconciliation_event_direct(data: dict, options: dict, log_context: str):
+    log.info(f"{log_context}: trigger reconciliation api start data={data} options={options}")
+    try:
+        from core.api.carrum_event import trigger_reconciliation_event
+
+        result = trigger_reconciliation_event(data=data, options=options)
+        log.info(f"{log_context}: trigger reconciliation api success result={result}")
+        return result
+    except Exception:
+        log.exception(f"{log_context}: trigger reconciliation api failed")
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"{log_context}_trigger_reconciliation_api",
+        )
+        return None
+
+
 def _disposition_datetime_or_none(value):
     """Normalize API datetime strings for Call Session Datetime fields; empty/invalid -> None."""
     if value is None:
@@ -2426,21 +2443,11 @@ class CallService:
             reconciliation_options = {
                 "delayMs": 43000,  # 45 seconds delay = 43 seconds + 2 second buffer
             }
-            log.info(f"dialer_disconnect: enqueue reconciliation start session={row.name} queue=short data={reconciliation_data} options={reconciliation_options}")
-            try:
-                job = frappe.enqueue(
-                    "core.api.carrum_event.trigger_reconciliation_event",
-                    queue="short",
-                    data=reconciliation_data,
-                    options=reconciliation_options,
-                )
-                log.info(f"dialer_disconnect: enqueue reconciliation success session={row.name} job={getattr(job, 'id', job)}")
-            except Exception:
-                log.exception(f"dialer_disconnect: enqueue reconciliation failed session={row.name}")
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "dialer_disconnect_enqueue_reconciliation_existing",
-                )
+            _trigger_reconciliation_event_direct(
+                reconciliation_data,
+                reconciliation_options,
+                f"dialer_disconnect_existing_session_{row.name}",
+            )
 
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(row.get("duration"))
@@ -2543,21 +2550,11 @@ class CallService:
             reconciliation_options = {
                 "delayMs": 45000,
             }
-            log.info(f"dialer_disconnect: enqueue reconciliation start session={new_session.name} queue=short data={reconciliation_data} options={reconciliation_options}")
-            try:
-                job = frappe.enqueue(
-                    "core.api.carrum_event.trigger_reconciliation_event",
-                    queue="short",
-                    data=reconciliation_data,
-                    options=reconciliation_options,
-                )
-                log.info(f"dialer_disconnect: enqueue reconciliation success session={new_session.name} job={getattr(job, 'id', job)}")
-            except Exception:
-                log.exception(f"dialer_disconnect: enqueue reconciliation failed session={new_session.name}")
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    "dialer_disconnect_enqueue_reconciliation_new",
-                )
+            _trigger_reconciliation_event_direct(
+                reconciliation_data,
+                reconciliation_options,
+                f"dialer_disconnect_new_session_{new_session.name}",
+            )
 
             target_user = new_session.agent
             # if duration < 10 seconds then mark it as auto-disposed

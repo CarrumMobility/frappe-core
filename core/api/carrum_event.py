@@ -1,6 +1,6 @@
 from core.services import call_service
 import frappe
-from core.services.logged_requests import request as re
+from core.services import logged_requests as re
 
 from core.constants.enums import EnumValues
 

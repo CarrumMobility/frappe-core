@@ -2865,7 +2865,7 @@ class CallService:
                     event="call_auto_disposed",
                     message={
                         "call_session_id": callSession.name,
-                        "message": f"#{callSession.get("lead")} marked Undisposed by CRM as 45s threshold reached"
+                        "message": f"#{callSession.get('lead')} marked Undisposed by CRM as 45s threshold reached"
                     },
                     user=agent,
                 )

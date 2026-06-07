@@ -2,8 +2,8 @@ from datetime import date, timedelta
 import logging
 
 from core.constants.app_constant import AppConstants
-import filelock
 import frappe
+from frappe.utils.synchronization import filelock
 from frappe.utils import flt, get_datetime, getdate, now_datetime, today
 
 from core.constants.enums import EnumValues

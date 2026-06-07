@@ -21,7 +21,7 @@ from core.services.util_service import UtilService
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
 util_service = UtilService()
-default_telephony_vendor = "Smartflo"
+default_telephony_vendor = EnumValues.CallingVendorName.Smartflo
 
 
 def _enqueue_apply_not_connected_dial_for_today_lead_callback(
@@ -456,11 +456,12 @@ class CallService:
 
     def reconcile_active_calls(self):
         self._mark_initiated_stale_calls_as_failed()
-        match default_telephony_vendor:
-            case "Smartflo":
-                return self._handle_smartflo_reconcile_active_calls()
-            case _:
-                raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
+        # match default_telephony_vendor:
+        #     case EnumValues.CallingVendorName.Smartflo:
+        #         return self._handle_smartflo_reconcile_active_calls()
+        #     case _:
+        #         raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
+
 
    
     def _mark_initiated_stale_calls_as_failed(self, call_session_id: str | None = None):
@@ -518,7 +519,7 @@ class CallService:
 
     def _handle_click2call_end_logic(self, call_session_id: str, user):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_click2call_end_logic(call_session_id, user)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
@@ -576,7 +577,7 @@ class CallService:
         manual_dial: bool = False,
     ):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_click2call_start_logic(
                     user, call_session_id, mobile_no, calling_config, manual_dial=manual_dial
                 )
@@ -671,7 +672,7 @@ class CallService:
     
     def _handle_pre_vendor_check(self, user: str):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_pre_vendor_check(user)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
@@ -718,7 +719,7 @@ class CallService:
 
     def handle_agent_call_connected_webhook(self, vendor_name: str, payload: dict):
         match vendor_name:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_agent_call_connected_webhook(payload)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {vendor_name}")
@@ -807,7 +808,7 @@ class CallService:
 
     def handle_customer_call_connected_webhook(self, vendor_name: str, payload: dict):
         match vendor_name:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_customer_call_connected_webhook(payload)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {vendor_name}")
@@ -894,7 +895,7 @@ class CallService:
 
     def handle_call_missed_by_customer_webhook(self, vendor_name: str, payload: dict):
         match vendor_name:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_call_missed_by_customer(payload)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {vendor_name}")
@@ -1042,7 +1043,7 @@ class CallService:
 
     def handle_answered_call_hangup_webhook(self, vendor_name: str, payload: dict):
         match vendor_name:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_call_hangup(payload)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {vendor_name}")
@@ -1516,7 +1517,7 @@ class CallService:
         is_allow_tc_assignment: bool | None = False,
     ):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_dialer_submit_disposition(
                     call_session_id,
                     disposition_status,
@@ -1674,7 +1675,7 @@ class CallService:
 
     def start_dialer_session(self, user:str, campaign_id: str, campaign_name: str):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 return self._handle_smartflo_start_dialer_session(user,campaign_id, campaign_name)
             case _:
                 raise ValueError(f"Invalid telephony vendor: {default_telephony_vendor}")
@@ -1775,7 +1776,7 @@ class CallService:
             }
         warning = None
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 result = self._handle_smartflo_end_dialer_session(
                     user, campaign_id=data.campaign_id
                 )
@@ -1840,7 +1841,7 @@ class CallService:
             raise ValueError("break_code is required")
 
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 result = self._handle_smartflo_start_dialer_break(user, code)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
@@ -1882,7 +1883,7 @@ class CallService:
 
     def end_dialer_break(self, user: str):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 result = self._handle_smartflo_end_dialer_break(user)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
@@ -2204,7 +2205,7 @@ class CallService:
     def dialer_call_disposed_webhook(self, user: str, payload: dict):
         result = {}
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 result = self._handle_smartflo_dialer_call_disposed_webhook(payload)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
@@ -2263,7 +2264,7 @@ class CallService:
 
         if not row.get("disposed_at"):
             row.set("disposed_at", frappe.utils.now())
-        row.set("status", EnumValues.CallSessionStatus.DISPOSED)
+        # row.set("status", EnumValues.CallSessionStatus.DISPOSED)
         if not (row.get("lead_source_during_call") or "").strip():
             _set_lead_source_during_call_on_session(row)
 
@@ -2273,7 +2274,7 @@ class CallService:
     
     def dialer_call_disconnected(self, user: str, payload: dict):
         match default_telephony_vendor:
-            case "Smartflo":
+            case EnumValues.CallingVendorName.Smartflo:
                 result = self._handle_smartflo_dialer_call_disconnected(payload)
                 if not result.get("is_valid"):
                     raise ValueError(result.get("reason"))
@@ -2409,7 +2410,20 @@ class CallService:
             row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
             row.save(ignore_permissions=True)
             frappe.db.commit()
+            frappe.enqueue(
+                "core.api.carrum_event.trigger_reconciliation_event",
+                kwargs={
+                    "data": {
+                    "call_session_id": row.name,
+                    "vendor_name": EnumValues.CallingVendorName.Smartflo,
+                    "calling_method": EnumValues.CallingMethod.Dialer,
+                    },
+                    "options": {
+                        "delayMs": 43000 # 45 seconds delay  = 43 seconds + 2 second buffer
+                    }
+                },
 
+            )
 
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(row.get("duration"))
@@ -2500,6 +2514,20 @@ class CallService:
 
         if call_status == EnumValues.CallSessionStatus.DISCONNECTED:
             target_user = new_session.agent
+            frappe.enqueue(
+                "core.api.carrum_event.trigger_reconciliation_event",
+                kwargs={
+                    "data": {
+                        "call_session_id": new_session.name,
+                        "vendor_call_id": new_session.agent_call_id,
+                        "vendor_name": EnumValues.CallingVendorName.Smartflo,
+                        'calling_method': EnumValues.CallingMethod.Dialer,
+                    },
+                    "options": {
+                        "delayMs": 45000
+                    }
+                },
+            )
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(new_session.get("duration"))
             if duration_seconds is not None and duration_seconds < 10 and agent_user:
@@ -2612,7 +2640,8 @@ class CallService:
                     [
                         EnumValues.CallSessionStatus.DISCONNECTED,
                         EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
-                        EnumValues.CallSessionStatus.AGENT_CONNECTED
+                        EnumValues.CallSessionStatus.AGENT_CONNECTED,
+                        EnumValues.CallSessionStatus.DISPOSED
                     ],
                 ],
             },
@@ -2733,6 +2762,132 @@ class CallService:
 
         return {"is_valid": True}
 
+    def validate_and_dispose_dialer_call_if_required(self, payload: dict):
+        callingMethod = payload.get("calling_method")
+
+        if callingMethod != EnumValues.CallingMethod.Dialer:
+            return {"is_valid": False, "reason": "unhandled calling method"}
+
+        callSessionId = payload.get("call_session_id")
+        if not callSessionId:
+            return {"is_valid": False, "reason": "missing call_session_id"}
+        
+        callSession = None
+        try:
+            callSession = frappe.get_doc(
+                EnumValues.ReferenceDocType.CALL_SESSION,
+                callSessionId
+            )
+        except frappe.DoesNotExistError:
+            pass
+        except Exception as e:
+            return {"is_valid": False, "reason": "error while getting call session: " + str(e)}
+
+        if not callSession:
+            return {"is_valid": False, "reason": "call session not found"}
+
+        vendorCallId = callSession.get("agent_call_id")
+        if not vendorCallId:
+            return {"is_valid": False, "reason": "missing vendor_call_id"}
+
+        agent = callSession.get("agent")
+        if not agent:
+            return {"is_valid": False, "reason": "call session missing agent record"}
+
+        # validate agent is session is active in crm
+        userDialerSessionLog = frappe.db.get_value(
+            EnumValues.ReferenceDocType.USER_DIALER_SESSION_LOG,
+            {"user": agent },
+            ['active_at', "name", "status"],
+            as_dict=True,
+            order_by="modified desc"
+        )
+        
+        if not userDialerSessionLog:
+            return {"is_valid": False, "reason": "Agent didn't start his dialer session today"}
+
+        userDialerSessionLogStatus = userDialerSessionLog.get("status")
+        userDialerSessionLogActiveAt = userDialerSessionLog.get("active_at")
+
+        today = frappe.utils.today()
+        print(userDialerSessionLog)
+        print(str(userDialerSessionLogActiveAt.date()))
+        
+        if str(userDialerSessionLogActiveAt.date()) != today:
+            return {"is_valid": False, "reason": "Agent didn't start his dialer session today"}
+        if userDialerSessionLogStatus != "ACTIVE" :
+            return {"is_valid": False, "reason": "Agent is not active in dialer session"}
+
+        cdr = smartflo_client.get_cdr_info_api(
+            user=agent, 
+            vendor_call_id=vendorCallId,
+        )
+
+        results = cdr.get('results')
+        count = cdr.get("count")
+        if not results:
+            return {"is_valid": False, "reason": "no cdr data found"}
+
+        if count != 1:
+            raise frappe.ValidationError(message="Multiple CDR records found for the call: " + str(results))
+
+
+        result = results[0]
+        dialerCallDetails = result.get("dialer_call_details")
+
+        if not dialerCallDetails:
+            raise frappe.ValidationError(message="No dialer call details found for the call: " + str(results))
+        dispositionId = dialerCallDetails.get("disposition_id")
+        if not dispositionId or dispositionId != "":
+            customDispositionCode = None
+            try:
+                customDispositionCode = frappe.get_value(
+                    EnumValues.ReferenceDocType.CRM_LEAD_STATUS, 
+                    {"is_only_dispose_on_dialer": True},
+                    "custom_disposition_code",
+                )
+            except frappe.DoesNotExistError:
+                pass
+            
+            if not customDispositionCode:
+                return {
+                    "is_valid": False,
+                    "reason": "No disposition code found configured with is_only_dispose_on_dialer as true"
+                }
+
+            try:
+                smartflo_client.handle_store_disposition_api(
+                    user=agent,
+                    call_id=vendorCallId,
+                    disposition_code=customDispositionCode,
+                )
+                frappe.publish_realtime(
+                    event="call_auto_disposed",
+                    message={
+                        "call_session_id": callSession.name,
+                        "message": f"#{callSession.get("lead")} marked Undisposed by CRM as 45s threshold reached"
+                    },
+                    user=agent,
+                )
+            except Exception as e:
+                alreadyDisposeErr = "please enter a valid call id record"
+                alreadyDisposeErr2 = "disposition status for this call is already updated once"
+                if alreadyDisposeErr not in str(e).lower() and alreadyDisposeErr2 not in str(e).lower():
+                    raise e
+                return {
+                    "is_valid": False,
+                    "reason": "Error while storing disposition: " + str(e)
+                }
+
+            return {"is_valid": True, "remarks": "Call auto-disposed"}
+
+    def handle_reconciliation_call_status(self, payload):
+        vendorName = payload.get('vendor_name')
+        if vendorName is None:
+            return {"is_valid": False, "reason": "missing vendor_name"}
+        match vendorName:
+            case EnumValues.CallingVendorName.Smartflo:
+                return self.validate_and_dispose_dialer_call_if_required(payload)
 
 _service = CallService()
 
@@ -2886,3 +3041,6 @@ def update_call_session(payload: dict):
 
 def apply_default_campaign_id_to_call_session(call_session_id: str):
     return _service._apply_default_campaign_id_to_call_session(call_session_id)
+
+def reconciliation_call_status(payload: dict):
+    return _service.handle_reconciliation_call_status(payload)

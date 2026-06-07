@@ -2309,6 +2309,7 @@ class CallService:
             return None
 
     def _handle_smartflo_dialer_call_disconnected_locked(self, payload: dict, call_id: str):
+        log.info(f"dialer_disconnect: start call_id={call_id} uuid={payload.get('uuid')} direction={payload.get('direction')} answered_agent_present={bool(payload.get('answered_agent'))}")
         direction_raw = (payload.get("direction") or "").strip().lower()
         call_direction = (
             EnumValues.CallDirection.OUTBOUND
@@ -2334,12 +2335,14 @@ class CallService:
             if call_direction == EnumValues.CallDirection.OUTBOUND
             else caller_id_number
         )
+        log.info(f"dialer_disconnect: resolved call_id={call_id} call_direction={call_direction} call_status={call_status} lead_phone={lead_phone}")
 
         row_name = frappe.db.get_value(
             EnumValues.ReferenceDocType.CALL_SESSION,
             {"agent_call_id": call_id},
             "name",
         )
+        log.info(f"dialer_disconnect: existing row lookup call_id={call_id} row_name={row_name}")
 
         lead = self._create_lead_if_not_exists(lead_phone)
         if not lead or not getattr(lead, "name", None):
@@ -2356,6 +2359,7 @@ class CallService:
         elif isinstance(agentInfo, list) and agentInfo and isinstance(agentInfo[0], dict):
             agent_email = agentInfo[0].get("email") or agentInfo[0].get("agent_email")
         agent_user = self._get_user_for_agent_email(agent_email) or lead_telecaller
+        log.info(f"dialer_disconnect: resolved lead={lead.name} lead_telecaller={lead_telecaller} agent_email={agent_email} agent_user={agent_user}")
         event_id = payload.get("uuid")
         recording_url = payload.get("recording_url")
         campaign_name = payload.get("campaign_name")
@@ -2367,8 +2371,10 @@ class CallService:
         if row_name:
             row = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, row_name)
             prev_record_status = (row.get("status") or "").strip().upper()
+            log.info(f"dialer_disconnect: updating existing session={row.name} prev_status={prev_record_status} event_id={event_id} duration={call_duration}")
 
             if prev_record_status == EnumValues.CallSessionStatus.DISPOSED:
+                log.info(f"dialer_disconnect: skipping disposed session={row.name}")
                 frappe.db.commit()
                 return {"is_valid": True, "skipped": True}
 
@@ -2376,6 +2382,7 @@ class CallService:
                 prev_record_status == EnumValues.CallSessionStatus.DISCONNECTED
                 and row.get("hangup_event_id")
             ):
+                log.info(f"dialer_disconnect: skipping duplicate disconnected session={row.name} hangup_event_id={row.get('hangup_event_id')}")
                 frappe.db.commit()
                 return {"is_valid": True, "skipped": True}
 
@@ -2410,23 +2417,34 @@ class CallService:
             row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
             row.save(ignore_permissions=True)
             frappe.db.commit()
-            frappe.enqueue(
-                "core.api.carrum_event.trigger_reconciliation_event",
-                kwargs={
-                    "data": {
+            log.info(f"dialer_disconnect: saved existing disconnected session={row.name}")
+            reconciliation_data = {
                     "call_session_id": row.name,
                     "vendor_name": EnumValues.CallingVendorName.Smartflo,
                     "calling_method": EnumValues.CallingMethod.Dialer,
-                    },
-                    "options": {
-                        "delayMs": 43000 # 45 seconds delay  = 43 seconds + 2 second buffer
-                    }
-                },
-
-            )
+            }
+            reconciliation_options = {
+                "delayMs": 43000,  # 45 seconds delay = 43 seconds + 2 second buffer
+            }
+            log.info(f"dialer_disconnect: enqueue reconciliation start session={row.name} queue=short data={reconciliation_data} options={reconciliation_options}")
+            try:
+                job = frappe.enqueue(
+                    "core.api.carrum_event.trigger_reconciliation_event",
+                    queue="short",
+                    data=reconciliation_data,
+                    options=reconciliation_options,
+                )
+                log.info(f"dialer_disconnect: enqueue reconciliation success session={row.name} job={getattr(job, 'id', job)}")
+            except Exception:
+                log.exception(f"dialer_disconnect: enqueue reconciliation failed session={row.name}")
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "dialer_disconnect_enqueue_reconciliation_existing",
+                )
 
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(row.get("duration"))
+            log.info(f"dialer_disconnect: existing session={row.name} duration_seconds={duration_seconds} auto_dispose_candidate={duration_seconds is not None and duration_seconds < 10}")
             if duration_seconds is not None and duration_seconds < 10:
                 auto_dispose_result = self._auto_dispose_call(
                     call_session_doc=row, 
@@ -2497,9 +2515,12 @@ class CallService:
         call_duration = payload.get("outbound_sec")
         if call_duration is not None and call_duration != "":
             new_session.duration = call_duration
+        log.info(f"dialer_disconnect: inserting new session call_id={call_id} status={call_status} lead={lead.name} agent={agent_user} duration={new_session.duration}")
         new_session.insert(ignore_permissions=True)
+        log.info(f"dialer_disconnect: inserted new session={new_session.name} status={call_status}")
 
         if call_status == EnumValues.CallSessionStatus.NOT_CONNECTED:
+            log.info(f"dialer_disconnect: enqueue not-connected callback side effects lead={lead.name} event_id={event_id} call_id={call_id}")
             _enqueue_apply_not_connected_dial_for_today_lead_callback(
                 lead.name,
                 lock_key=(
@@ -2513,23 +2534,35 @@ class CallService:
 
 
         if call_status == EnumValues.CallSessionStatus.DISCONNECTED:
+            reconciliation_data = {
+                "call_session_id": new_session.name,
+                "vendor_call_id": new_session.agent_call_id,
+                "vendor_name": EnumValues.CallingVendorName.Smartflo,
+                "calling_method": EnumValues.CallingMethod.Dialer,
+            }
+            reconciliation_options = {
+                "delayMs": 45000,
+            }
+            log.info(f"dialer_disconnect: enqueue reconciliation start session={new_session.name} queue=short data={reconciliation_data} options={reconciliation_options}")
+            try:
+                job = frappe.enqueue(
+                    "core.api.carrum_event.trigger_reconciliation_event",
+                    queue="short",
+                    data=reconciliation_data,
+                    options=reconciliation_options,
+                )
+                log.info(f"dialer_disconnect: enqueue reconciliation success session={new_session.name} job={getattr(job, 'id', job)}")
+            except Exception:
+                log.exception(f"dialer_disconnect: enqueue reconciliation failed session={new_session.name}")
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "dialer_disconnect_enqueue_reconciliation_new",
+                )
+
             target_user = new_session.agent
-            frappe.enqueue(
-                "core.api.carrum_event.trigger_reconciliation_event",
-                kwargs={
-                    "data": {
-                        "call_session_id": new_session.name,
-                        "vendor_call_id": new_session.agent_call_id,
-                        "vendor_name": EnumValues.CallingVendorName.Smartflo,
-                        'calling_method': EnumValues.CallingMethod.Dialer,
-                    },
-                    "options": {
-                        "delayMs": 45000
-                    }
-                },
-            )
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(new_session.get("duration"))
+            log.info(f"dialer_disconnect: new session={new_session.name} duration_seconds={duration_seconds} auto_dispose_candidate={duration_seconds is not None and duration_seconds < 10 and bool(agent_user)}")
             if duration_seconds is not None and duration_seconds < 10 and agent_user:
                 auto_dispose_result = self._auto_dispose_call(
                     call_session_doc=new_session, 

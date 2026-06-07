@@ -54,6 +54,7 @@ class _ReferenceDocType:
 	USER = "User"
 	LEAD_WALKIN_DONE = "Lead walkin done"
 	LEAD_SOURCE = "CRM Lead Source"
+	USER_DIALER_SESSION_LOG = "User dialer session logs"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -118,6 +119,11 @@ class _CRM_FIELD_DB:
 	ERP = "erp"
 	PORTAL = "portal"
 
+class CallingVendorName:
+	Smartflo = "Smartflo"
+
+class _CarrumEventTopicName:
+	ReconciliationCallStatus = "reconciliation_call_status"
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -137,5 +143,7 @@ class _EnumValues:
 	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
 	CallLockEventType = _CallLockEventType
 	CRM_FIELD_DB = _CRM_FIELD_DB
+	CallingVendorName = CallingVendorName
+	CarrumEventTopicName = _CarrumEventTopicName
 
 EnumValues = _EnumValues()

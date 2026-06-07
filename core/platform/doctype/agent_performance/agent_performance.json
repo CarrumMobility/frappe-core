@@ -43,7 +43,8 @@
    "in_standard_filter": 1,
    "label": "Agent Id",
    "options": "User",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "agent_name",
@@ -58,7 +59,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Date",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "login_duration",
@@ -138,7 +140,8 @@
   {
     "fieldname": "hubId",
     "fieldtype": "Data",
-    "label": "Hub Id"
+    "label": "Hub Id",
+    "search_index": 1
   },
   {
     "fieldname": "hubName",

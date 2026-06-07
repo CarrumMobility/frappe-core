@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import logging
 
 from core.constants.app_constant import AppConstants
+import filelock
 import frappe
 from frappe.utils import flt, get_datetime, getdate, now_datetime, today
 
@@ -628,7 +629,7 @@ class AgentPerformanceService:
         if EnumValues.Roles.TELECALLER not in frappe.get_roles(user):
             return
 
-        with frappe.cache().lock(f"agent_performance_heartbeat_lock_{user}", timeout=10, blocking=True, blocking_timeout=10):
+        with filelock(f"LOCK:AGENT_PERFORMANCE:HEARTBEAT:{user}", timeout=10, blocking=True, blocking_timeout=10):
             name = self._get_today_agent_performance_name(user)
             if name:
                 doc = frappe.get_doc(EnumValues.ReferenceDocType.AGENT_PERFORMANCE, name)

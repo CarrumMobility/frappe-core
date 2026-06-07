@@ -42,7 +42,8 @@
         "campaign_id",
         "campaign_name",
         "lead_callback_datetime",
-        "vendor_disposition_code"
+        "vendor_disposition_code",
+        "is_auto_disposed"
     ],
     "fields": [
         {
@@ -67,7 +68,8 @@
             "label": "Lead",
             "options": "CRM Lead",
             "reqd": 1,
-            "in_standard_filter": 1
+            "in_standard_filter": 1,
+            "search_index": 1
         },
         {
             "fieldname": "lead_phone",
@@ -79,7 +81,8 @@
             "fieldname": "agent",
             "fieldtype": "Link",
             "label": "Agent",
-            "options": "User"
+            "options": "User",
+            "search_index": 1
         },
         {
             "fieldname": "vendor_agent_id",
@@ -91,7 +94,8 @@
             "fieldtype": "Data",
             "label": "Agent call id",
             "read_only": 1,
-            "no_copy": 1
+            "no_copy": 1,
+            "unique": 1
         },
         {
             "fieldname": "status",
@@ -99,7 +103,8 @@
             "in_list_view": 1,
             "label": "Status",
             "options": "INITIATED\nFAILED\nAGENT_CONNECTED\nCUSTOMER_CONNECTED\nOB Missed\nIB Missed\nDISCONNECTED\nDISPOSED",
-            "reqd": 1
+            "reqd": 1,
+            "search_index": 1
         },
         {
             "fieldname": "agent_answered_at",
@@ -125,7 +130,8 @@
         {
             "fieldname": "disposition_status",
             "fieldtype": "Data",
-            "label": "Disposition status"
+            "label": "Disposition status",
+            "search_index": 1
         },
         {
             "fieldname": "disposition_remarks",
@@ -209,7 +215,8 @@
         {
             "fieldname": "sub_disposition_status",
             "fieldtype": "Data",
-            "label": "Sub disposition status"
+            "label": "Sub disposition status",
+            "search_index": 1
         },
         {
             "default": "0",
@@ -261,6 +268,11 @@
             "fieldname": "redial_time",
             "fieldtype": "Datetime",
             "label": "Redial time"
+        },
+        {
+            "fieldname": "is_auto_disposed",
+            "fieldtype": "Check",
+            "label": "Is auto disposed"
         }
     ],
     "grid_page_length": 50,
@@ -295,7 +307,7 @@
     ],
     "row_format": "Dynamic",
     "rows_threshold_for_grid_search": 20,
-    "sort_field": "modified",
+    "sort_field": "creation",
     "sort_order": "DESC",
     "states": [],
     "track_changes": 1

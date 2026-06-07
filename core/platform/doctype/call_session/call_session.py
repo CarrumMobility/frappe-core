@@ -53,6 +53,7 @@ class CallSession(Document):
 		campaign_id: DF.Data | None
 		lead_callback_datetime: DF.Datetime | None
 		ring_duration: DF.Duration | None
+		is_auto_disposed: DF.Check | None
 	# end: auto-generated types
 
 	def validate(self) -> None:

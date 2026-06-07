@@ -14,7 +14,8 @@ def handle_carrum_event():
     payload = frappe.request.get_json()
     log.info(f"handle_carrum_event: received payload={payload}")
     print(payload)
-    eventName = payload.get("eventName")
+    data = payload.get("data")
+    eventName = data.get("eventName")
     responseBody = None
 
     if eventName == EnumValues.CarrumEventTopicName.ReconciliationCallStatus:
@@ -26,11 +27,11 @@ def handle_carrum_event():
             "calling_method": "Dialer"
         }
         '''
-        log.info(f"handle_carrum_event: processing reconciliation event payload={payload}")
-        responseBody = call_service.reconciliation_call_status(payload)
+        log.info(f"handle_carrum_event: processing reconciliation event payload={data}")
+        responseBody = call_service.reconciliation_call_status(data)
         log.info(f"handle_carrum_event: reconciliation response={responseBody}")
     else:
-        log.info(f"handle_carrum_event: ignored eventName={eventName} payload={payload}")
+        log.info(f"handle_carrum_event: ignored eventName={eventName} payload={data}")
     return {
         "isProcessed": True,
         "handlerResponse": responseBody

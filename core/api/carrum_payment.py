@@ -281,8 +281,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
 
     account_id = frappe.conf.get("carrum_account_id")
     source = source or "crm_payment_link"
-    if hub_fee in (None, ""):
-        frappe.throw(_("Hub fee is required"))
+    _validate_positive_hub_fee(hub_fee)
 
     payload = {
         "phoneNumber": str(phone_number).strip(),
@@ -349,6 +348,11 @@ def _tag_type_for_carrum_api(payment_type) -> str:
     frappe.throw(_("Payment type must be security deposit or settlement"))
 
 
+def _validate_positive_hub_fee(hub_fee):
+    if hub_fee in (None, "") or flt(hub_fee) <= 0:
+        frappe.throw(_("Hub fee is required and it must be greater than 0"))
+
+
 def _merge_request_body():
     body = {}
     if getattr(frappe, "request", None):
@@ -402,8 +406,7 @@ def add_other_payment(
     lead_account_id = lead.custom_account_id
     source = lead.source or "crm_other_payment"
 
-    if hub_fee in (None, ""):
-        frappe.throw(_("Hub fee is required payment"))
+    _validate_positive_hub_fee(hub_fee)
 
     if not str(amount or "").strip() and not str(utr or "").strip():
         frappe.throw(_("Enter amount or UTR"))
@@ -493,8 +496,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     hub_fee = lead.hub_fee
     custom_account_id = lead.custom_account_id
 
-    if hub_fee in (None, ""):
-        frappe.throw(_("Hub fee is required payment"))
+    _validate_positive_hub_fee(hub_fee)
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     hub_id = lead.hub_id

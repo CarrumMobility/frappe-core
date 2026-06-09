@@ -42,8 +42,8 @@ class UpdateDriverDtoSchema(BaseModel):
         if v is None or v == "":
             return None
         val = int(v)
-        if val < 1 or val > 10:
-            raise ValueError(_("Tenure must be between 1 and 10"))
+        if val < 1:
+            raise ValueError(_("Tenure must be greater than 0"))
         return val
 
     @field_validator("uber_id", mode="before")
@@ -127,25 +127,17 @@ def _extract_portal_driver_results(envelope_data) -> dict | None:
 
 
 def _portal_driver_has_scheme(account_id: str) -> bool:
-    """True when ``get_portal_driver_detail`` includes an assigned scheme."""
-    base = frappe.conf.get("old_carrum_base_url")
-    token = frappe.conf.get("old_carrum_token")
-    if not base or not token:
-        return False
+    """True when portal driver detail includes an assigned scheme."""
     aid = (account_id or "").strip()
     if not aid:
         return False
-    url = f"{str(base).rstrip('/')}/api/v1/driver/accounts/{aid}"
-    headers = {"Authorization": token}
-    try:
-        response = re.get(url, headers=headers, timeout=60)
-    except re.exceptions.RequestException:
+    lead_name = frappe.db.get_value(
+        "CRM Lead", {"custom_account_id": aid}, "name"
+    )
+    if not lead_name:
         return False
-    if not response.ok:
-        return False
-    try:
-        payload = response.json()
-    except ValueError:
+    ok, payload, _skipped = _fetch_portal_driver_detail_http(lead_name)
+    if not ok or not payload:
         return False
     results = _extract_portal_driver_results(payload)
     if not results:
@@ -159,6 +151,319 @@ def _portal_driver_has_scheme(account_id: str) -> bool:
     if results.get("alias_id") or results.get("aliasId"):
         return True
     return False
+
+
+_ACCOUNT_NOT_FOUND_FOR_LEAD_DISPLAY_ID = "Account not found for this lead display ID"
+
+
+def _carrum_portal_auth_config():
+    base = frappe.conf.get("old_carrum_base_url")
+    token = frappe.conf.get("old_carrum_token")
+    if not base:
+        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    if not token:
+        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
+    return str(base).rstrip("/"), token
+
+
+
+def _carrum_error_message(resp_body) -> str:
+    if not isinstance(resp_body, dict):
+        return ""
+    parts = [
+        resp_body.get("message"),
+        resp_body.get("error"),
+        resp_body.get("Message"),
+        resp_body.get("Error"),
+    ]
+    err = resp_body.get("errors")
+    if isinstance(err, list) and err:
+        first = err[0]
+        if isinstance(first, dict):
+            parts.append(first.get("message"))
+        else:
+            parts.append(str(first))
+    return " ".join(str(p).strip() for p in parts if p).strip()
+
+
+def _is_account_not_found_for_lead_display_id(response, resp_body) -> bool:
+    if response.status_code != 400:
+        return False
+    msg = _carrum_error_message(resp_body)
+    return _ACCOUNT_NOT_FOUND_FOR_LEAD_DISPLAY_ID in msg
+
+
+def _fetch_portal_driver_detail_http(name: str):
+    if not name:
+        return False, None, "missing_name"
+    base, token = _carrum_portal_auth_config()
+    url = f"{base}/api/v1/driver/accounts/{name}"
+    headers = {"Authorization": token}
+
+    try:
+        response = re.get(url, headers=headers, timeout=60)
+    except re.exceptions.RequestException as e:
+        logger.exception(
+            "portal driver detail request failed for lead=%s: %s", name, e
+        )
+        return False, None, "request_failed"
+
+    resp_body = None
+    try:
+        if (response.text or "").strip():
+            resp_body = response.json()
+    except ValueError:
+        resp_body = None
+
+    if _is_account_not_found_for_lead_display_id(response, resp_body):
+        logger.info(
+            "portal driver detail: no Carrum account for lead display ID %s", name
+        )
+        return True, None, "account_not_found_for_lead_display_id"
+
+    if not response.ok:
+        logger.error(
+            "portal driver detail HTTP %s for lead=%s: %s",
+            response.status_code,
+            name,
+            (response.text or "")[:500],
+        )
+        return False, None, "http_error"
+
+    if resp_body is None:
+        logger.error(
+            "portal driver detail non-JSON for lead=%s (HTTP %s)",
+            name,
+            response.status_code,
+        )
+        return False, None, "invalid_json"
+
+    return True, resp_body, None
+
+
+def _extract_portal_account_id_from_carrum_data(data) -> str:
+    """Read Carrum ``accountId`` from portal driver-detail payload."""
+    if not isinstance(data, dict):
+        return ""
+
+    for key in ("accountId", "account_id"):
+        val = data.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+
+    results = _extract_portal_driver_results(data)
+    if isinstance(results, dict):
+        for key in ("accountId", "account_id"):
+            val = results.get(key)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+        wallet = results.get("walletData") or {}
+        meta = wallet.get("meta") if isinstance(wallet, dict) else None
+        if isinstance(meta, dict):
+            for key in ("accountId", "account_id"):
+                val = meta.get(key)
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+    return ""
+
+
+def _extract_portal_driver_status_from_carrum_data(data) -> str:
+    """
+    Read driver lifecycle ``status`` from portal driver-detail payload.
+
+    Skips Carrum envelope values like ``success`` / ``error``.
+    """
+    if not isinstance(data, dict):
+        return ""
+
+    candidates = []
+    for key in ("status", "driverStatus", "driver_status", "newStatus"):
+        val = data.get(key)
+        if val is not None and str(val).strip():
+            candidates.append(str(val).strip())
+
+    results = _extract_portal_driver_results(data)
+    if isinstance(results, dict):
+        for key in ("status", "driverStatus", "driver_status"):
+            val = results.get(key)
+            if val is not None and str(val).strip():
+                candidates.append(str(val).strip())
+
+    skip = {"success", "error"}
+    for raw in candidates:
+        norm = raw.strip().lower()
+        if norm in skip:
+            continue
+        return raw
+    return ""
+
+
+def _sync_lead_custom_account_id_from_portal(lead, portal_account_id: str) -> bool:
+    portal_id = (portal_account_id or "").strip()
+    if not portal_id:
+        return False
+    current = (getattr(lead, "custom_account_id", None) or "").strip()
+    if current == portal_id:
+        return False
+    lead.db_set("custom_account_id", portal_id, update_modified=False)
+    lead.custom_account_id = portal_id
+    return True
+
+
+def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
+    """
+    Map Carrum driver lifecycle status onto CRM Lead (same rules as
+    ``driver_status_update_webhook``).
+    """
+    status = (new_status or "").strip()
+    if not status:
+        return False
+
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_apply_on_vehicle_assignment": 1},
+            _("Lead status not found with is_apply_on_vehicle_assignment = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.PERMANENT_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_permanent_drop": 1},
+            _("Lead status not found with is_permanent_drop = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TEMP_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_temp_drop": 1},
+            _("Lead status not found with is_temp_drop = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_INITIATED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_initiated": 1},
+            _("Lead status not found with is_recovery_initiated = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_DONE:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_recovery_done": 1},
+            _("Lead status not found with is_recovery_done = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.MAINTENANCE_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_maintenance_drop": 1},
+            _("Lead status not found with is_maintenance_drop = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.DRIVER_RETURNED:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_driver_returned": 1},
+            _("Lead status not found with is_driver_returned = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.INACTIVE:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_inactive": 1},
+            _("Lead status not found with is_inactive = 1"),
+        )
+        return True
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
+        return False
+    if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
+        _apply_webhook_crm_lead_status_row(
+            lead,
+            {"is_onboarding_drop": 1},
+            _("Lead status not found with is_onboarding_drop = 1"),
+        )
+        return True
+
+    logger.warning(
+        "apply_portal_driver_status_to_lead: unhandled status %r for lead %s",
+        status,
+        getattr(lead, "name", lead),
+    )
+    return False
+
+
+def _portal_driver_status_normalized(status: str) -> str:
+    return (status or "").strip().lower()
+
+
+def _portal_status_uses_wallet_milestones(portal_status: str) -> bool:
+    """
+    Carrum ``created`` / ``to_onboard`` drivers progress via wallet milestones (PSD/FSD).
+    All other lifecycle statuses map through ``driver_status_update_webhook`` rules.
+    """
+    s = _portal_driver_status_normalized(portal_status)
+    return s in (
+        EnumValues.OLD_SYSTEM_DRIVER_STATUS.CREATED,
+        EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD,
+    )
+
+
+def _sync_lead_from_portal_driver_detail(lead, carrum_data) -> None:
+    """Persist portal ``accountId`` and align CRM Lead status from portal payload."""
+    if not carrum_data:
+        return
+
+    portal_account_id = _extract_portal_account_id_from_carrum_data(carrum_data)
+    _sync_lead_custom_account_id_from_portal(lead, portal_account_id)
+
+    portal_status = _extract_portal_driver_status_from_carrum_data(carrum_data)
+    results = _extract_portal_driver_results(carrum_data) or {}
+    wallet_data = results.get("walletData") if isinstance(results, dict) else None
+
+    if _portal_status_uses_wallet_milestones(portal_status):
+        if isinstance(wallet_data, dict):
+            try:
+                from core.api.carrum_payment import (
+                    maybe_update_lead_status_after_payment_capture,
+                )
+
+                maybe_update_lead_status_after_payment_capture(
+                    lead, wallet_data=wallet_data
+                )
+            except Exception:
+                logger.exception(
+                    "portal driver detail: wallet status sync failed for lead=%s",
+                    lead.name,
+                )
+        return
+
+    if portal_status:
+        try:
+            apply_portal_driver_status_to_lead(lead, portal_status)
+        except Exception:
+            logger.exception(
+                "portal driver detail: status sync failed for lead=%s status=%s",
+                lead.name,
+                portal_status,
+            )
+            lead.reload()
+        return
+
+    if isinstance(wallet_data, dict):
+        try:
+            from core.api.carrum_payment import (
+                maybe_update_lead_status_after_payment_capture,
+            )
+
+            maybe_update_lead_status_after_payment_capture(
+                lead, wallet_data=wallet_data
+            )
+        except Exception:
+            logger.exception(
+                "portal driver detail: wallet status sync failed for lead=%s",
+                lead.name,
+            )
 
 
 def _send_agreement_field_specs() -> list[dict]:
@@ -575,7 +880,7 @@ def send_agreement(leadId: str):
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
     bank_ifsc_code = lead.bank_ifsc
-    lead_hub_id = lead.hub_id
+    business_type_id = lead.preferred_business_type_1 or lead.business_type_id
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city
@@ -625,7 +930,7 @@ def send_agreement(leadId: str):
         "Witness2": "previous_employer_name", # previous_employer_name
         "Witness3": "father_name", # father_name
         "Witness4": "sarpanch", # sarpanch
-        "hubId": lead_hub_id
+        "hubId": business_type_id
     }
     headers = {
         "Authorization": token,
@@ -737,53 +1042,58 @@ def upload_agreement(leadId: str | None = None):
     return {"success": True, "data": resp_body}
 
 
+def _coerce_whitelist_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    s = str(value).strip().lower()
+    if s in ("", "0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return bool(frappe.utils.cint(value))
+
+
 @frappe.whitelist()
-def get_portal_driver_detail(account_id: str | None = None):
+def get_portal_driver_detail(name: str | None = None, sync: bool | int | str | None = None):
     """
-    Portal driver detail from legacy Carrum. Not stored on CRM Lead.
+    Portal driver detail from legacy Carrum by CRM Lead display ID (``CRM Lead.name``).
 
-    :param account_id: Carrum driver account id (prefer CRM custom field, else Uber ID / hub id).
+    Works for any ``lead_type`` (including ``LEAD``). When Carrum returns HTTP 400 with
+    ``Account not found for this lead display ID``, returns ``success: true`` with no data.
+
+    When ``sync`` is true, persists ``custom_account_id`` from ``accountId`` and updates
+    CRM Lead status (wallet milestones for ``created`` / ``to_onboard``, otherwise the same
+    mapping as ``driver_status_update_webhook``). Read-only fetches omit ``sync`` or pass false.
+
+    :param name: CRM Lead ``name`` (display ID).
+    :param sync: When true, apply portal payload to the CRM Lead record.
     """
-    aid = (account_id or "").strip()
-    if not aid:
-        frappe.throw(_("Account ID is required (driver account, Uber ID, or Hub ID on the lead)."))
+    if not name:
+        frappe.throw(_("Lead name is required."))
 
-    base = frappe.conf.get("old_carrum_base_url")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    if not frappe.db.exists("CRM Lead", name):
+        frappe.throw(_("CRM Lead not found: {0}").format(name))
 
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
+    lead = frappe.get_doc("CRM Lead", name)
 
-    url = f"{base}/api/v1/driver/accounts/{aid}"
-    headers = {"Authorization": token}
-
-    try:
-        response = re.get(url, headers=headers)
-    except re.exceptions.RequestException as e:
-        logger.exception("get_portal_driver_detail request failed: %s", e)
-        return {"success": False, "message": "Failed to get driver details"}
-    
-    if not response.ok:
-        logger.error(
-            "get_portal_driver_detail HTTP %s: %s",
-            response.status_code,
-            (response.text or "")[:500],
-        )
+    ok, payload, skipped = _fetch_portal_driver_detail_http(name)
+    if skipped == "account_not_found_for_lead_display_id":
+        return {
+            "success": True,
+            "data": None,
+            "skipped": skipped,
+        }
+    if not ok:
         return {"success": False, "message": "Failed to get driver details"}
 
-    try:
-        data = response.json()
-    except ValueError:
-        logger.error(
-            "get_portal_driver_detail non-JSON (HTTP %s): %s",
-            response.status_code,
-            (response.text or "")[:500],
-        )
-        return {"success": False}
+    if payload and _coerce_whitelist_bool(sync):
+        _sync_lead_from_portal_driver_detail(lead, payload)
 
-    return {"success": True, "data": data}
+    return {"success": True, "data": payload}
 
 
 def _lead_blocks_scheme_business_type_change(lead) -> bool:
@@ -1032,6 +1342,7 @@ def _apply_webhook_crm_lead_status_row(lead, status_filters, not_found_message: 
     lead.save(ignore_permissions=True)
 
 
+
 @frappe.whitelist(methods=["POST"])
 def driver_status_update_webhook():
     payload = frappe.request.get_json() or {}
@@ -1049,57 +1360,10 @@ def driver_status_update_webhook():
     lead = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, lead_name)
 
     new_status = payload.get("newStatus")
-    if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_apply_on_vehicle_assignment": 1},
-            _("Lead status not found with is_apply_on_vehicle_assignment = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.PERMANENT_DROP:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_permanent_drop": 1},
-            _("Lead status not found with is_permanent_drop = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TEMP_DROP:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_temp_drop": 1},
-            _("Lead status not found with is_temp_drop = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_INITIATED:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_recovery_initiated": 1},
-            _("Lead status not found with is_recovery_initiated = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.RECOVERY_DONE:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_recovery_done": 1},
-            _("Lead status not found with is_recovery_done = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.MAINTENANCE_DROP:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_maintenance_drop": 1},
-            _("Lead status not found with is_maintenance_drop = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.DRIVER_RETURNED:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_driver_returned": 1},
-            _("Lead status not found with is_driver_returned = 1"),
-        )
-    elif new_status ==  EnumValues.OLD_SYSTEM_DRIVER_STATUS.INACTIVE:
-        _apply_webhook_crm_lead_status_row(
-            lead,
-            {"is_inactive": 1},
-            _("Lead status not found with is_inactive = 1"),
-        )
-    elif new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-        pass # no action required
-    else:
+    if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
+        return {"message": "ok"}
+
+    if not apply_portal_driver_status_to_lead(lead, new_status):
         frappe.throw(_("Unhandled status: {0}").format(new_status))
 
     return {"message": "ok"}

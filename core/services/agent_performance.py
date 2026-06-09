@@ -3,6 +3,8 @@ import logging
 
 from core.constants.app_constant import AppConstants
 import frappe
+from frappe.utils.file_lock import LockTimeoutError
+from frappe.utils.synchronization import filelock
 from frappe.utils import flt, get_datetime, getdate, now_datetime, today
 
 from core.constants.enums import EnumValues
@@ -628,17 +630,21 @@ class AgentPerformanceService:
         if EnumValues.Roles.TELECALLER not in frappe.get_roles(user):
             return
 
-        with frappe.cache().lock(f"agent_performance_heartbeat_lock_{user}", timeout=10, blocking=True, blocking_timeout=10):
-            name = self._get_today_agent_performance_name(user)
-            if name:
-                doc = frappe.get_doc(EnumValues.ReferenceDocType.AGENT_PERFORMANCE, name)
-            else:
-                doc = self.create_agent_performance_doc(user)
+        try:
+            with filelock(f"LOCK:AGENT_PERFORMANCE:HEARTBEAT:{user}", timeout=10):
+                name = self._get_today_agent_performance_name(user)
+                if name:
+                    doc = frappe.get_doc(EnumValues.ReferenceDocType.AGENT_PERFORMANCE, name)
+                else:
+                    doc = self.create_agent_performance_doc(user)
 
-            if not doc:
-                return
+                if not doc:
+                    return
 
-            self.handle_update_agent_performance_on_heartbeat(doc)
+                self.handle_update_agent_performance_on_heartbeat(doc)
+        except LockTimeoutError:
+            log.info(f"login_heartbeat: skipped because heartbeat lock is already held user={user}")
+            return
 
 agent_performance_service = AgentPerformanceService()
 

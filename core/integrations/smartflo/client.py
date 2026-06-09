@@ -6,6 +6,9 @@ import core.integrations.smartflo.auth as auth
 from core.services.apihit_service import api_hit_service
 
 
+def _get_user_full_name(user: str):
+    return frappe.db.get_value("User", user, "full_name")
+
 def _response_body_for_log(response: requests.Response):
 	if response is None:
 		return None
@@ -84,6 +87,7 @@ def _smartflo_api_client(
 	body,
 	user: str | None = None,
 	isAdmin: bool = False,
+	queryParams: dict | None = None,
 	*,
 	api_operation: str = "request",
 ):
@@ -96,7 +100,9 @@ def _smartflo_api_client(
 	t0 = time.perf_counter()
 	api_name = f"Smartflo:{api_operation}"
 	by_user = _created_by_user(user)
-
+	print(f"====by_user=== isAdmin: start : {isAdmin}")
+	print(by_user)
+	print("====by_user=== end")
 	def _request(access_token: str):
 		request_headers = dict(headers or {})
 		request_headers["Authorization"] = f"Bearer {access_token}"
@@ -105,6 +111,7 @@ def _smartflo_api_client(
 			url=url,
 			headers=request_headers,
 			json=body,
+			params=queryParams,
 		)
 
 	def _emit(
@@ -234,12 +241,14 @@ def handle_get_live_call_detail_api():
 def handle_login_session_api(user: str, campaign_id):
 	url = constants.login_session_config['url']
 	method = constants.login_session_config['method']
+	username = _get_user_full_name(user)
 	try:
 		campaign_id_int = int(str(campaign_id).strip())
 	except (TypeError, ValueError):
 		frappe.throw(frappe._("Invalid Smartflo campaign_id: {0}").format(campaign_id))
 	payload = {
 		"campaign_id": campaign_id_int,
+		"user_name": username
 	}
 	response = _smartflo_api_client(
 		url, None, method, payload, user, api_operation="login_session"
@@ -259,7 +268,10 @@ def handle_login_session_api(user: str, campaign_id):
 def handle_logout(user: str, campaign_id: str):
 	url = constants.agent_logout_config["url"]
 	method = constants.agent_logout_config["method"]
-	payload = {"campaign_id": campaign_id}
+	campaign_id_str = str(campaign_id or "").strip()
+	if not campaign_id_str:
+		frappe.throw(frappe._("Invalid Smartflo campaign_id: {0}").format(campaign_id))
+	payload = {"campaign_id": campaign_id_str}
 	return _smartflo_api_client(
 		url, None, method, payload, user, api_operation="agent_logout"
 	)
@@ -322,3 +334,15 @@ def handle_store_disposition_api(user: str, call_id: str, disposition_code: str)
 		raise ValueError(data.get("reason"))
 
 	return {"is_valid": True, "reason": None}
+
+def get_cdr_info_api(user: str, vendor_call_id: str):
+	url = constants.get_cdr_info_config['url']
+	method = constants.get_cdr_info_config['method']
+
+	queryParams = {
+		"call_id": vendor_call_id
+	}
+
+	return _smartflo_api_client(
+		url, None, method, body = None, user=user, queryParams=queryParams, api_operation="get_cdr_info"
+	)

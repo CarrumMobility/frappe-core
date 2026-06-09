@@ -17,6 +17,8 @@ class _Roles:
 	TELECALLER_LEAD = "Telecaller Lead"
 	ONBOARDING = "Onboarding"
 	DRIVER_MANAGER = "Driver Manager"
+	ADMIN = "Admin"
+	ADMINISTRATOR = "Administrator"
 
 class _LeadType:
 	LEAD = "LEAD"
@@ -52,6 +54,7 @@ class _ReferenceDocType:
 	USER = "User"
 	LEAD_WALKIN_DONE = "Lead walkin done"
 	LEAD_SOURCE = "CRM Lead Source"
+	USER_DIALER_SESSION_LOG = "User dialer session logs"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -109,6 +112,18 @@ class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
 
+class _CallLockEventType:
+	DialerCallConnected = "dialer_call_connected"
+
+class _CRM_FIELD_DB:
+	ERP = "erp"
+	PORTAL = "portal"
+
+class CallingVendorName:
+	Smartflo = "Smartflo"
+
+class _CarrumEventTopicName:
+	ReconciliationCallStatus = "reconciliation_call_status"
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -126,5 +141,9 @@ class _EnumValues:
 	LeadSource = _LEAD_SOURCE
 	HubVisitStatus = _HUB_VISIT_STATUS
 	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
+	CallLockEventType = _CallLockEventType
+	CRM_FIELD_DB = _CRM_FIELD_DB
+	CallingVendorName = CallingVendorName
+	CarrumEventTopicName = _CarrumEventTopicName
 
 EnumValues = _EnumValues()

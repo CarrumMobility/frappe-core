@@ -207,6 +207,18 @@
     "fieldname": "unique_schedules_walkin",
     "fieldtype": "Int",
     "label": "Unique schedules walkin"
+  },
+  {
+    "fieldname": "agent_dialer_status",
+    "fieldtype": "Select",
+    "label": "Agent dialer status",
+    "default": "NOT_CONNECTED",
+    "options": "READY\nON_CALL\nON_AGENT_CALL\nON_DISPOSITION\nON_BREAK\nNOT_CONNECTED"
+  },
+  {
+    "fieldname": "agent_dialer_status_changed_at",
+    "fieldtype": "Datetime",
+    "label": "Agent status changed at"
   }
  ],
  "grid_page_length": 50,

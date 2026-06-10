@@ -112,8 +112,9 @@ class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
 
-class _CallLockEventType:
+class _CallSessionWebsocketEvents:
 	DialerCallConnected = "dialer_call_connected"
+	CallAutoDisposed = "call_auto_disposed"
 
 class _CRM_FIELD_DB:
 	ERP = "erp"
@@ -124,6 +125,15 @@ class CallingVendorName:
 
 class _CarrumEventTopicName:
 	ReconciliationCallStatus = "reconciliation_call_status"
+
+class _AgentPerformanceDialerStatus:
+	READY = "READY"
+	ON_CALL = "ON_CALL"
+	ON_AGENT_CALL = "ON_AGENT_CALL"
+	ON_DISPOSITION = "ON_DISPOSITION"
+	ON_BREAK = "ON_BREAK"
+	NOT_CONNECTED = "NOT_CONNECTED"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -141,9 +151,10 @@ class _EnumValues:
 	LeadSource = _LEAD_SOURCE
 	HubVisitStatus = _HUB_VISIT_STATUS
 	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
-	CallLockEventType = _CallLockEventType
+	CallSessionWebsocketEvents = _CallSessionWebsocketEvents
 	CRM_FIELD_DB = _CRM_FIELD_DB
 	CallingVendorName = CallingVendorName
 	CarrumEventTopicName = _CarrumEventTopicName
+	AgentPerformanceDialerStatus = _AgentPerformanceDialerStatus
 
 EnumValues = _EnumValues()

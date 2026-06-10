@@ -148,6 +148,42 @@ def _webhook_acquire_lock(key_suffix: str, ttl: int = 60) -> bool:
         return True
 
 
+def _set_agent_performance_dialer_status(
+    user: str | None,
+    status: str,
+    *,
+    date=None,
+    create_if_missing: bool = False,
+):
+    user = (user or "").strip()
+    if not user:
+        return None
+
+    status_date = getdate(date or frappe.utils.today())
+    agent_performance_name = frappe.db.get_value(
+        EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+        {"agent_id": user, "date": status_date},
+        "name",
+    )
+    if agent_performance_name:
+        agent_performance_doc = frappe.get_doc(
+            EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+            agent_performance_name,
+        )
+    elif create_if_missing:
+        agent_performance_doc = frappe.new_doc(EnumValues.ReferenceDocType.AGENT_PERFORMANCE)
+        agent_performance_doc.agent_id = user
+        agent_performance_doc.agent_name = frappe.db.get_value("User", user, "full_name") or user
+        agent_performance_doc.date = status_date
+    else:
+        return None
+
+    agent_performance_doc.agent_dialer_status = status
+    agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+    agent_performance_doc.save(ignore_permissions=True)
+    return agent_performance_doc
+
+
 def _hangup_at_from_smartflo_payload(payload: dict):
     raw = (payload.get("end_stamp") or "").strip()
     if raw:
@@ -883,6 +919,24 @@ class CallService:
         lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
+        try:
+            agent_performance_doc = frappe.get_doc(
+                EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+                {"agent_id": target_user, "date": frappe.utils.today()},
+                "name",
+            )
+            if agent_performance_doc is not None:
+                agent_performance_doc.agent_dialer_status = EnumValues.AgentPerformanceDialerStatus.ON_MANUAL_CALL
+                agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+                agent_performance_doc.save(ignore_permissions=True)
+        except Exception as e:
+            print(f"Error updating agent dialer status to on manual call: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_on_manual_call",
+            )
+            pass
+
         frappe.publish_realtime(
             event="call_customer_connected",
             message={
@@ -1190,6 +1244,23 @@ class CallService:
         lead_id, lead_name, mobile_no, source, preferred_scheme_1 = _call_session_lead_fields(call_session_record)
         phone_display = (call_session_record.get("lead_phone") or mobile_no or "").strip()
 
+        try:
+            agent_performance_doc = frappe.get_doc(
+                EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+                {"agent_id": target_user, "date": frappe.utils.today()},
+                "name",
+            )
+            if agent_performance_doc is not None:
+                agent_performance_doc.agent_dialer_status = EnumValues.AgentPerformanceDialerStatus.READY
+                agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+                agent_performance_doc.save(ignore_permissions=True)
+        except Exception as e:
+            print(f"Error updating agent dialer status to idle after agent call disconnected: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_idle",
+            )
+
         frappe.publish_realtime(
             event="smartflo.call_disconnected",
             message={
@@ -1427,6 +1498,23 @@ class CallService:
             }
 
         user = frappe.session.user
+
+        try:
+            agent_performance_doc = frappe.get_doc(
+                EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+                {"agent_id": user, "date": frappe.utils.today()},
+                "name",
+            )
+            if agent_performance_doc is not None:
+                agent_performance_doc.agent_dialer_status = EnumValues.AgentPerformanceDialerStatus.READY
+                agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+                agent_performance_doc.save(ignore_permissions=True)
+        except Exception as e:
+            print(f"Error updating agent dialer status to on idle: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_on_idle",
+            )
         svd = (
             str(scheduled_visit_date).strip()
             if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
@@ -1659,6 +1747,19 @@ class CallService:
             call_session_doc.set("status", EnumValues.CallSessionStatus.DISPOSED)
 
             call_session_doc.save(ignore_permissions=True)
+
+
+            try:
+                _set_agent_performance_dialer_status(
+                    user or call_session_doc.get("agent"),
+                    EnumValues.AgentPerformanceDialerStatus.READY,
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "update_agent_dialer_status_to_ready",
+                )
+                pass
             if call_session_doc.get("scheduled_visit_date") and call_session_doc.get("is_visit_scheduled"):
                 try:
                     util_service.create_event_for_visit_date(
@@ -1747,7 +1848,8 @@ class CallService:
                 "step": "start_dialer_session"
             }
 
-        
+        activeAt = frappe.utils.now()
+       
         # update agent dialer session log status to inactive
         frappe.db.sql(
             f"update `tab{self.AGENT_DIALER_SESSION_LOG_DOCTYPE}` set status = %(status)s where user = %(user)s and status = %(active)s",
@@ -1763,9 +1865,22 @@ class CallService:
                 "status": "ACTIVE",
                 "campaign_id": campaign_id,
                 "campaign_name": campaign_name,
-                "active_at": frappe.utils.now(),
+                "active_at": activeAt
             }
         )
+
+        try:
+            _set_agent_performance_dialer_status(
+                user,
+                EnumValues.AgentPerformanceDialerStatus.READY,
+                date=activeAt,
+                create_if_missing=True,
+            )
+        except Exception as e:
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_ready",
+            )
         doc.insert()
         frappe.db.commit()
 
@@ -1823,11 +1938,20 @@ class CallService:
             )
 
         log = frappe.get_doc(self.AGENT_DIALER_SESSION_LOG_DOCTYPE, data.name)
-            
+        
         log.status = "INACTIVE"
         log.inactive_reason = reason
         log.inactive_at = now
         log.save()
+
+        try:
+            _set_agent_performance_dialer_status(
+                user,
+                EnumValues.AgentPerformanceDialerStatus.NOT_CONNECTED,
+            )
+        except Exception as e:
+            print(e)
+            raise e
 
         frappe.db.commit()
 
@@ -1881,6 +2005,26 @@ class CallService:
         doc.set("start_time", frappe.utils.now())
         doc.set("user_dialer_session_log", data.name)
         doc.insert()
+
+        try:
+            agent_performance_doc = frappe.get_doc(
+                EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+                {"agent_id": user, "date": frappe.utils.today()},
+                "name",
+            )
+
+            if agent_performance_doc is not None:
+                agent_performance_doc.agent_dialer_status = EnumValues.AgentPerformanceDialerStatus.ON_BREAK
+                agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+                agent_performance_doc.save(ignore_permissions=True)
+
+
+        except Exception as e:
+            print(f"Error updating agent dialer status to on break: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_on_break",
+            )
         frappe.db.commit()
 
         return {
@@ -1919,6 +2063,25 @@ class CallService:
             doc.end_time = frappe.utils.now()
             doc.save()
 
+
+        try:
+            agent_performance_doc = frappe.get_doc(
+                EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+                {"agent_id": user, "date": frappe.utils.today()},
+                "name",
+            )
+
+            if agent_performance_doc is not None:
+                agent_performance_doc.agent_dialer_status = EnumValues.AgentPerformanceDialerStatus.READY
+                agent_performance_doc.agent_dialer_status_changed_at = frappe.utils.now()
+                agent_performance_doc.save(ignore_permissions=True)
+
+        except Exception as e:
+            print(f"Error updating agent dialer status to idle: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_not_connected",
+            )
         frappe.db.commit()
 
         return {
@@ -2181,6 +2344,20 @@ class CallService:
         if direction == EnumValues.CallDirection.OUTBOUND:
             enqueue_complete_callback_followups_for_lead(lead.name)
 
+
+        try:
+            _set_agent_performance_dialer_status(
+                targetUser or user,
+                EnumValues.AgentPerformanceDialerStatus.ON_CALL,
+            )
+        except Exception as e:
+            print(f"Error updating agent dialer status to on call: {e}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_on_call",
+            )
+
+
         if targetUser is not None:
             lead_id = lead.name
             lead_name = lead.lead_name
@@ -2193,7 +2370,7 @@ class CallService:
             _lid, _ln, _mob, source, preferred_scheme_1 = _call_session_lead_fields(
                 new_call_session_doc
             )
-            websocketEventName = EnumValues.CallLockEventType.DialerCallConnected
+            websocketEventName = EnumValues.CallSessionWebsocketEvents.DialerCallConnected
             msgBody = {
                 "call_session_id": new_call_session_doc.name,
                 "call_id": call_id,
@@ -2286,6 +2463,16 @@ class CallService:
             _set_lead_source_during_call_on_session(row)
 
         row.save(ignore_permissions=True)
+        try:
+            _set_agent_performance_dialer_status(
+                row.get("agent"),
+                EnumValues.AgentPerformanceDialerStatus.READY,
+            )
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                "update_agent_dialer_status_to_ready",
+            )
         frappe.db.commit()
         return {"is_valid": True}
     
@@ -2433,12 +2620,22 @@ class CallService:
                 row.vendor_agent_id = agent_email
             row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
             row.save(ignore_permissions=True)
+            try:
+                _set_agent_performance_dialer_status(
+                    row.agent,
+                    EnumValues.AgentPerformanceDialerStatus.ON_DISPOSITION,
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "update_agent_dialer_status_to_on_disposition",
+                )
             frappe.db.commit()
             log.info(f"dialer_disconnect: saved existing disconnected session={row.name}")
             reconciliation_data = {
-                    "call_session_id": row.name,
-                    "vendor_name": EnumValues.CallingVendorName.Smartflo,
-                    "calling_method": EnumValues.CallingMethod.Dialer,
+                "call_session_id": row.name,
+                "vendor_name": EnumValues.CallingVendorName.Smartflo,
+                "calling_method": EnumValues.CallingMethod.Dialer,
             }
             reconciliation_options = {
                 "delayMs": 43000,  # 45 seconds delay = 43 seconds + 2 second buffer
@@ -2461,7 +2658,7 @@ class CallService:
                 print(auto_dispose_result)
                 if auto_dispose_result.get("is_valid"):
                     frappe.publish_realtime(
-                        event="call_auto_disposed",
+                        event=EnumValues.CallSessionWebsocketEvents.CallAutoDisposed,
                         message={
                             "call_session_id": row.name,
                             "message": f"#{lead.name} Call auto-disposed by CRM"
@@ -2526,6 +2723,18 @@ class CallService:
         new_session.insert(ignore_permissions=True)
         log.info(f"dialer_disconnect: inserted new session={new_session.name} status={call_status}")
 
+        if call_status == EnumValues.CallSessionStatus.DISCONNECTED:
+            try:
+                _set_agent_performance_dialer_status(
+                    new_session.agent,
+                    EnumValues.AgentPerformanceDialerStatus.ON_DISPOSITION,
+                )
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "update_agent_dialer_status_to_on_disposition",
+                )
+
         if call_status == EnumValues.CallSessionStatus.NOT_CONNECTED:
             log.info(f"dialer_disconnect: enqueue not-connected callback side effects lead={lead.name} event_id={event_id} call_id={call_id}")
             _enqueue_apply_not_connected_dial_for_today_lead_callback(
@@ -2566,10 +2775,10 @@ class CallService:
                     lead_doc=lead,
                     user=agent_user
                 )
-                print(auto_dispose_result)
+                
                 if auto_dispose_result.get("is_valid"):
                     frappe.publish_realtime(
-                        event="call_auto_disposed",
+                        event=EnumValues.CallSessionWebsocketEvents.CallAutoDisposed,
                         message={
                             "call_session_id": new_session.name,
                             "message": f"#{lead.name} Call auto-disposed by CRM"
@@ -2675,7 +2884,7 @@ class CallService:
                     ],
                 ],
             },
-            order_by="modified desc",
+            order_by="creation desc",
             limit_page_length=1,
             fields=[
                 "name",
@@ -2892,7 +3101,7 @@ class CallService:
                     disposition_code=customDispositionCode,
                 )
                 frappe.publish_realtime(
-                    event="call_auto_disposed",
+                    event=EnumValues.CallSessionWebsocketEvents.CallAutoDisposed,
                     message={
                         "call_session_id": callSession.name,
                         "message": f"#{callSession.get('lead')} marked Undisposed by CRM as 45s threshold reached"
@@ -3016,8 +3225,6 @@ def end_dialer_session(user: str, payload):
 
 
 def toggle_dialer_break(user: str, payload: dict):
-    if not isinstance(payload, dict):
-        payload = {}
     break_type = (payload.get("break_type") or "").strip()
     break_code = payload.get("break_code")
     if break_type == "start":

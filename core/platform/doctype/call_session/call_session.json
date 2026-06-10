@@ -112,9 +112,25 @@
             "label": "Agent answered at"
         },
         {
+            "fieldname": "agent_answer_webhook_arrived_at",
+            "fieldtype": "Datetime",
+            "label": "Agent answer webhook arrived at",
+            "description": "Timestamp when the agent answer webhook arrived at the server, set in controller"
+        },
+        {
+            "fieldname": "vendor_agent_answered_at",
+            "fieldtype": "Datetime",
+            "label": "Vendor agent answered at"
+        },
+        {
             "fieldname": "disposed_at",
             "fieldtype": "Datetime",
             "label": "Disposed at"
+        },
+        {
+            "fieldname": "vendor_dispose_webhook_arrived_at",
+            "fieldtype": "Datetime",
+            "label": "Vendor disposition webhook arrived at"
         },
         {
             "fieldname": "disposition_raw",
@@ -166,6 +182,17 @@
             "label": "Hangup at"
         },
         {
+            "fieldname": "hangup_webhook_arrived_at",
+            "fieldtype": "Datetime",
+            "label": "Hangup webhook arrived at",
+            "description": "Timestamp when the hangup webhook arrived at the server, set in controller"
+        },
+        {
+            "fieldname": "vendor_hangup_at",
+            "fieldtype": "Datetime",
+            "label": "Vendor hangup at"
+        },
+        {
             "fieldname": "agent_answer_event_id",
             "fieldtype": "Data",
             "label": "Agent answer event id"
@@ -211,6 +238,17 @@
             "fieldname": "lead_answered_at",
             "fieldtype": "Datetime",
             "label": "Lead answered at"
+        },
+        {
+            "fieldname": "lead_answer_webhook_arrived_at",
+            "fieldtype": "Datetime",
+            "label": "Lead answer webhook arrived at",
+            "description": "Timestamp when the lead answer webhook arrived at the server, set in controller"
+        },
+        {
+            "fieldname": "vendor_lead_answered_at",
+            "fieldtype": "Datetime",
+            "label": "Vendor lead answered at"
         },
         {
             "fieldname": "sub_disposition_status",

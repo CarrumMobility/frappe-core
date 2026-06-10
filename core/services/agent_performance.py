@@ -624,8 +624,48 @@ class AgentPerformanceService:
         )
 
 
+    def _get_current_user_hub_ids(self) -> list[str]:
+        """Resolve Carrum hub ids for the current user."""
+        try:
+            from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
+
+            carrum_data = fetch_carrum_user_data_using_frappe_username(frappe.session.user) or {}
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "get_realtime_report_data: user hubs")
+            return []
+
+        hub_ids: list[str] = []
+        default_hub_id = ((carrum_data.get("defaultHub") or {}).get("id") or "").strip()
+        if default_hub_id:
+            hub_ids.append(default_hub_id)
+
+        for hub in carrum_data.get("hubs") or []:
+            hub_id = ((hub or {}).get("id") or "").strip()
+            if hub_id:
+                hub_ids.append(hub_id)
+
+        return list(dict.fromkeys(hub_ids))
+
     def get_realtime_report_data(self) -> list[dict]:
-        """Get realtime report data for a given agent and date."""
+        """Get role-scoped realtime report data for today's telecaller agents."""
+        roles = set(frappe.get_roles(frappe.session.user) or [])
+        is_admin = bool(
+            {
+                EnumValues.Roles.ADMIN,
+                EnumValues.Roles.ADMINISTRATOR,
+                "System Manager",
+            }.intersection(roles)
+        )
+        is_telecaller_lead = EnumValues.Roles.TELECALLER_LEAD in roles
+        is_plain_telecaller = (
+            EnumValues.Roles.TELECALLER in roles
+            and not is_telecaller_lead
+            and not is_admin
+        )
+
+        if is_plain_telecaller:
+            return []
+
         today_date = frappe.utils.today()
 
         tc_ids = frappe.get_all(
@@ -641,13 +681,24 @@ class AgentPerformanceService:
         if not tc_ids:
             return []
 
+        filters = {
+            "agent_id": ("in", tc_ids),
+            "date": today_date,
+        }
+
+        if not is_admin:
+            if not is_telecaller_lead:
+                return []
+
+            hub_ids = self._get_current_user_hub_ids()
+            if not hub_ids:
+                return []
+            filters["hubId"] = ("in", hub_ids)
+
         todayAgentReportOfTcs = frappe.get_all(
             "Agent Performance",
-            filters={
-                "agent_id": ("in", tc_ids),
-                "date": today_date,
-            },
-            fields=['agent_id', 'agent_name', 'agent_dialer_status', 'agent_dialer_status_changed_at'],
+            filters=filters,
+            fields=['agent_id', 'agent_name', 'agent_dialer_status', 'agent_dialer_status_changed_at', 'hubId', 'hubName'],
             order_by = "agent_name ASC"
         )
 

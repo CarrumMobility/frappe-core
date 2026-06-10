@@ -2640,20 +2640,20 @@ class CallService:
 
             if call_duration is not None and call_duration != "":
                 row.set("duration", call_duration)
-            row.set('hangup_event_id') = event_id
-            row.set('hangup_event_log') = payload
-            row.set('hangup_at') = hangup_at
+            row.set("hangup_event_id", event_id)
+            row.set("hangup_event_log", payload)
+            row.set("hangup_at", hangup_at)
             row.set("hangup_webhook_arrived_at", webhook_arrived_at)
             row.set("vendor_hangup_at", vendor_hangup_at)
 
-            row.set('vendor_lead_answered_at') = vendor_lead_answered_at
-            row.set('vendor_agent_answered_at') = vendor_agent_answered_at
+            row.set("vendor_lead_answered_at", vendor_lead_answered_at)
+            row.set("vendor_agent_answered_at", vendor_agent_answered_at)
             if recording_url:
-                row.set('recording_url') = recording_url
+                row.set("recording_url", recording_url)
             if not row.agent and agent_user:
-                row.set('agent') = agent_user
+                row.set("agent", agent_user)
             if not row.vendor_agent_id and agent_email:
-                row.set('vendor_agent_id') = agent_email
+                row.set("vendor_agent_id", agent_email)
             row.set("status", EnumValues.CallSessionStatus.DISCONNECTED)
 
             row.save(ignore_permissions=True)
@@ -2739,7 +2739,7 @@ class CallService:
         new_session.vendor_name = default_telephony_vendor
         new_session.calling_method = EnumValues.CallingMethod.Dialer
         new_session.lead = lead.name
-        new_session.lead_answered_at = None
+        new_session.lead_answered_at = webhook_arrived_at if vendor_lead_answered_at else None
         new_session.vendor_lead_answered_at = vendor_lead_answered_at
         new_session.vendor_agent_answered_at = vendor_agent_answered_at
         new_session.duration = call_duration if call_duration is not None and call_duration != "" else None

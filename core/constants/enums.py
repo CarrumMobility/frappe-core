@@ -54,6 +54,7 @@ class _ReferenceDocType:
 	USER = "User"
 	LEAD_WALKIN_DONE = "Lead walkin done"
 	LEAD_SOURCE = "CRM Lead Source"
+	GLOBAL_CONFIG = "Global Config"
 	USER_DIALER_SESSION_LOG = "User dialer session logs"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
@@ -68,6 +69,11 @@ class _OLD_SYSTEM_DRIVER_STATUS:
 	PERMANENT_DROP = 'permanent_drop'
 	MAINTENANCE_DROP = 'maintenance_drop'
 	DRIVER_RETURNED = 'driver_returned'
+
+
+class _TelephonyIntegrationType:
+	WEBHOOK_BASED = "webhook_based"
+	POPUP_BASED = "popup_based"
 
 class _DispositionTiming:
 	IMMEDIATE = "IMMEDIATE"
@@ -156,5 +162,6 @@ class _EnumValues:
 	CallingVendorName = CallingVendorName
 	CarrumEventTopicName = _CarrumEventTopicName
 	AgentPerformanceDialerStatus = _AgentPerformanceDialerStatus
+	TelephonyIntegrationType = _TelephonyIntegrationType
 
 EnumValues = _EnumValues()

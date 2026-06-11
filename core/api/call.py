@@ -118,19 +118,31 @@ def get_dialer_break_status():
 def dialer_call_connected_webhook():
     payload = _get_webhook_payload("dialer_call_connected_webhook")
     user = frappe.session.user
-    return call_service.dialer_call_connected(user=user, payload=payload)
+    try:
+        return call_service.dialer_call_connected(user=user, payload=payload)
+    except Exception as e:
+        frappe.logger().error(frappe.get_traceback(), "dialer_call_connected_webhook")
+        return {"message": "Error in dialer_call_connected_webhook", "error": str(e)}
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disconnected_webhook():
     payload = _get_webhook_payload("dialer_call_disconnected_webhook")
     user = frappe.session.user
-    return call_service.dialer_call_disconnected(user=user, payload=payload)
+    try:
+        return call_service.dialer_call_disconnected(user=user, payload=payload)
+    except Exception as e:
+        frappe.logger().error(frappe.get_traceback(), "dialer_call_disconnected_webhook")
+        return {"message": "Error in dialer_call_disconnected_webhook", "error": str(e)}
 
 @frappe.whitelist(methods=['POST'], allow_guest=True)
 def dialer_call_disposed_webhook():
     payload = _get_webhook_payload("dialer_call_disposed_webhook")
     user = frappe.session.user
-    return call_service.dialer_call_disposed(user=user, payload=payload)
+    try:
+        return call_service.dialer_call_disposed(user=user, payload=payload)
+    except Exception as e:
+        frappe.logger().error(frappe.get_traceback(), "dialer_call_disposed_webhook")
+        return {"message": "Error in dialer_call_disposed_webhook", "error": str(e)}
 
 @frappe.whitelist()
 def get_last_connected_call():

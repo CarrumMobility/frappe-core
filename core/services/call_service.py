@@ -2331,8 +2331,6 @@ class CallService:
             lead.set("source_id", inbound_source.get("name"))
             lead.save(ignore_permissions=True)
 
-        # vendor_lead_answered_at = 
-        
         new_call_session_doc = frappe.new_doc(
             doctype=EnumValues.ReferenceDocType.CALL_SESSION,
             calling_method=EnumValues.CallingMethod.Dialer,
@@ -2386,6 +2384,16 @@ class CallService:
                 new_call_session_doc
             )
             websocketEventName = EnumValues.CallSessionWebsocketEvents.DialerCallConnected
+            
+            telephonyIntegrationType = None
+            try:
+                telephonyIntegrationTypeConfig = frappe.get_doc("Global Config", {
+                    "key": "telephony_integration_type",
+                })
+                telephonyIntegrationType = telephonyIntegrationTypeConfig.value if telephonyIntegrationTypeConfig else None
+            except frappe.DoesNotExistError:
+                telephonyIntegrationType = None
+
             msgBody = {
                 "call_session_id": new_call_session_doc.name,
                 "call_id": call_id,
@@ -2401,7 +2409,9 @@ class CallService:
                 ),
                 "source": source,
                 "preferred_scheme_1": preferred_scheme_1,
+                "telephony_integration_type": telephonyIntegrationType
             }
+
             frappe.publish_realtime(
                 event=websocketEventName,
                 message=msgBody,
@@ -2592,6 +2602,16 @@ class CallService:
         vendor_agent_answered_at = None
         vendor_hangup_at = None
         raw_call_log = payload.get("call_flow")
+
+        telephonyIntegrationType = None
+        try:
+            telephonyIntegrationTypeConfig = frappe.get_doc(EnumValues.ReferenceDocType.GLOBAL_CONFIG, {"key": "telephony_integration_type"})
+            telephonyIntegrationType = telephonyIntegrationTypeConfig.value if telephonyIntegrationTypeConfig else None
+        except frappe.DoesNotExistError:
+            telephonyIntegrationType = None
+
+
+
         if raw_call_log is not None:
             for record in raw_call_log:
                 if record.get("type") == "Customer" and record.get("dialst") == "Answered":
@@ -2685,14 +2705,14 @@ class CallService:
 
             # if duration < 10 seconds then mark it as auto-disposed
             duration_seconds = _duration_seconds_from_value(row.get("duration"))
-            log.info(f"dialer_disconnect: existing session={row.name} duration_seconds={duration_seconds} auto_dispose_candidate={duration_seconds is not None and duration_seconds < 10}")
-            if duration_seconds is not None and duration_seconds < 10:
+            # log.info(f"dialer_disconnect: existing session={row.name} duration_seconds={duration_seconds} auto_dispose_candidate={duration_seconds is not None and duration_seconds < 10}")
+            
+            if duration_seconds is not None and duration_seconds < 10 and telephonyIntegrationType == EnumValues.TelephonyIntegrationType.WEBHOOK_BASED:
                 auto_dispose_result = self._auto_dispose_call(
                     call_session_doc=row, 
                     lead_doc=lead,
                     user=agent_user or frappe.session.user
                 )
-                print(auto_dispose_result)
                 if auto_dispose_result.get("is_valid"):
                     frappe.publish_realtime(
                         event=EnumValues.CallSessionWebsocketEvents.CallAutoDisposed,
@@ -2726,6 +2746,7 @@ class CallService:
                         "message": "Call Disconnected",
                         "direction": _call_session_direction_to_ui(row.get("direction")),
                         "recording_url": row.get("recording_url"),
+                        "telephony_integration_type": telephonyIntegrationType
                     },
                     user=target_user,
                 )
@@ -2850,6 +2871,7 @@ class CallService:
                         "message": "Call Disconnected",
                         "direction": _call_session_direction_to_ui(new_session.get("direction")),
                         "recording_url": new_session.get("recording_url"),
+                        "telephony_integration_type": telephonyIntegrationType
                     },
                     user=target_user,
                 )
@@ -2975,6 +2997,13 @@ class CallService:
         start_time = row.get("lead_answered_at") or row.get("agent_answered_at")
         lead_phone = (row.get("lead_phone") or "").strip()
         disp_remarks = row.get("disposition_remarks") or ""
+        
+        telephonyIntegrationType = None
+        try:
+            telephonyIntegrationTypeConfig = frappe.get_doc(EnumValues.ReferenceDocType.GLOBAL_CONFIG, {"key": "telephony_integration_type"})
+            telephonyIntegrationType = telephonyIntegrationTypeConfig.value if telephonyIntegrationTypeConfig else None
+        except frappe.DoesNotExistError:
+            telephonyIntegrationType = None
 
         return {
             "call_session_id": row.get("name"),
@@ -2998,6 +3027,7 @@ class CallService:
             "calling_method": (row.get("calling_method") or "Dialer").strip(),
             "source": source,
             "preferred_scheme_1": preferred_scheme_1,
+            "telephony_integration_type": telephonyIntegrationType
         }
 
     def get_call_session_disposition_remarks(self, user: str, payload: dict):

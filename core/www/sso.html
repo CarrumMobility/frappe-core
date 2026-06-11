@@ -33,8 +33,8 @@
         document.getElementById("status").style.color = "#b91c1c";
         return;
       }
-      // var redirectTo = (REDIRECT_TO_FROM_QS && String(REDIRECT_TO_FROM_QS).trim()) || "dashboard";
-      var redirectTo = "dashboard";
+      var redirectTo = (REDIRECT_TO_FROM_QS && String(REDIRECT_TO_FROM_QS).trim()) || "dashboard";
+      // var redirectTo = "dashboard";
       function buildLoginUrl() {
         if (LOGIN_URL) return LOGIN_URL;
         return '/login?redirect-to=' + encodeURIComponent(redirectTo);

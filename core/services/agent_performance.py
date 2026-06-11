@@ -623,6 +623,88 @@ class AgentPerformanceService:
             callback_status=EnumValues.EventCallbackStatus.COMPLETED,
         )
 
+
+    def _get_current_user_hub_ids(self) -> list[str]:
+        """Resolve Carrum hub ids for the current user."""
+        try:
+            from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
+
+            carrum_data = fetch_carrum_user_data_using_frappe_username(frappe.session.user) or {}
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "get_realtime_report_data: user hubs")
+            return []
+
+        hub_ids: list[str] = []
+        default_hub_id = ((carrum_data.get("defaultHub") or {}).get("id") or "").strip()
+        if default_hub_id:
+            hub_ids.append(default_hub_id)
+
+        for hub in carrum_data.get("hubs") or []:
+            hub_id = ((hub or {}).get("id") or "").strip()
+            if hub_id:
+                hub_ids.append(hub_id)
+
+        return list(dict.fromkeys(hub_ids))
+
+    def get_realtime_report_data(self) -> list[dict]:
+        """Get role-scoped realtime report data for today's telecaller agents."""
+        roles = set(frappe.get_roles(frappe.session.user) or [])
+        is_admin = bool(
+            {
+                EnumValues.Roles.ADMIN,
+                EnumValues.Roles.ADMINISTRATOR,
+                "System Manager",
+            }.intersection(roles)
+        )
+        is_telecaller_lead = EnumValues.Roles.TELECALLER_LEAD in roles
+        is_plain_telecaller = (
+            EnumValues.Roles.TELECALLER in roles
+            and not is_telecaller_lead
+            and not is_admin
+        )
+
+        if is_plain_telecaller:
+            return []
+
+        today_date = frappe.utils.today()
+
+        tc_ids = frappe.get_all(
+            "Has Role",
+            filters={
+                "parenttype": "User",
+                "role": EnumValues.Roles.TELECALLER,
+            },
+            pluck="parent",
+            distinct=True,
+        )
+
+        if not tc_ids:
+            return []
+
+        filters = {
+            "agent_id": ("in", tc_ids),
+            "date": today_date,
+        }
+
+        if not is_admin:
+            if not is_telecaller_lead:
+                return []
+
+            hub_ids = self._get_current_user_hub_ids()
+            if not hub_ids:
+                return []
+            filters["hubId"] = ("in", hub_ids)
+
+        todayAgentReportOfTcs = frappe.get_all(
+            "Agent Performance",
+            filters=filters,
+            fields=['agent_id', 'agent_name', 'agent_dialer_status', 'agent_dialer_status_changed_at', 'hubId', 'hubName'],
+            order_by = "agent_name ASC"
+        )
+
+
+        return todayAgentReportOfTcs
+
     def login_heartbeat(self, user: str):
         user = (user or "").strip()
         if not user or user == "Guest":
@@ -645,6 +727,41 @@ class AgentPerformanceService:
         except LockTimeoutError:
             log.info(f"login_heartbeat: skipped because heartbeat lock is already held user={user}")
             return
+
+    def is_show_alert_for_session_restart(self,user_id: str) -> dict:
+        """Check if session restart alert should be shown for a given agent and date."""
+        today_date = frappe.utils.today()
+
+        agent_performance_doc = frappe.get_doc(
+            EnumValues.ReferenceDocType.AGENT_PERFORMANCE,
+            {"agent_id": user_id, "date": today_date},
+            "name",
+        )
+
+        if not agent_performance_doc:
+            return {
+                "is_show_alert": False,
+                "alert_message": None,
+            } 
+        
+        if agent_performance_doc.agent_dialer_status != EnumValues.AgentPerformanceDialerStatus.READY:
+            return {
+                "is_show_alert": False,
+                "alert_message": None,
+            }
+        
+        alertTimeout = AppConstants.MAX_TIME_TO_SHOW_SESSION_RESTART_ALERT_SEC
+        if agent_performance_doc.agent_dialer_status_changed_at and (now_datetime() - agent_performance_doc.agent_dialer_status_changed_at).total_seconds() > alertTimeout:
+            return {
+                "is_show_alert": True,
+                "alert_message": f"Your session has been idle for more than {alertTimeout} seconds. You may require session restart.",
+            }
+        
+        return {
+            "is_show_alert": False,
+            "alert_message": None,
+        }
+
 
 agent_performance_service = AgentPerformanceService()
 

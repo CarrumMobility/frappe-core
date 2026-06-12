@@ -6,6 +6,7 @@ from core.constants.enums import EnumValues
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from core.services.util_service import util_service
+from core.services.carrum_client import CarrumHttpClient
 from crm.utils import parse_phone_number
 from core.services import logged_requests as re
 import frappe
@@ -675,6 +676,42 @@ def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
     return rows
 
 
+@frappe.whitelist(methods=["POST"])
+def verify_uber_id(
+    uber_id: str | None = None,
+    phone_number: str | None = None,
+    driver_id: str | None = None,
+):
+    """
+    Verify a driver Uber ID against Carrum portal.
+
+    Proxies ``POST /driver/checkUberId`` on ``carrum_portal_base_url``.
+    """
+    uber = str(uber_id or "").strip()
+    if not uber:
+        frappe.throw(_("Uber ID is required"))
+
+    phone = str(phone_number or "").strip()
+    driver = str(driver_id or "").strip()
+    payload = {
+        "driver_uber_id": uber,
+        "phoneNumber": {"countryCode": "+91", "number": phone},
+        "driver_small_id": "FAAC1761",
+    }
+    client = CarrumHttpClient(
+        base_url=frappe.conf.get("old_carrum_base_url"),
+        token=frappe.conf.get("old_carrum_token"),
+        timeout=60,
+    )
+
+    return client.request(
+        method="POST",
+        path="/api/v1/driver/checkUberId",
+        json=payload,
+        log_tag="verify-uber-id",
+    )
+
+
 def _raise_update_driver_validation_error(exc: ValidationError) -> None:
     v_errors = _format_update_driver_validation_errors(exc)
     summary = (
@@ -750,7 +787,7 @@ def get_driver_agreements(account_id: str) -> dict:
             if isinstance(err, list) and err:
                 message = message or err[0].get("message") if isinstance(err[0], dict) else str(err[0])
         frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
-        
+
 
     return body
 
@@ -849,7 +886,7 @@ def get_digio_agreement(digio_id: str):
         frappe.throw(
             _("Carrum agreement PDF error ({0})").format(response.status_code)
         )
-    
+
     frappe.local.response.filename = f"agreement_{digio_id}.pdf"
     frappe.local.response.filecontent = response.content
     frappe.local.response.type = "download"
@@ -885,7 +922,7 @@ def send_agreement(leadId: str):
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city
     current_state = lead.current_state
-    
+
     current_pincode = lead.current_pincode
     current_landmark = lead.current_landmark
     current_address = ""
@@ -911,7 +948,7 @@ def send_agreement(leadId: str):
         frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
 
     url = f"{base}/api/v1/driver/sendAgreementForDriver"
-    
+
     payload = {
         "accountId": account_id,
         "driver_phone": phoneNo,
@@ -1276,7 +1313,7 @@ def lead_creation_webhook():
     Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
     required because Frappe otherwise clears ``name`` for naming_series autoname).
     """
-    
+
     data = frappe.request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}

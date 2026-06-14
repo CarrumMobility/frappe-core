@@ -141,6 +141,7 @@ def dialer_call_disposed_webhook():
     try:
         return call_service.dialer_call_disposed(user=user, payload=payload)
     except Exception as e:
+        print(e)
         frappe.logger().error(frappe.get_traceback(), "dialer_call_disposed_webhook")
         return {"message": "Error in dialer_call_disposed_webhook", "error": str(e)}
 

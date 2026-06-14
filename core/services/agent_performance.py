@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import logging
 
 from core.constants.app_constant import AppConstants
+from core.services import call_service
 import frappe
 from frappe.utils.file_lock import LockTimeoutError
 from frappe.utils.synchronization import filelock
@@ -731,6 +732,13 @@ class AgentPerformanceService:
     def is_show_alert_for_session_restart(self,user_id: str) -> dict:
         """Check if session restart alert should be shown for a given agent and date."""
         today_date = frappe.utils.today()
+        telephonyIntegrationType = call_service._get_telephony_integration_type()
+
+        if telephonyIntegrationType != EnumValues.TelephonyIntegrationType.WEBHOOK_BASED:
+            return {
+                "is_show_alert": False,
+                "alert_message": None,
+            }
 
         agent_performance_doc = frappe.get_doc(
             EnumValues.ReferenceDocType.AGENT_PERFORMANCE,

@@ -54,6 +54,7 @@ class _ReferenceDocType:
 	USER = "User"
 	LEAD_WALKIN_DONE = "Lead walkin done"
 	LEAD_SOURCE = "CRM Lead Source"
+	GLOBAL_CONFIG = "Global Config"
 	USER_DIALER_SESSION_LOG = "User dialer session logs"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
@@ -68,6 +69,11 @@ class _OLD_SYSTEM_DRIVER_STATUS:
 	PERMANENT_DROP = 'permanent_drop'
 	MAINTENANCE_DROP = 'maintenance_drop'
 	DRIVER_RETURNED = 'driver_returned'
+
+
+class _TelephonyIntegrationType:
+	WEBHOOK_BASED = "webhook_based"
+	POPUP_BASED = "popup_based"
 
 class _DispositionTiming:
 	IMMEDIATE = "IMMEDIATE"
@@ -112,8 +118,9 @@ class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
 
-class _CallLockEventType:
+class _CallSessionWebsocketEvents:
 	DialerCallConnected = "dialer_call_connected"
+	CallAutoDisposed = "call_auto_disposed"
 
 class _CRM_FIELD_DB:
 	ERP = "erp"
@@ -124,6 +131,15 @@ class CallingVendorName:
 
 class _CarrumEventTopicName:
 	ReconciliationCallStatus = "reconciliation_call_status"
+
+class _AgentPerformanceDialerStatus:
+	READY = "READY"
+	ON_CALL = "ON_CALL"
+	ON_AGENT_CALL = "ON_AGENT_CALL"
+	ON_DISPOSITION = "ON_DISPOSITION"
+	ON_BREAK = "ON_BREAK"
+	NOT_CONNECTED = "NOT_CONNECTED"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -141,9 +157,11 @@ class _EnumValues:
 	LeadSource = _LEAD_SOURCE
 	HubVisitStatus = _HUB_VISIT_STATUS
 	LeadSourcePurpose = _LEAD_SOURCE_PURPOSE
-	CallLockEventType = _CallLockEventType
+	CallSessionWebsocketEvents = _CallSessionWebsocketEvents
 	CRM_FIELD_DB = _CRM_FIELD_DB
 	CallingVendorName = CallingVendorName
 	CarrumEventTopicName = _CarrumEventTopicName
+	AgentPerformanceDialerStatus = _AgentPerformanceDialerStatus
+	TelephonyIntegrationType = _TelephonyIntegrationType
 
 EnumValues = _EnumValues()

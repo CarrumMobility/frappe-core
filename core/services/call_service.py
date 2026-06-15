@@ -150,6 +150,20 @@ def _schedule_timestamp_ist_or_none(value):
         return None
 
 
+def _smartflo_epoch_to_naive_ist(value):
+    """Smartflo call_flow ``time`` is Unix epoch seconds; store as naive IST."""
+    if value is None:
+        return None
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return None
+    import pytz
+
+    ist = pytz.timezone("Asia/Kolkata")
+    return datetime.fromtimestamp(ts, tz=ist).replace(tzinfo=None)
+
+
 def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
     """In-app CRM notification for assigned telecaller on inbound missed dialer call."""
     try:
@@ -2373,9 +2387,9 @@ class CallService:
         if raw_call_log is not None:
             for record in raw_call_log:
                 if record.get("type") == "Customer" and record.get("dialst") == "Answered":
-                    vendor_lead_answered_at = datetime.fromtimestamp(record.get("time"))
+                    vendor_lead_answered_at = _smartflo_epoch_to_naive_ist(record.get("time"))
                 if record.get("type") == "Agent" and record.get("dialst") == "Answered":
-                    agent_answered_at = datetime.fromtimestamp(record.get("time"))
+                    agent_answered_at = _smartflo_epoch_to_naive_ist(record.get("time"))
             
 
         if inbound_source:
@@ -2388,19 +2402,21 @@ class CallService:
             calling_method=EnumValues.CallingMethod.Dialer,
             direction=direction,
             agent=targetUser,
+            vendor_name=default_telephony_vendor,
             vendor_agent_id=agent_email,
             lead=lead.name,
             lead_phone=lead_phone,
             agent_call_id=call_id,
             status=EnumValues.CallSessionStatus.CUSTOMER_CONNECTED,
-            agent_answered_at=agent_answered_at,
             campaign_name=campaign_name,
             campaign_id=campaign_id,
+            
             agent_answer_event_id=event_id,
             agent_answer_event_log=payload,
-            vendor_name=default_telephony_vendor,
-            lead_answer_webhook_arrived_at = webhook_arrived_at,
-            lead_answered_at=frappe.utils.now(),
+            agent_answered_at=frappe.utils.now(),
+            vendor_agent_answered_at=agent_answered_at,
+            agent_answer_webhook_arrived_at = webhook_arrived_at,
+            lead_answered_at=vendor_lead_answered_at,
             vendor_lead_answered_at = vendor_lead_answered_at,
         )
 
@@ -2706,11 +2722,11 @@ class CallService:
         if raw_call_log is not None:
             for record in raw_call_log:
                 if record.get("type") == "Customer" and record.get("dialst") == "Answered":
-                    vendor_lead_answered_at = datetime.fromtimestamp(record.get("time"))
+                    vendor_lead_answered_at = _smartflo_epoch_to_naive_ist(record.get("time"))
                 if record.get("type") == "Agent" and record.get("dialst") == "Answered":
-                    vendor_agent_answered_at = datetime.fromtimestamp(record.get("time"))
+                    vendor_agent_answered_at = _smartflo_epoch_to_naive_ist(record.get("time"))
                 if record.get("type") == "Hangup":
-                    vendor_hangup_at = datetime.fromtimestamp(record.get("time"))
+                    vendor_hangup_at = _smartflo_epoch_to_naive_ist(record.get("time"))
 
         call_duration = payload.get("outbound_sec")
 

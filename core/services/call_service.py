@@ -83,6 +83,22 @@ def _get_telephony_integration_type():
     return None
 
 
+def _smartflo_disposition_remarks_from_payload(payload: dict) -> str | None:
+    """Extract agent remarks from Smartflo dispose webhook (`disposition.note`)."""
+    if not payload:
+        return None
+    disposition = payload.get("disposition")
+    if isinstance(disposition, dict):
+        note = disposition.get("note")
+        if note is not None and str(note).strip():
+            return str(note).strip()
+    for key in ("disposition_remarks", "schedule_note"):
+        val = payload.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return None
+
+
 def _trigger_reconciliation_event_direct(data: dict, options: dict, log_context: str):
     log.info(f"{log_context}: trigger reconciliation api start data={data} options={options}")
     try:
@@ -2516,9 +2532,12 @@ class CallService:
         row.set("disposition_raw", payload)
         row.set("vendor_dispose_webhook_arrived_at", webhook_arrived_at)
         row.set("vendor_disposition_code", disposition_code)
-        
+
+        disposition_remarks = _smartflo_disposition_remarks_from_payload(payload)
+        if disposition_remarks:
+            row.set("disposition_remarks", disposition_remarks)
+
         if disposition_code:
-            print(disposition_code)
             crm_lead_status_record = frappe.db.get_value(
                 EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
                 {"dialer_disposition_name": disposition_code},
@@ -2526,7 +2545,6 @@ class CallService:
                 as_dict=True,
             )
             if crm_lead_status_record:
-                disposition_remarks = payload.get("disposition_remarks")
                 row.set(
                     "disposition_status",
                     crm_lead_status_record.get("custom_primary_status"),
@@ -2536,7 +2554,6 @@ class CallService:
                     crm_lead_status_record.get("lead_status"),
                 )
 
-                # update lead by calling update_lead_from_call_disposition
                 update_lead_from_call_disposition(
                     lead_name=row.get("lead"),
                     disposition_status=crm_lead_status_record.get("custom_primary_status"),

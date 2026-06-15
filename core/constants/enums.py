@@ -19,6 +19,7 @@ class _Roles:
 	DRIVER_MANAGER = "Driver Manager"
 	ADMIN = "Admin"
 	ADMINISTRATOR = "Administrator"
+	SENIOR_DRIVER_MANAGER = "Senior Driver Manager"
 
 class _LeadType:
 	LEAD = "LEAD"

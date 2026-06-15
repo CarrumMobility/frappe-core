@@ -46,6 +46,7 @@ ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
 	"Onboarding": CRM_AGENT_PERMISSIONS,
 	"Driver Manager": CRM_AGENT_PERMISSIONS,
 	"Admin": CRM_AGENT_PERMISSIONS,
+	"Senior Driver Manager": CRM_AGENT_PERMISSIONS
 }
 
 TEMPLATE_ROLE_NAME = "Sales User"
@@ -81,6 +82,10 @@ class RolePermService:
 			},
 			"Admin": {
 				"role_name": EnumValues.Roles.ADMIN,
+				"desk_access": 0,
+			},
+			"Senior Driver Manager": {
+				"role_name": EnumValues.Roles.SENIOR_DRIVER_MANAGER,
 				"desk_access": 0,
 			}
 		}

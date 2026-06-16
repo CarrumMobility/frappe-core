@@ -560,6 +560,12 @@ def _send_agreement_field_specs() -> list[dict]:
             "category": "documents",
             "attach": True,
         },
+        {
+            "fieldname": "image",
+            "label": _("DP profile pic"),
+            "category": "documents",
+            "attach": True,
+        },
     ]
 
 

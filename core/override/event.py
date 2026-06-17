@@ -11,6 +11,9 @@ COMMUNICATION_MAPPING = {
 	**event_module.communication_mapping,
 	"Callback": "Phone",
 	"Visit Date": "Other",
+	"PMS": "Other",
+	"WS": "Other",
+	"Maintenance": "Other",
 }
 
 

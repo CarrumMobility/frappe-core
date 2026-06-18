@@ -2910,6 +2910,25 @@ class CallService:
         if call_status == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
             _notify_telecaller_missed_call(lead, lead_telecaller)
 
+       if call_status == EnumValues.CallSessionStatus.MISSED:
+            did_number = call_to_number
+            inbound_source = None
+            if did_number:
+                inbound_source = frappe.db.get_value(
+                    EnumValues.ReferenceDocType.LEAD_SOURCE,
+                    {
+                        "purpose": EnumValues.LeadSourcePurpose.Inbound,
+                        "did_number": did_number,
+                    },
+                    ["name", "source_name"],
+                    as_dict=True,
+                )
+
+                if inbound_source:
+                    lead.set("source", inbound_source.get("source_name"))
+                    lead.set("source_id", inbound_source.get("name"))
+                    lead.save(ignore_permissions=True)
+            
         new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
         new_session.agent_call_id = call_id
         new_session.vendor_name = default_telephony_vendor

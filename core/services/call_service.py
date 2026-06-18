@@ -2910,7 +2910,7 @@ class CallService:
         if call_status == EnumValues.CallSessionStatus.MISSED and lead_telecaller:
             _notify_telecaller_missed_call(lead, lead_telecaller)
 
-       if call_status == EnumValues.CallSessionStatus.MISSED:
+        if call_status == EnumValues.CallSessionStatus.MISSED:
             did_number = call_to_number
             inbound_source = None
             if did_number:

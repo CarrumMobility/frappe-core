@@ -25,6 +25,17 @@ util_service = UtilService()
 default_telephony_vendor = EnumValues.CallingVendorName.Smartflo
 
 
+def _get_telephony_integration_type():
+    try:
+        config = frappe.get_doc(
+            EnumValues.ReferenceDocType.GLOBAL_CONFIG,
+            {"key": "telephony_integration_type"},
+        )
+        return config.value if config else None
+    except DoesNotExistError:
+        return None
+
+
 def _enqueue_apply_not_connected_dial_for_today_lead_callback(
     lead_name: str, lock_key: str | None = None
 ) -> None:

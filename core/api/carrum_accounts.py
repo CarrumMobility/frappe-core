@@ -286,6 +286,15 @@ def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
     return list(dict.fromkeys(usernames))
 
 
+def get_hub_telecaller_users(hub_id: str) -> list[dict]:
+    """Return Carrum hub telecaller user rows (id, frappeCred, etc.)."""
+    return [
+        row
+        for row in _carrum_user_rows(get_hub_telecallers(hub_id))
+        if isinstance(row, dict)
+    ]
+
+
 def get_dm_of_all_businessTypes(hubId: str):
     old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
     old_carrum_token = frappe.conf.get("old_carrum_token")

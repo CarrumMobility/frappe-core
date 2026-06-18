@@ -36,6 +36,9 @@ CRM_AGENT_PERMISSIONS = {
 	"User dialer session break logs": ["read", "select", "write", "create", "delete"],
 	"payment_logs": ["read", "select"],
 	"Lead walkin done": ["create", "read", "select", "write"],
+	"Role": ["read", "select"],
+	"CRM Tab Permission": ["read", "select","create", "write", "delete"],
+	"CRM Lead Source": ["read", "select","create", "write"],
 }
 
 # Permissions merged on top of ``TEMPLATE_ROLE_NAME`` (union per doctype).

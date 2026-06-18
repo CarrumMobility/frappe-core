@@ -56,6 +56,7 @@ class _ReferenceDocType:
 	LEAD_SOURCE = "CRM Lead Source"
 	GLOBAL_CONFIG = "Global Config"
 	USER_DIALER_SESSION_LOG = "User dialer session logs"
+	CRM_TAB_PERMISSION = "CRM tab permission"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -140,6 +141,11 @@ class _AgentPerformanceDialerStatus:
 	ON_BREAK = "ON_BREAK"
 	NOT_CONNECTED = "NOT_CONNECTED"
 
+class _CRM_LEAD_STATUS_USAGE:
+	DISPOSITIONS = "dispositions"
+	WalkInStatus= "walkin_status"
+
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
@@ -163,5 +169,6 @@ class _EnumValues:
 	CarrumEventTopicName = _CarrumEventTopicName
 	AgentPerformanceDialerStatus = _AgentPerformanceDialerStatus
 	TelephonyIntegrationType = _TelephonyIntegrationType
+	CRM_LEAD_STATUS_USAGE = _CRM_LEAD_STATUS_USAGE
 
 EnumValues = _EnumValues()

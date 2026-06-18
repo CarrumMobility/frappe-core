@@ -164,6 +164,63 @@ def _smartflo_epoch_to_naive_ist(value):
     return datetime.fromtimestamp(ts, tz=ist).replace(tzinfo=None)
 
 
+def _normalize_smartflo_phone_to_national(phone_raw) -> str | None:
+    """Normalize Smartflo webhook phone to CRM Lead ``mobile_no`` style national digits."""
+    raw = str(phone_raw or "").strip()
+    if not raw:
+        return None
+    parsed = parse_phone_number(raw)
+    national = parsed.get("national_number") if parsed.get("success") else None
+    if national:
+        return str(national).strip()
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 10:
+        return digits[-10:]
+    return digits or None
+
+
+def _find_inbound_lead_source_by_did(phone_raw):
+    """Resolve inbound CRM Lead Source by DID; tries common stored formats."""
+    raw = str(phone_raw or "").strip()
+    if not raw:
+        return None
+
+    parsed = parse_phone_number(raw)
+    candidates = [raw]
+    if parsed.get("success"):
+        national = parsed.get("national_number")
+        if national:
+            candidates.append(str(national).strip())
+        e164 = (parsed.get("formats") or {}).get("E164")
+        if e164:
+            candidates.append(str(e164).strip())
+    digits = re.sub(r"\D", "", raw)
+    if digits:
+        candidates.append(digits)
+        if len(digits) >= 10:
+            candidates.append(digits[-10:])
+            candidates.append(f"+{digits}")
+
+    seen = set()
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        row = frappe.db.get_value(
+            EnumValues.ReferenceDocType.LEAD_SOURCE,
+            {
+                "purpose": EnumValues.LeadSourcePurpose.Inbound,
+                "did_number": value,
+            },
+            ["name", "source_name"],
+            as_dict=True,
+        )
+        if row:
+            return row
+    return None
+
+
 def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
     """In-app CRM notification for assigned telecaller on inbound missed dialer call."""
     try:
@@ -2290,11 +2347,7 @@ class CallService:
         if not raw:
             return None
 
-        parsed = parse_phone_number(raw)
-        mobile_to_store = parsed.get("national_number") if parsed.get("success") else None
-        if not mobile_to_store:
-            digits = re.sub(r"\D", "", raw)
-            mobile_to_store = digits[-10:] if len(digits) >= 10 else digits
+        mobile_to_store = _normalize_smartflo_phone_to_national(raw)
         if not mobile_to_store:
             return None
 
@@ -2341,14 +2394,13 @@ class CallService:
         call_to_number = payload.get("call_to_number")
         caller_id_number = payload.get("caller_id_number")
 
-        lead_phone = None
-        did_number = None
+        parsed_call_to_number = _normalize_smartflo_phone_to_national(call_to_number)
+        parsed_caller_id_number = _normalize_smartflo_phone_to_national(caller_id_number)
+
         if direction == EnumValues.CallDirection.OUTBOUND:
-            lead_phone = call_to_number
-            did_number = caller_id_number
+            lead_phone = parsed_call_to_number
         else:
-            lead_phone = caller_id_number
-            did_number = call_to_number
+            lead_phone = parsed_caller_id_number
 
         start_date = payload.get("start_date")
         start_time = payload.get("start_time")
@@ -2371,16 +2423,9 @@ class CallService:
                 )
             )
         inbound_source = None
-        if did_number:
-            inbound_source = frappe.db.get_value(
-                EnumValues.ReferenceDocType.LEAD_SOURCE,
-                {
-                    "purpose": EnumValues.LeadSourcePurpose.Inbound,
-                    "did_number": did_number,
-                },
-                ["name", "source_name"],
-                as_dict=True,
-            )
+        did_raw = caller_id_number if direction == EnumValues.CallDirection.OUTBOUND else call_to_number
+        if did_raw:
+            inbound_source = _find_inbound_lead_source_by_did(did_raw)
         raw_call_log = payload.get("call_flow")
         vendor_lead_answered_at = None
         agent_answered_at = None
@@ -2557,7 +2602,7 @@ class CallService:
             crm_lead_status_record = frappe.db.get_value(
                 EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
                 {"dialer_disposition_name": disposition_code},
-                ["custom_primary_status", "lead_status", "name"],
+                ["custom_primary_status", "lead_status", "name", "is_allow_tc_assignment"],
                 as_dict=True,
             )
             if crm_lead_status_record:
@@ -2576,6 +2621,8 @@ class CallService:
                     sub_disposition_status=crm_lead_status_record.get("lead_status"),
                     disposition_remarks=disposition_remarks,
                     status_pk=crm_lead_status_record.name,
+                    telecaller=row.get("agent") or None,
+                    is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment")
                 )
 
         callback_dt = _schedule_timestamp_ist_or_none(schedule_timestamp)
@@ -2676,11 +2723,12 @@ class CallService:
 
         caller_id_number = payload.get("caller_id_number")
         call_to_number = payload.get("call_to_number")
-        lead_phone = (
+        lead_phone_raw = (
             call_to_number
             if call_direction == EnumValues.CallDirection.OUTBOUND
             else caller_id_number
         )
+        lead_phone = _normalize_smartflo_phone_to_national(lead_phone_raw)
         log.info(f"dialer_disconnect: resolved call_id={call_id} call_direction={call_direction} call_status={call_status} lead_phone={lead_phone}")
 
         row_name = frappe.db.get_value(

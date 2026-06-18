@@ -36,6 +36,9 @@ CRM_AGENT_PERMISSIONS = {
 	"User dialer session break logs": ["read", "select", "write", "create", "delete"],
 	"payment_logs": ["read", "select"],
 	"Lead walkin done": ["create", "read", "select", "write"],
+	"Role": ["read", "select"],
+	"CRM Tab Permission": ["read", "select","create", "write", "delete"],
+	"CRM Lead Source": ["read", "select","create", "write"],
 }
 
 # Permissions merged on top of ``TEMPLATE_ROLE_NAME`` (union per doctype).
@@ -46,6 +49,7 @@ ADDITIONAL_PERMISSIONS_BY_ROLE: dict[str, dict[str, list[str]]] = {
 	"Onboarding": CRM_AGENT_PERMISSIONS,
 	"Driver Manager": CRM_AGENT_PERMISSIONS,
 	"Admin": CRM_AGENT_PERMISSIONS,
+	"Senior Driver Manager": CRM_AGENT_PERMISSIONS
 }
 
 TEMPLATE_ROLE_NAME = "Sales User"
@@ -81,6 +85,10 @@ class RolePermService:
 			},
 			"Admin": {
 				"role_name": EnumValues.Roles.ADMIN,
+				"desk_access": 0,
+			},
+			"Senior Driver Manager": {
+				"role_name": EnumValues.Roles.SENIOR_DRIVER_MANAGER,
 				"desk_access": 0,
 			}
 		}

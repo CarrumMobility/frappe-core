@@ -167,9 +167,9 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None, force
     if not wallet:
         return
 
-    hub_fee = wallet.get("hubFee") or {}
+    # hub_fee = wallet.get("hubFee") or {}
     sec_dep = wallet.get("securityDeposit") or {}
-    hub_rem = flt(hub_fee.get("remaining"))
+    # hub_rem = flt(hub_fee.get("remaining"))
     sd_rem = flt(sec_dep.get("remaining"))
 
     driver_row = _fetch_crm_lead_status_primary_secondary(
@@ -189,7 +189,7 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None, force
     if va_row and _lead_matches_crm_status_row(lead, va_row):
         return
 
-    is_hub_fee_cleared = hub_rem <= 0
+    # is_hub_fee_cleared = hub_rem <= 0
     is_security_deposit_cleared = sd_rem <= 0
 
     # Stage 3: already at full SD conversion. Keep as-is (stage 4 comes from vehicle assignment).
@@ -211,7 +211,7 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None, force
         driver_row
         and _lead_eligible_for_wallet_driver_stage(lead, driver_row, force=force)
         and fsd_row
-        and is_hub_fee_cleared
+        # and is_hub_fee_cleared
         and is_security_deposit_cleared
     ):
         _apply_crm_lead_status_row(lead, fsd_row, milestone="fsd")
@@ -221,7 +221,7 @@ def maybe_update_lead_status_after_payment_capture(lead, wallet_data=None, force
         driver_row
         and _lead_eligible_for_wallet_driver_stage(lead, driver_row, force=force)
         and psd_row
-        and is_hub_fee_cleared
+        # and is_hub_fee_cleared
     ):
         _apply_crm_lead_status_row(lead, psd_row, milestone="psd")
 
@@ -271,7 +271,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         frappe.throw(_("Set mobile number on the lead before sending a payment link"))
 
     lead_name = lead.lead_name
-    hub_fee = lead.hub_fee
+    # hub_fee = lead.hub_fee
     source = lead.source
     if not lead_name or not str(lead_name).strip():
         frappe.throw(_("Lead name is required before sending a payment link"))
@@ -288,7 +288,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         "phoneNumber": str(phone_number).strip(),
         "displayId": lead_id,
         "leadName": lead_name or "",
-        "hubFee": hub_fee,
+        # "hubFee": hub_fee,
         "hubId": hub_id,
         "amount": amount,
         "tag_type": tag_type,
@@ -305,7 +305,7 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         response = requests.post(url, json=payload, headers=headers, timeout=60)
     except requests.RequestException as e:
         frappe.throw(_("Could not reach payment service: {0}").format(str(e)))
-    
+
     if response.status_code >= 400:
         body = (response.text or "")[:500]
 
@@ -387,7 +387,7 @@ def add_other_payment(
         amount = body.get("amount")
     if utr is None:
         utr = body.get("utr")
-    
+
     payment_type = body.get("payment_type")
     payment_type_str = str(payment_type).strip().lower()
     if "security" in payment_type_str and "deposit" in payment_type_str:
@@ -404,7 +404,7 @@ def add_other_payment(
 
     phone_number = lead.mobile_no
     lead_name = lead.lead_name
-    hub_fee = lead.hub_fee
+    # hub_fee = lead.hub_fee
     lead_account_id = lead.custom_account_id
     source = lead.source or "crm_other_payment"
 
@@ -417,7 +417,7 @@ def add_other_payment(
         "phoneNumber": str(phone_number).strip(),
         "displayId": lead_id,
         "leadName": lead_name,
-        "hubFee": hub_fee,
+        # "hubFee": hub_fee,
         "hubId": hub_id,
         "amount": amount,
         "tag_type": str(payment_type).lower(),
@@ -495,7 +495,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
 
     lead_name = lead.lead_name
     phone_number = lead.mobile_no
-    hub_fee = lead.hub_fee
+    # hub_fee = lead.hub_fee
     custom_account_id = lead.custom_account_id
 
     _validate_lead_scheme_id(lead)
@@ -508,7 +508,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         "phoneNumber": phone_number,
         "displayId": lead_id,
         "leadName": lead_name,
-        "hubFee": hub_fee,
+        # "hubFee": hub_fee,
         "hubId": hub_id,
         "amount": amount_val,
         "tag_type": tag_type,
@@ -608,13 +608,13 @@ def webhook_capture():
         }
 
     lead_name = _resolve_lead_for_carrum_user_id(user_id)
-    
+
     if not lead_name:
         frappe.throw(
             _("Lead not found for user_id: {0}").format(user_id),
             title=_("Payment webhook"),
         )
-    
+
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
 

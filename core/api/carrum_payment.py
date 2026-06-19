@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import core.constants.enums as EnumValues
+from core.services.util_service import UtilService
 from frappe.utils.data import flt
 from core.services import logged_requests as requests
 
@@ -14,7 +15,7 @@ logger.setLevel(logging.INFO)
 
 UTC = timezone.utc
 IST = timezone(timedelta(hours=5, minutes=30))
-
+util_service = UtilService()
 def _resolve_lead_for_carrum_user_id(user_id):
     """Return CRM Lead name for ``custom_account_id`` / Carrum ``userId``, or None."""
     if not user_id:
@@ -587,7 +588,6 @@ def webhook_capture():
     """
     Payment webhook. The HTTP body must be **valid JSON** (Frappe parses it before this runs).
     """
-
     d = frappe.request.get_json()
     if not d or not isinstance(d, dict):
         frappe.throw(_("Expected JSON body"), title=_("Payment webhook"))
@@ -608,15 +608,20 @@ def webhook_capture():
         }
 
     lead_name = _resolve_lead_for_carrum_user_id(user_id)
+    
     if not lead_name:
         frappe.throw(
             _("Lead not found for user_id: {0}").format(user_id),
             title=_("Payment webhook"),
         )
+    
     lead = frappe.get_doc("CRM Lead", lead_name)
     lead_id = lead.name
-    maybe_update_lead_status_after_payment_capture(lead)
-    
+
+    util_service.update_lead_status_to_converted_stages(lead_id,"payment_received")
+
+    lead.save(ignore_permissions=True)
+
     return {
         "message": "ok",
         "lead_id": lead_id,

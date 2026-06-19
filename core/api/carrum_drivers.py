@@ -377,7 +377,8 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
         )
         return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-        return False
+        util_service.update_lead_status_to_converted_stages(lead.name,"to_onboard_status")
+        return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
         _apply_webhook_crm_lead_status_row(
             lead,
@@ -1258,13 +1259,11 @@ def update_driver(account_id: str, data: dict | str | None = None):
     if not body:
         return {"success": True}
 
-    print(body)
     url = f"{base}/api/v1/driver/update/{aid}?idType=account"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
     try:
         response = re.put(url, headers=headers, json=body, timeout=60)
-        print(response.text)
     except re.exceptions.RequestException as e:
         logger.exception("update_driver request failed: %s", e)
         frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))

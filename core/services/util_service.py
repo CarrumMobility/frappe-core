@@ -5,7 +5,7 @@ from frappe.utils import get_datetime, getdate, now_datetime
 import frappe
 from core.services import logged_requests as requests
 from frappe.core.doctype.user.user import update_password as original_update_password
-from frappe.utils.data import today
+from frappe.utils.data import flt, today
 
 def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 	"""Set ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead (custom Event fields)."""
@@ -452,6 +452,102 @@ class UtilService:
             or frappe._("Request was not successful")
         )
         frappe.throw(frappe._("Failed to raise driver return request: {0}").format(err))
+
+    def update_lead_status_to_converted_stages(
+        self, lead_id: str, usage: str, wallet_data=None
+    ):
+        """Move lead forward through payment received -> PSD -> FSD using wallet balances."""
+        from crm.fcrm.doctype.crm_lead.crm_lead import get_crm_lead_status_name_for_primary_secondary
+
+        lead = frappe.get_doc("CRM Lead", lead_id)
+        force = usage in ("remove_onboarding_drop", "to_onboard_status")
+
+        if usage == "remove_onboarding_drop":
+            if not (
+                lead.status
+                and frappe.db.get_value("CRM Lead Status", lead.status, "is_onboarding_drop")
+            ):
+                return
+        elif usage not in ("payment_received", "to_onboard_status"):
+            frappe.throw(frappe._("Invalid usage: {0}").format(usage))
+
+        wallet = wallet_data if isinstance(wallet_data, dict) else None
+        if not wallet and (lead.custom_account_id or "").strip():
+            try:
+                from core.api.carrum_drivers import (
+                    _extract_portal_driver_results,
+                    _fetch_portal_driver_detail_http,
+                )
+
+                ok, payload, _ = _fetch_portal_driver_detail_http(lead.name)
+                if ok and payload:
+                    results = _extract_portal_driver_results(payload)
+                    if isinstance(results, dict):
+                        wallet = results.get("walletData")
+            except Exception:
+                frappe.logger().exception("wallet status sync failed for lead=%s", lead.name)
+
+        if not isinstance(wallet, dict):
+            return
+
+        hub_cleared = flt((wallet.get("hubFee") or {}).get("remaining")) <= 0
+        sd_cleared = flt((wallet.get("securityDeposit") or {}).get("remaining")) <= 0
+
+        driver_row = frappe.db.get_value(
+            "CRM Lead Status", {"is_apply_on_driver_creation": 1}, ["custom_primary_status", "lead_status"]
+        )
+        psd_row = frappe.db.get_value(
+            "CRM Lead Status", {"is_apply_on_psd_conversion": 1}, ["custom_primary_status", "lead_status"]
+        )
+        fsd_row = frappe.db.get_value(
+            "CRM Lead Status", {"is_apply_on_fsd_conversion": 1}, ["custom_primary_status", "lead_status"]
+        )
+        va_row = frappe.db.get_value(
+            "CRM Lead Status", {"is_apply_on_vehicle_assignment": 1}, ["custom_primary_status", "lead_status"]
+        )
+
+        if (
+            (va_row and (lead.primary_status or "") == (va_row[0] or "") and (lead.secondary_status or "") == (va_row[1] or ""))
+            or (fsd_row and (lead.primary_status or "") == (fsd_row[0] or "") and (lead.secondary_status or "") == (fsd_row[1] or ""))
+        ):
+            return
+
+        primary = (lead.primary_status or "").strip()
+        on_driver_stage = (
+            (driver_row and (lead.primary_status or "") == (driver_row[0] or "") and (lead.secondary_status or "") == (driver_row[1] or ""))
+            or (primary == "Drop" and bool(frappe.db.get_value("CRM Lead Status", lead.status, "is_onboarding_drop")))
+            or (primary and primary not in ("Drop", "Converted"))
+            or (force and primary in ("Drop", "Converted"))
+        )
+
+        target_row = None
+        milestone = None
+        if (
+            psd_row
+            and (lead.primary_status or "") == (psd_row[0] or "")
+            and (lead.secondary_status or "") == (psd_row[1] or "")
+            and fsd_row
+            and sd_cleared
+        ):
+            target_row, milestone = fsd_row, "fsd"
+        elif on_driver_stage and fsd_row and hub_cleared and sd_cleared:
+            target_row, milestone = fsd_row, "fsd"
+        elif on_driver_stage and psd_row and hub_cleared:
+            target_row, milestone = psd_row, "psd"
+
+        if not target_row:
+            return
+
+        lead.primary_status = target_row[0]
+        lead.secondary_status = target_row[1]
+        status_pk = get_crm_lead_status_name_for_primary_secondary(target_row[0], target_row[1])
+        if status_pk:
+            lead.status = status_pk
+        if milestone == "psd":
+            lead.psd_received_at = frappe.utils.now_datetime()
+        elif milestone == "fsd":
+            lead.fsd_received_at = frappe.utils.now_datetime()
+        lead.save(ignore_permissions=True)
 
 
 util_service = UtilService()

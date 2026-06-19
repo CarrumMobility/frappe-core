@@ -79,12 +79,14 @@ def get_scheme_list():
 	business_type_id = str(
 		payload.get("businessTypeId") or payload.get("business_type_id") or ""
 	).strip()
-	if not business_type_id:
+	hub_id = str(payload.get("hubId") or payload.get("hub_id") or "").strip()
+	if not business_type_id or not hub_id:
 		return {
 			"success": False,
 		}
 
-	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={business_type_id}"
+	query = f"hub_id={hub_id}&business_type_id={business_type_id}"
+	url = f"{carrum_base_url}/api/v1/scheme/alias?{query}"
 
 	response = re.get(url, headers={"Authorization": carrum_token})
 	return {

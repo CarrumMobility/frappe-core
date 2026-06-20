@@ -73,8 +73,9 @@ def _build_new_lead_values(row, lead_id, ts):
         "mobile_no": (row.get("mobile_no") or "").strip(),
         "lead_type": EnumValues.LeadType.LEAD,
         "status": row.get("status_id"),
-        "primary_status": row.get("primary_status") or "NEW",
-        "secondary_status": row.get("secondary_status") or "NEW",
+        "primary_status": row.get("primary_status"),
+        "upload_source": row.get("uploaded_source"),
+        "secondary_status": row.get("secondary_status"),
         "lead_uploaded_at": _parse_uploaded_at(row.get("uploaded_at")) or ts,
         "source": row.get("source_name"),
         "source_id": row.get("source_id"),
@@ -146,6 +147,8 @@ def process_lead_from_raw_to_lead_table_consumer():
                             update_fields["source"] = row.get("source_name")
                         if row.get("source_id"):
                             update_fields["source_id"] = row.get("source_id")
+                        if row.get("uploaded_source"):
+                            update_fields["upload_source"] = row.get("uploaded_source")
                         if row.get("uploaded_at"):
                             update_fields["lead_uploaded_at"] = datetime.datetime.strptime(
                                 row.get("uploaded_at"),
@@ -158,7 +161,6 @@ def process_lead_from_raw_to_lead_table_consumer():
                                 update_fields["primary_status"] = row.get("primary_status")
                             if row.get("secondary_status"):
                                 update_fields["secondary_status"] = row.get("secondary_status")
-                            update_fields["lead_type"] = EnumValues.LeadType.LEAD
                         if update_fields:
                             frappe.db.set_value(
                                 "CRM Lead",

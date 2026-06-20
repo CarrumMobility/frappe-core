@@ -4,15 +4,35 @@ import time
 
 import frappe
 from frappe import _
+from frappe.utils import now
+from frappe.utils.synchronization import filelock
 
 from core.constants.enums import EnumValues
-from frappe.utils.synchronization import filelock
+from crm.api.lead import get_next_lead_id
 
 logger = frappe.logger("core.api.csv_upload")
 logger.setLevel(logging.INFO)
 
 RAW_LEAD_TABLE = "temp_lead_raw_data"
 BATCH_SIZE = 2000
+ADMIN_USER = "Administrator"
+NEW_LEAD_FIELDS = [
+    "name",
+    "creation",
+    "modified",
+    "modified_by",
+    "owner",
+    "docstatus",
+    "idx",
+    "mobile_no",
+    "lead_type",
+    "status",
+    "primary_status",
+    "secondary_status",
+    "lead_uploaded_at",
+    "source",
+    "source_id",
+]
 
 cache = frappe.cache()
 
@@ -35,6 +55,42 @@ def _mark_raw_row(mobile_no, *, is_processed, error=None):
     )
 
 
+def _parse_uploaded_at(value):
+    if not value:
+        return None
+    return datetime.datetime.strptime(value, "%d-%m-%Y %H:%M")
+
+
+def _build_new_lead_values(row, lead_id, ts):
+    return {
+        "name": lead_id,
+        "creation": ts,
+        "modified": ts,
+        "modified_by": ADMIN_USER,
+        "owner": ADMIN_USER,
+        "docstatus": 0,
+        "idx": 0,
+        "mobile_no": (row.get("mobile_no") or "").strip(),
+        "lead_type": EnumValues.LeadType.LEAD,
+        "status": row.get("status_id"),
+        "primary_status": row.get("primary_status") or "NEW",
+        "secondary_status": row.get("secondary_status") or "NEW",
+        "lead_uploaded_at": _parse_uploaded_at(row.get("uploaded_at")) or ts,
+        "source": row.get("source_name"),
+        "source_id": row.get("source_id"),
+    }
+
+
+def _bulk_insert_new_leads(leads):
+    if not leads:
+        return
+    frappe.db.bulk_insert(
+        "CRM Lead",
+        NEW_LEAD_FIELDS,
+        [tuple(lead.get(field) for field in NEW_LEAD_FIELDS) for lead in leads],
+    )
+
+
 @frappe.whitelist()
 def process_lead_from_raw_to_lead_table():
     upsert_upload_key_in_redis(True)
@@ -42,7 +98,7 @@ def process_lead_from_raw_to_lead_table():
     frappe.enqueue(
         method="core.api.csv_upload.process_lead_from_raw_to_lead_table_consumer",
         queue="long",
-        timeout=60 * 60 * 24,
+        # timeout=60 * 60 * 24,
     )
 
     return True
@@ -68,9 +124,10 @@ def process_lead_from_raw_to_lead_table_consumer():
 
         batch_started_at = time.monotonic()
         batch_processed = batch_created = batch_updated = batch_failed = 0
+        pending_new_leads = []
 
         for row in rows:
-            mobile_no = (row.get("mobile_no") or "").strip()
+            mobile_no = row.get("mobile_no")
             with filelock(f"lead_processing_lock_{mobile_no}", timeout=60 * 60, is_global=True):
                 if not mobile_no:
                     failed += 1
@@ -111,44 +168,39 @@ def process_lead_from_raw_to_lead_table_consumer():
                             )
                         updated += 1
                         batch_updated += 1
+                        _mark_raw_row(mobile_no, is_processed=1)
+                        processed += 1
+                        batch_processed += 1
+                        frappe.db.commit()
                     else:
-                        new_lead = frappe.new_doc("CRM Lead")
-                        new_lead.mobile_no = mobile_no
-                        new_lead.lead_type = EnumValues.LeadType.LEAD
-                        if(row.get("source_name")):
-                            new_lead.source = row.get("source_name")
-
-                        if(row.get("source_id")):
-                            new_lead.source_id = row.get("source_id")
-
-                        if(row.get("uploaded_at")):
-                            new_lead.lead_uploaded_at =datetime.datetime.strptime(
-                                row.get("uploaded_at"),
-                                "%d-%m-%Y %H:%M"
-                            )
-                        if row.get("status_id"):
-                            new_lead.status = row.get("status_id")
-
-                        if row.get("primary_status"):
-                            new_lead.primary_status = row.get("primary_status")
-
-                        if row.get("secondary_status"):
-                            new_lead.secondary_status = row.get("secondary_status")
-
-                        new_lead.insert(ignore_permissions=True)
-                        created += 1
-                        batch_created += 1
-
-                    _mark_raw_row(mobile_no, is_processed=1)
-                    processed += 1
-                    batch_processed += 1
+                        lead_id = get_next_lead_id()["lead_id"]
+                        pending_new_leads.append(_build_new_lead_values(row, lead_id, now()))
                 except Exception as exc:
                     failed += 1
                     batch_failed += 1
                     frappe.db.rollback()
                     _mark_raw_row(mobile_no, is_processed=1, error=str(exc)[:500])
                     logger.exception("Raw lead import failed for mobile_no=%s", mobile_no)
+                    frappe.db.commit()
 
+        if pending_new_leads:
+            try:
+                _bulk_insert_new_leads(pending_new_leads)
+                for lead in pending_new_leads:
+                    _mark_raw_row(lead["mobile_no"], is_processed=1)
+                batch_created = len(pending_new_leads)
+                created += batch_created
+                batch_processed += batch_created
+                processed += batch_created
+                frappe.db.commit()
+            except Exception as exc:
+                frappe.db.rollback()
+                error = str(exc)[:500]
+                for lead in pending_new_leads:
+                    _mark_raw_row(lead["mobile_no"], is_processed=1, error=error)
+                batch_failed = len(pending_new_leads)
+                failed += batch_failed
+                logger.exception("Raw lead bulk insert failed")
                 frappe.db.commit()
 
         batch_elapsed = time.monotonic() - batch_started_at

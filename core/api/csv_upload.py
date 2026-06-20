@@ -42,6 +42,7 @@ def process_lead_from_raw_to_lead_table():
     frappe.enqueue(
         method="core.api.csv_upload.process_lead_from_raw_to_lead_table_consumer",
         queue="long",
+        timeout=60 * 60 * 24,
     )
 
     return True

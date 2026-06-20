@@ -58,7 +58,7 @@ def process_lead_from_raw_to_lead_table_consumer():
             break
 
         rows = frappe.db.sql(
-            f"SELECT * FROM `{RAW_LEAD_TABLE}` WHERE is_processed = 0 LIMIT %s",
+            f"SELECT * FROM `{RAW_LEAD_TABLE}` WHERE is_processed = 0 LIMIT %s FOR UPDATE",
             (BATCH_SIZE,),
             as_dict=True,
         )
@@ -145,7 +145,7 @@ def process_lead_from_raw_to_lead_table_consumer():
                     failed += 1
                     batch_failed += 1
                     frappe.db.rollback()
-                    _mark_raw_row(mobile_no, is_processed=0, error=str(exc)[:500])
+                    _mark_raw_row(mobile_no, is_processed=1, error=str(exc)[:500])
                     logger.exception("Raw lead import failed for mobile_no=%s", mobile_no)
 
                 frappe.db.commit()

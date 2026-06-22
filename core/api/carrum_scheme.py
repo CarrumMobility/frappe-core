@@ -17,8 +17,24 @@ def _extract_alias_results(data):
 	return []
 
 
+def _row_stored_scheme_id(row):
+	return str(row.get("id") or "").strip()
+
+
+def _row_portal_scheme_id(row):
+	return str(row.get("scheme_id") or row.get("schemeId") or "").strip()
+
+
+def _row_matches_stored_scheme_id(row, scheme: str) -> bool:
+	stored = _row_stored_scheme_id(row)
+	if stored and stored == scheme:
+		return True
+	return _row_portal_scheme_id(row) == scheme
+
+
 def _row_scheme_id(row):
-	return str(row.get("scheme_id") or row.get("schemeId") or row.get("id") or "").strip()
+	"""Backward-compatible alias for stored scheme id on alias rows."""
+	return _row_stored_scheme_id(row) or _row_portal_scheme_id(row)
 
 
 def _is_hub_agnostic_alias_row(row):
@@ -66,7 +82,7 @@ def scheme_requires_car_type_for_hub(hub_id, scheme_id):
 		return True
 	rows = _filter_alias_rows_for_hub(_extract_alias_results(payload), hub)
 	for row in rows:
-		if _row_scheme_id(row) != scheme:
+		if not _row_matches_stored_scheme_id(row, scheme):
 			continue
 		if _row_car_type_id(row):
 			return True

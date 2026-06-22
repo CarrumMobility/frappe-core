@@ -1673,7 +1673,8 @@ class CallService:
                     scheduled_visit_date=doc.get("scheduled_visit_date"),
                     disposition_remarks=doc.get("disposition_remarks"),
                     disposition_status=disposition_status,
-                    sub_disposition_status=sub_disposition
+                    sub_disposition_status=sub_disposition,
+                    owner=doc.get("agent") or user,
                 )
             except Exception:
                 frappe.log_error(
@@ -1709,6 +1710,7 @@ class CallService:
                 disposition_status=disposition_status,
                 sub_disposition_status=sub_disposition,
                 disposition_remarks=remarks,
+                owner=doc.get("agent") or user,
             )
         frappe.db.commit()
 
@@ -1863,6 +1865,7 @@ class CallService:
                     disposition_status=disposition_status,
                     sub_disposition_status=sub_disposition_status,
                     disposition_remarks=remarks,
+                    owner=call_session_doc.get("agent") or user,
                 )
 
             now = frappe.utils.now()
@@ -1891,7 +1894,8 @@ class CallService:
                         disposition_remarks=call_session_doc.get("disposition_remarks"),
                         call_session_id=call_session_id,
                         disposition_status=disposition_status,
-                        sub_disposition_status=sub_disposition_status
+                        sub_disposition_status=sub_disposition_status,
+                        owner=call_session_doc.get("agent") or user,
                     )
                 except Exception:
                     frappe.log_error(
@@ -2636,6 +2640,7 @@ class CallService:
                         disposition_status=ds,
                         sub_disposition_status=sub,
                         disposition_remarks=disposition_remarks,
+                        owner=row.get("agent"),
                     )
 
                 if crm_lead_status_record.get("is_visit_date_required") and schedule_timestamp is not None:
@@ -2646,6 +2651,7 @@ class CallService:
                         call_session_id=row.name,
                         disposition_status=ds,
                         sub_disposition_status=sub,
+                        owner=row.get("agent"),
                     )
 
         

@@ -2613,42 +2613,68 @@ class CallService:
                 ds = crm_lead_status_record.get("custom_primary_status")
                 sub = crm_lead_status_record.get("lead_status")
                 row.set("disposition_status", ds)
-                row.set("sub_disposition_status",sub)
+                row.set("sub_disposition_status", sub)
 
-                update_lead_from_call_disposition(
-                    lead_name=row.get("lead"),
-                    disposition_status=crm_lead_status_record.get("custom_primary_status"),
-                    sub_disposition_status=crm_lead_status_record.get("lead_status"),
-                    disposition_remarks=disposition_remarks,
-                    status_pk=crm_lead_status_record.name,
-                    telecaller=row.get("agent") or None,
-                    is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment")
-                )
+                if callback_dt and crm_lead_status_record.get("is_visit_date_required"):
+                    row.set("is_visit_scheduled", 1)
+                    row.set("scheduled_visit_date", callback_dt)
+                elif crm_lead_status_record.get("is_visit_date_required"):
+                    row.set("is_visit_scheduled", 0)
+                    row.set("scheduled_visit_date", None)
 
-                if crm_lead_status_record.get("is_callback") and schedule_timestamp is not None:
-                    util_service.create_event_for_callback(
-                        lead_id=row.get("lead"),
-                        call_session_id=row.name,
-                        callback_datetime=schedule_timestamp,
-                        callback_comments=disposition_remarks,
-                        remind_before_minutes=10,
-                        expected_call_duration_minutes=10,
+                try:
+                    update_lead_from_call_disposition(
+                        lead_name=row.get("lead"),
                         disposition_status=ds,
                         sub_disposition_status=sub,
                         disposition_remarks=disposition_remarks,
+                        status_pk=crm_lead_status_record.get("name"),
+                        telecaller=row.get("agent") or None,
+                        is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment"),
+                    )
+                except Exception:
+                    frappe.log_error(
+                        frappe.get_traceback(),
+                        "update_lead_from_call_disposition_dialer_webhook",
                     )
 
-                if crm_lead_status_record.get("is_visit_date_required") and schedule_timestamp is not None:
-                    util_service.create_event_for_visit_date(
-                        lead_id=row.get("lead"),
-                        scheduled_visit_date=schedule_timestamp,
-                        disposition_remarks=disposition_remarks,
-                        call_session_id=row.name,
-                        disposition_status=ds,
-                        sub_disposition_status=sub,
-                    )
+                if crm_lead_status_record.get("is_callback") and callback_dt:
+                    try:
+                        util_service.create_event_for_callback(
+                            lead_id=row.get("lead"),
+                            call_session_id=row.name,
+                            callback_datetime=callback_dt,
+                            callback_comments=disposition_remarks,
+                            remind_before_minutes=10,
+                            expected_call_duration_minutes=10,
+                            disposition_status=ds,
+                            sub_disposition_status=sub,
+                            disposition_remarks=disposition_remarks,
+                        )
+                    except Exception:
+                        frappe.log_error(
+                            frappe.get_traceback(),
+                            "sync_callback_event_dialer_webhook",
+                        )
 
-        
+                if crm_lead_status_record.get("is_visit_date_required") and callback_dt:
+                    try:
+                        util_service.create_event_for_visit_date(
+                            lead_id=row.get("lead"),
+                            scheduled_visit_date=callback_dt,
+                            disposition_remarks=disposition_remarks,
+                            call_session_id=row.name,
+                            disposition_status=ds,
+                            sub_disposition_status=sub,
+                        )
+                    except Exception:
+                        frappe.log_error(
+                            frappe.get_traceback(),
+                            "sync_visit_date_event_dialer_webhook",
+                        )
+
+        if not row.get("disposed_at"):
+            row.set("disposed_at", webhook_arrived_at)
 
         if not (row.get("lead_source_during_call") or "").strip():
             _set_lead_source_during_call_on_session(row)

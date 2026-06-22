@@ -28,6 +28,79 @@ def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 		event_doc.set("preferred_scheme_1", ps)
 
 
+def _disposition_field_str(value) -> str:
+	if value is None:
+		return ""
+	if isinstance(value, (list, tuple)):
+		value = value[0] if value else ""
+	return str(value).strip()
+
+
+def _visit_schedule_times(scheduled_visit_date):
+	"""Return (starts_on, ends_on, call_at) for a visit Event from scheduled date/datetime."""
+	svd = (
+		str(scheduled_visit_date).strip()
+		if scheduled_visit_date is not None and str(scheduled_visit_date).strip()
+		else ""
+	)
+	visit_dt = get_datetime(svd)
+	if not visit_dt:
+		return None, None, None
+	t = svd.strip()
+	is_date_only = (
+		len(t) == 10
+		and t[4:5] == "-"
+		and t[7:8] == "-"
+		and " " not in t
+		and "t" not in t.lower()
+	)
+	if is_date_only:
+		visit_d = getdate(svd)
+		starts_on = get_datetime(f"{visit_d} 00:00:00")
+		ends_on = starts_on + timedelta(days=1) - timedelta(seconds=1)
+		call_at = starts_on
+	else:
+		call_at = visit_dt
+		starts_on = visit_dt
+		ends_on = visit_dt + timedelta(hours=1)
+	return starts_on, ends_on, call_at
+
+
+def _apply_disposition_fields_to_event(
+	event_doc,
+	disposition_status=None,
+	sub_disposition_status=None,
+	disposition_remarks=None,
+	description=None,
+):
+	ds = _disposition_field_str(disposition_status)
+	sub = _disposition_field_str(sub_disposition_status)
+	if ds:
+		event_doc.set("disposition_status", ds)
+	if sub:
+		event_doc.set("sub_disposition_status", sub)
+	remarks = _disposition_field_str(disposition_remarks) or _disposition_field_str(description)
+	if remarks:
+		event_doc.set("disposition_remarks", remarks)
+		if description is not None:
+			event_doc.set("description", remarks)
+
+
+def _find_scheduled_event_for_call_session(call_session_id, event_category):
+	call_session_id = (call_session_id or "").strip()
+	if not call_session_id:
+		return None
+	return frappe.db.get_value(
+		EnumValues.ReferenceDocType.EVENT,
+		{
+			"reference_call_session": call_session_id,
+			"event_category": event_category,
+			"callback_status": EnumValues.EventCallbackStatus.SCHEDULED,
+		},
+		"name",
+	)
+
+
 class UtilService:
     def __init__(self):
         pass
@@ -66,46 +139,39 @@ class UtilService:
         starts_on = call_at - timedelta(minutes=remind_m)
         ends_on = call_at + timedelta(minutes=duration_m)
 
-        event_doc = frappe.new_doc("Event")
+        existing_name = _find_scheduled_event_for_call_session(
+            call_session_id,
+            EnumValues.EventCallbackCategory.CALLBACK,
+        )
+        if existing_name:
+            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, existing_name)
+        else:
+            event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
+            event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Callback scheduled"))
+            event_doc.set("event_category", EnumValues.EventCallbackCategory.CALLBACK)
+            event_doc.set("event_type", "Private")
+            event_doc.set("status", "Open")
+            event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
+            event_doc.set("reference_docname", lead_id)
+            event_doc.set("reference_call_session", call_session_id)
+            event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
 
-        event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Callback scheduled"))
-        event_doc.set("event_category", EnumValues.EventCallbackCategory.CALLBACK)
-        event_doc.set("event_type", "Private")
-        event_doc.set("status", "Open")
         event_doc.set("starts_on", starts_on)
         event_doc.set("call_at", call_at)
         event_doc.set("ends_on", ends_on)
-        event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
-        event_doc.set("reference_docname", lead_id)
-        event_doc.set("reference_call_session", call_session_id)
-        event_doc.set("description", callback_comments)
-        event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
+        if callback_comments:
+            event_doc.set("description", callback_comments)
 
         _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
-        dr = (
-            str(disposition_remarks).strip()
-            if disposition_remarks is not None and str(disposition_remarks).strip()
-            else ""
-        )
-        cc = (
-            str(callback_comments).strip()
-            if callback_comments is not None and str(callback_comments).strip()
-            else ""
-        )
+        dr = _disposition_field_str(disposition_remarks)
+        cc = _disposition_field_str(callback_comments)
         ev_rmk = dr or cc
-        if ev_rmk:
-            event_doc.set("disposition_remarks", ev_rmk)
-
-        ds = (disposition_status or "").strip() if disposition_status is not None else ""
-        sub = (
-            (sub_disposition_status or "").strip()
-            if sub_disposition_status is not None
-            else ""
+        _apply_disposition_fields_to_event(
+            event_doc,
+            disposition_status=disposition_status,
+            sub_disposition_status=sub_disposition_status,
+            disposition_remarks=ev_rmk or None,
         )
-        if ds:
-            event_doc.set("disposition_status", ds)
-        if sub:
-            event_doc.set("sub_disposition_status", sub)
 
         event_doc.save(ignore_permissions=True)
 
@@ -132,83 +198,63 @@ class UtilService:
         if not svd or not lead_id:
             return None
 
-        # Scheduling a visit supersedes open Callback events still marked Scheduled.
-        # if frappe.db.has_column("Event", "callback_status"):
-        ev_names = frappe.get_all(
-            EnumValues.ReferenceDocType.EVENT,
-            filters={
-                "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
-                "reference_docname": lead_id,
-                "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
-                "callback_status": EnumValues.EventCallbackStatus.SCHEDULED
-            },
-            pluck="name",
-        )
-        for ev_name in ev_names:
-            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, ev_name)
-            event_doc.set("callback_status", EnumValues.EventCallbackStatus.OVERRIDE)
-            event_doc.save(ignore_permissions=True)
-
-        visit_dt = get_datetime(svd)
-        if not visit_dt:
+        starts_on, ends_on, call_at = _visit_schedule_times(svd)
+        if not call_at:
             frappe.throw(
                 frappe._("Invalid scheduled visit date or time"),
                 title=frappe._("Visit"),
             )
-        # ``YYYY-MM-DD`` only: keep legacy all-day visit window on the calendar.
-        t = svd.strip()
-        is_date_only = (
-            len(t) == 10
-            and t[4:5] == "-"
-            and t[7:8] == "-"
-            and " " not in t
-            and "t" not in t.lower()
-        )
-        if is_date_only:
-            visit_d = getdate(svd)
-            starts_on = get_datetime(f"{visit_d} 00:00:00")
-            ends_on = starts_on + timedelta(days=1) - timedelta(seconds=1)
-            call_at = starts_on
+
+        call_session_id = (call_session_id or "").strip() or None
+        existing_name = _find_scheduled_event_for_call_session(
+            call_session_id,
+            EnumValues.EventCallbackCategory.VISIT_DATE,
+        ) if call_session_id else None
+
+        if not existing_name:
+            ev_names = frappe.get_all(
+                EnumValues.ReferenceDocType.EVENT,
+                filters={
+                    "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
+                    "reference_docname": lead_id,
+                    "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
+                    "callback_status": EnumValues.EventCallbackStatus.SCHEDULED,
+                },
+                fields=["name", "reference_call_session"],
+            )
+            for ev in ev_names or []:
+                if call_session_id and (ev.get("reference_call_session") or "").strip() == call_session_id:
+                    continue
+                event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, ev.name)
+                event_doc.set("callback_status", EnumValues.EventCallbackStatus.OVERRIDE)
+                event_doc.save(ignore_permissions=True)
+
+        if existing_name:
+            event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, existing_name)
         else:
-            call_at = visit_dt
-            starts_on = visit_dt
-            ends_on = visit_dt + timedelta(hours=1)
-        remarks = (
-            str(disposition_remarks).strip()
-            if disposition_remarks is not None and str(disposition_remarks).strip()
-            else None
-        )
-        event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
-        event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Visit Scheduled"))
-        event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
-        event_doc.set("event_type", "Private")
-        event_doc.set("status", "Open")
+            event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
+            event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Visit Scheduled"))
+            event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
+            event_doc.set("event_type", "Private")
+            event_doc.set("status", "Open")
+            event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
+            event_doc.set("reference_docname", lead_id)
+            event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
+            if call_session_id:
+                event_doc.set("reference_call_session", call_session_id)
+
         event_doc.set("starts_on", starts_on)
         event_doc.set("call_at", call_at)
         event_doc.set("ends_on", ends_on)
-        event_doc.set("reference_doctype", EnumValues.ReferenceDocType.CRM_LEAD)
-        event_doc.set("reference_docname", lead_id)
-        event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
-
-        ds = (disposition_status or "").strip() if disposition_status is not None else ""
-        sub = (
-            (sub_disposition_status or "").strip()
-            if sub_disposition_status is not None
-            else ""
+        _apply_disposition_fields_to_event(
+            event_doc,
+            disposition_status=disposition_status,
+            sub_disposition_status=sub_disposition_status,
+            disposition_remarks=disposition_remarks,
+            description=disposition_remarks,
         )
-        if ds:
-            event_doc.set("disposition_status", ds)
-        if sub:
-            event_doc.set("sub_disposition_status", sub)
-
-        if call_session_id is not None:
-            event_doc.set("reference_call_session", call_session_id)
-        if remarks:
-            event_doc.set("description", remarks)
-            event_doc.set("disposition_remarks", remarks)
         _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         event_doc.save(ignore_permissions=True)
-        print("event_doc: ", event_doc.get("call_at"))
         return event_doc
 
     def mark_visit_date_events_as_completed(self, lead_id: str):

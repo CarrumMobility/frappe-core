@@ -178,7 +178,6 @@ class UtilService:
             if disposition_remarks is not None and str(disposition_remarks).strip()
             else None
         )
-
         event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
         event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Visit Scheduled"))
         event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
@@ -209,7 +208,7 @@ class UtilService:
             event_doc.set("disposition_remarks", remarks)
         _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         event_doc.save(ignore_permissions=True)
-        
+        print("event_doc: ", event_doc.get("call_at"))
         return event_doc
 
     def mark_visit_date_events_as_completed(self, lead_id: str):

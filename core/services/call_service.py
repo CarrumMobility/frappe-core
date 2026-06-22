@@ -2602,7 +2602,7 @@ class CallService:
             crm_lead_status_record = frappe.db.get_value(
                 EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
                 {"dialer_disposition_name": disposition_code},
-                ["custom_primary_status", "lead_status", "name"],
+                ["custom_primary_status", "lead_status", "name", "is_allow_tc_assignment"],
                 as_dict=True,
             )
             if crm_lead_status_record:
@@ -2621,6 +2621,8 @@ class CallService:
                     sub_disposition_status=crm_lead_status_record.get("lead_status"),
                     disposition_remarks=disposition_remarks,
                     status_pk=crm_lead_status_record.name,
+                    telecaller=row.get("agent") or None,
+                    is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment")
                 )
 
         callback_dt = _schedule_timestamp_ist_or_none(schedule_timestamp)

@@ -14,7 +14,8 @@
   "lead_status_link",
   "remarks",
   "callback_at",
-  "callback_type"
+  "callback_type",
+  "telecaller"
  ],
  "fields": [
   {
@@ -69,6 +70,12 @@
     "fieldtype": "Select",
     "label": "Callback type",
     "options": "Callback\nVisit Date"
+  },
+  {
+    "fieldname": "telecaller",
+    "fieldtype": "Link",
+    "label": "Telecaller",
+    "options": "User"
   }
  ],
  "grid_page_length": 50,

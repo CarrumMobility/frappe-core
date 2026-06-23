@@ -507,13 +507,13 @@ class UtilService:
 
         def payment_status_logics():
             newStatusToAssign = None
-            if remainingHubFee > 0:
+            if remainingHubFee >= 0:
                 newStatusToAssign = "Payment Received"
 
-            if remainingHubFee == 0:
+            if remainingHubFee <= 0:
                 newStatusToAssign = "PSD"
 
-            if remainingSecurityDeposit == 0 and maxSecurityDeposit != 0:
+            if remainingSecurityDeposit <= 0 and maxSecurityDeposit != 0:
                 newStatusToAssign = "FSD"
             return newStatusToAssign
 

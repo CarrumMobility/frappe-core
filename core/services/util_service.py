@@ -7,8 +7,8 @@ from core.services import logged_requests as requests
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import flt, today
 
-def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
-	"""Set ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead (custom Event fields)."""
+def _sync_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
+	"""Copy ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead onto Event after insert."""
 	lead_id = (lead_id or "").strip()
 	if not lead_id or not frappe.db.exists("CRM Lead", lead_id):
 		return
@@ -23,9 +23,21 @@ def _apply_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 	ln = (row.get("lead_name") or "").strip()
 	ps = (row.get("preferred_scheme_1") or "").strip()
 	if ln:
-		event_doc.set("crm_lead_name", ln)
+		event_doc.db_set("crm_lead_name", ln, update_modified=False)
 	if ps:
-		event_doc.set("preferred_scheme_1", ps)
+		event_doc.db_set("preferred_scheme_1", ps, update_modified=False)
+
+
+def _set_event_owner_if_given(event_doc, owner: str | None) -> None:
+	owner = (owner or "").strip()
+	if not owner:
+		return
+	event_doc.db_set("owner", owner, update_modified=False)
+
+
+def _finalize_dispose_event(event_doc, lead_id: str, owner: str | None = None) -> None:
+	_set_event_owner_if_given(event_doc, owner)
+	_sync_crm_lead_snapshot_to_event(event_doc, lead_id)
 
 
 class UtilService:
@@ -50,6 +62,7 @@ class UtilService:
         disposition_status: str | None = None,
         sub_disposition_status: str | None = None,
         disposition_remarks: str | None = None,
+        owner: str | None = None,
     ):
         call_at = get_datetime(callback_datetime)
         if not call_at:
@@ -81,7 +94,6 @@ class UtilService:
         event_doc.set("description", callback_comments)
         event_doc.set("callback_status", EnumValues.EventCallbackStatus.SCHEDULED)
 
-        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         dr = (
             str(disposition_remarks).strip()
             if disposition_remarks is not None and str(disposition_remarks).strip()
@@ -108,6 +120,7 @@ class UtilService:
             event_doc.set("sub_disposition_status", sub)
 
         event_doc.save(ignore_permissions=True)
+        _finalize_dispose_event(event_doc, lead_id, owner)
 
         return event_doc.name
 
@@ -119,7 +132,8 @@ class UtilService:
         disposition_remarks=None,
         call_session_id: str | None= None,
         disposition_status: str | None = None,
-        sub_disposition_status: str | None = None
+        sub_disposition_status: str | None = None,
+        owner: str | None = None,
     ):
         """Keep an Event (category Visit Date) in sync with scheduled visit on Call Session."""
 
@@ -178,7 +192,6 @@ class UtilService:
             if disposition_remarks is not None and str(disposition_remarks).strip()
             else None
         )
-
         event_doc = frappe.new_doc(EnumValues.ReferenceDocType.EVENT)
         event_doc.set("subject", self.crm_lead_event_subject(lead_id, "Visit Scheduled"))
         event_doc.set("event_category", EnumValues.EventCallbackCategory.VISIT_DATE)
@@ -207,24 +220,34 @@ class UtilService:
         if remarks:
             event_doc.set("description", remarks)
             event_doc.set("disposition_remarks", remarks)
-        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         event_doc.save(ignore_permissions=True)
-        
+        _finalize_dispose_event(event_doc, lead_id, owner)
+        print("event_doc: ", event_doc.get("call_at"))
         return event_doc
 
     def mark_visit_date_events_as_completed(self, lead_id: str):
+        """Mark open Visit Date events completed when the lead completes a walk-in."""
+        lead_id = (lead_id or "").strip()
+        if not lead_id:
+            return 0
+
         event_names = frappe.get_all(
             EnumValues.ReferenceDocType.EVENT,
             filters={
                 "reference_doctype": EnumValues.ReferenceDocType.CRM_LEAD,
                 "reference_docname": lead_id,
                 "event_category": EnumValues.EventCallbackCategory.VISIT_DATE,
-                "callback_status": EnumValues.EventCallbackStatus.SCHEDULED,
-                "starts_on": ("<=",today()),
+                "callback_status": (
+                    "in",
+                    [
+                        EnumValues.EventCallbackStatus.SCHEDULED,
+                        EnumValues.EventCallbackStatus.TRIGGERED,
+                    ],
+                ),
             },
             pluck="name",
         )
-        
+
         for event_name in event_names or []:
             event_doc = frappe.get_doc(EnumValues.ReferenceDocType.EVENT, event_name)
             event_doc.set("callback_status", EnumValues.EventCallbackStatus.COMPLETED)
@@ -278,8 +301,8 @@ class UtilService:
             event_doc.set("description", remarks)
             event_doc.set("disposition_remarks", remarks)
 
-        _apply_crm_lead_snapshot_to_event(event_doc, lead_id)
         event_doc.save(ignore_permissions=True)
+        _sync_crm_lead_snapshot_to_event(event_doc, lead_id)
         return event_doc.name
 
     def block_desk_access(self):

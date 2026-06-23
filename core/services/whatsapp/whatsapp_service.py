@@ -121,8 +121,11 @@ class WhatsappService:
 				finalParameters.append(
 					{
 						"key": param.get("key"),
+						"label": param.get("label"),
 						"location": param.get("location"),
 						"paramType": param.get("paramType"),
+						"mediaType": param.get("mediaType"),
+						"staticValue": param.get("staticValue"),
 					}
 				)
 

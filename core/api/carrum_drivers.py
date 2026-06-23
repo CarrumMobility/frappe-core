@@ -412,60 +412,12 @@ def _portal_status_uses_wallet_milestones(portal_status: str) -> bool:
 
 
 def _sync_lead_from_portal_driver_detail(lead, carrum_data) -> None:
-    """Persist portal ``accountId`` and align CRM Lead status from portal payload."""
+    """Persist portal ``accountId`` on the CRM Lead from portal driver detail payload."""
     if not carrum_data:
         return
 
     portal_account_id = _extract_portal_account_id_from_carrum_data(carrum_data)
     _sync_lead_custom_account_id_from_portal(lead, portal_account_id)
-
-    portal_status = _extract_portal_driver_status_from_carrum_data(carrum_data)
-    results = _extract_portal_driver_results(carrum_data) or {}
-    wallet_data = results.get("walletData") if isinstance(results, dict) else None
-
-    if _portal_status_uses_wallet_milestones(portal_status):
-        if isinstance(wallet_data, dict):
-            try:
-                from core.api.carrum_payment import (
-                    maybe_update_lead_status_after_payment_capture,
-                )
-
-                maybe_update_lead_status_after_payment_capture(
-                    lead, wallet_data=wallet_data
-                )
-            except Exception:
-                logger.exception(
-                    "portal driver detail: wallet status sync failed for lead=%s",
-                    lead.name,
-                )
-        return
-
-    if portal_status:
-        try:
-            apply_portal_driver_status_to_lead(lead, portal_status)
-        except Exception:
-            logger.exception(
-                "portal driver detail: status sync failed for lead=%s status=%s",
-                lead.name,
-                portal_status,
-            )
-            lead.reload()
-        return
-
-    if isinstance(wallet_data, dict):
-        try:
-            from core.api.carrum_payment import (
-                maybe_update_lead_status_after_payment_capture,
-            )
-
-            maybe_update_lead_status_after_payment_capture(
-                lead, wallet_data=wallet_data
-            )
-        except Exception:
-            logger.exception(
-                "portal driver detail: wallet status sync failed for lead=%s",
-                lead.name,
-            )
 
 
 def _send_agreement_field_specs() -> list[dict]:

@@ -492,7 +492,6 @@ def _send_agreement_field_specs() -> list[dict]:
             "category": "personal_bank",
         },
         {"fieldname": "bank_ifsc", "label": _("Bank IFSC code"), "category": "personal_bank"},
-        {"fieldname": "hub_fee", "label": _("Hub fee"), "category": "personal_bank"},
         {"fieldname": "lead_name", "label": _("Name"), "category": "personal_bank"},
         {
             "fieldname": "preferred_lang",
@@ -575,8 +574,6 @@ def _is_send_agreement_field_filled(lead, spec: dict) -> bool:
         account_id = (lead.custom_account_id or "").strip()
         return _portal_driver_has_scheme(account_id)
     fieldname = spec["fieldname"]
-    if fieldname == "hub_fee":
-        return lead.get("hub_fee") is not None
     if spec.get("attach"):
         return not _lead_field_missing(lead.get(fieldname), attach=True)
     return not _lead_field_missing(lead.get(fieldname))
@@ -924,7 +921,7 @@ def send_agreement(leadId: str):
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
     bank_ifsc_code = lead.bank_ifsc
-    business_type_id = lead.preferred_business_type_1 or lead.business_type_id
+    business_type_id = lead.business_type_id or lead.preferred_business_type_1
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city

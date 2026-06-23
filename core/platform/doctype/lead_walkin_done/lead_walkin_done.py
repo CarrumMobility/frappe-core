@@ -22,5 +22,6 @@ class Leadwalkindone(Document):
 		remarks: DF.SmallText | None
 		secondary_status: DF.Data | None
 		source: DF.Data | None
+		telecaller: DF.Link | None
 	# end: auto-generated types
 	pass

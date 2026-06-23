@@ -615,16 +615,11 @@ def webhook_capture():
             title=_("Payment webhook"),
         )
 
-    lead = frappe.get_doc("CRM Lead", lead_name)
-    lead_id = lead.name
-
-    util_service.update_lead_status_to_converted_stages(lead_id,"payment_received")
-
-    lead.save(ignore_permissions=True)
+    util_service.update_lead_status_to_converted_stages(lead_name, "payment_received")
 
     return {
         "message": "ok",
-        "lead_id": lead_id,
+        "lead_id": lead_name,
     }
 
 @frappe.whitelist()

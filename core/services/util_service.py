@@ -514,13 +514,14 @@ class UtilService:
                 newStatusToAssign = "PSD"
 
             if remainingSecurityDeposit <= 0 and maxSecurityDeposit != 0:
+                print("fsd")
                 newStatusToAssign = "FSD"
             return newStatusToAssign
 
         newStatusToAssign = None
         if usage == "payment_received":
-            if (current_lead_primary_status == "Drop") or (
-                current_status_row.get("is_apply_on_vehicle_assignment") == 1
+            if (current_lead_primary_status != "Drop") or (
+                current_status_row.get("is_apply_on_vehicle_assignment") != 1
             ):
                 newStatusToAssign = payment_status_logics()
 

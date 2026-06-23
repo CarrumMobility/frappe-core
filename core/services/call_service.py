@@ -1673,7 +1673,8 @@ class CallService:
                     scheduled_visit_date=doc.get("scheduled_visit_date"),
                     disposition_remarks=doc.get("disposition_remarks"),
                     disposition_status=disposition_status,
-                    sub_disposition_status=sub_disposition
+                    sub_disposition_status=sub_disposition,
+                    owner=doc.get("agent") or user,
                 )
             except Exception:
                 frappe.log_error(
@@ -1709,6 +1710,7 @@ class CallService:
                 disposition_status=disposition_status,
                 sub_disposition_status=sub_disposition,
                 disposition_remarks=remarks,
+                owner=doc.get("agent") or user,
             )
         frappe.db.commit()
 
@@ -1863,6 +1865,7 @@ class CallService:
                     disposition_status=disposition_status,
                     sub_disposition_status=sub_disposition_status,
                     disposition_remarks=remarks,
+                    owner=call_session_doc.get("agent") or user,
                 )
 
             now = frappe.utils.now()
@@ -1891,7 +1894,8 @@ class CallService:
                         disposition_remarks=call_session_doc.get("disposition_remarks"),
                         call_session_id=call_session_id,
                         disposition_status=disposition_status,
-                        sub_disposition_status=sub_disposition_status
+                        sub_disposition_status=sub_disposition_status,
+                        owner=call_session_doc.get("agent") or user,
                     )
                 except Exception:
                     frappe.log_error(
@@ -2598,22 +2602,22 @@ class CallService:
         if disposition_remarks:
             row.set("disposition_remarks", disposition_remarks)
 
+        callback_dt = _schedule_timestamp_ist_or_none(schedule_timestamp)
+        if callback_dt:
+            row.set("lead_callback_datetime", callback_dt)
+
         if disposition_code:
             crm_lead_status_record = frappe.db.get_value(
                 EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
                 {"dialer_disposition_name": disposition_code},
-                ["custom_primary_status", "lead_status", "name", "is_allow_tc_assignment"],
+                ["custom_primary_status", "lead_status", "name", "is_allow_tc_assignment", "is_callback", "is_visit_date_required"],
                 as_dict=True,
             )
             if crm_lead_status_record:
-                row.set(
-                    "disposition_status",
-                    crm_lead_status_record.get("custom_primary_status"),
-                )
-                row.set(
-                    "sub_disposition_status",
-                    crm_lead_status_record.get("lead_status"),
-                )
+                ds = crm_lead_status_record.get("custom_primary_status")
+                sub = crm_lead_status_record.get("lead_status")
+                row.set("disposition_status", ds)
+                row.set("sub_disposition_status",sub)
 
                 update_lead_from_call_disposition(
                     lead_name=row.get("lead"),
@@ -2625,9 +2629,32 @@ class CallService:
                     is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment")
                 )
 
-        callback_dt = _schedule_timestamp_ist_or_none(schedule_timestamp)
-        if callback_dt:
-            row.set("lead_callback_datetime", callback_dt)
+                if crm_lead_status_record.get("is_callback") and schedule_timestamp is not None:
+                    util_service.create_event_for_callback(
+                        lead_id=row.get("lead"),
+                        call_session_id=row.name,
+                        callback_datetime=schedule_timestamp,
+                        callback_comments=disposition_remarks,
+                        remind_before_minutes=10,
+                        expected_call_duration_minutes=10,
+                        disposition_status=ds,
+                        sub_disposition_status=sub,
+                        disposition_remarks=disposition_remarks,
+                        owner=row.get("agent"),
+                    )
+
+                if crm_lead_status_record.get("is_visit_date_required") and schedule_timestamp is not None:
+                    util_service.create_event_for_visit_date(
+                        lead_id=row.get("lead"),
+                        scheduled_visit_date=schedule_timestamp,
+                        disposition_remarks=disposition_remarks,
+                        call_session_id=row.name,
+                        disposition_status=ds,
+                        sub_disposition_status=sub,
+                        owner=row.get("agent"),
+                    )
+
+        
 
         if not (row.get("lead_source_during_call") or "").strip():
             _set_lead_source_during_call_on_session(row)

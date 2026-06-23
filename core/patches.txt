@@ -20,3 +20,4 @@ core.patches.v1_0.remove_event_visit_status_field
 core.patches.v1_0.drop_payment_logs_carrum_id_column
 core.patches.v1_0.rename_call_session_click2call_to_agent
 core.patches.v1_0.rename_call_session_missed_statuses
+core.patches.v1_0.ensure_event_callback_custom_fields

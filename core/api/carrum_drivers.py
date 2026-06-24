@@ -377,7 +377,8 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
         )
         return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-        return False
+        util_service.update_lead_status_to_converted_stages(lead.name,"to_onboard_status")
+        return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
         _apply_webhook_crm_lead_status_row(
             lead,
@@ -411,60 +412,12 @@ def _portal_status_uses_wallet_milestones(portal_status: str) -> bool:
 
 
 def _sync_lead_from_portal_driver_detail(lead, carrum_data) -> None:
-    """Persist portal ``accountId`` and align CRM Lead status from portal payload."""
+    """Persist portal ``accountId`` on the CRM Lead from portal driver detail payload."""
     if not carrum_data:
         return
 
     portal_account_id = _extract_portal_account_id_from_carrum_data(carrum_data)
     _sync_lead_custom_account_id_from_portal(lead, portal_account_id)
-
-    portal_status = _extract_portal_driver_status_from_carrum_data(carrum_data)
-    results = _extract_portal_driver_results(carrum_data) or {}
-    wallet_data = results.get("walletData") if isinstance(results, dict) else None
-
-    if _portal_status_uses_wallet_milestones(portal_status):
-        if isinstance(wallet_data, dict):
-            try:
-                from core.api.carrum_payment import (
-                    maybe_update_lead_status_after_payment_capture,
-                )
-
-                maybe_update_lead_status_after_payment_capture(
-                    lead, wallet_data=wallet_data
-                )
-            except Exception:
-                logger.exception(
-                    "portal driver detail: wallet status sync failed for lead=%s",
-                    lead.name,
-                )
-        return
-
-    if portal_status:
-        try:
-            apply_portal_driver_status_to_lead(lead, portal_status)
-        except Exception:
-            logger.exception(
-                "portal driver detail: status sync failed for lead=%s status=%s",
-                lead.name,
-                portal_status,
-            )
-            lead.reload()
-        return
-
-    if isinstance(wallet_data, dict):
-        try:
-            from core.api.carrum_payment import (
-                maybe_update_lead_status_after_payment_capture,
-            )
-
-            maybe_update_lead_status_after_payment_capture(
-                lead, wallet_data=wallet_data
-            )
-        except Exception:
-            logger.exception(
-                "portal driver detail: wallet status sync failed for lead=%s",
-                lead.name,
-            )
 
 
 def _send_agreement_field_specs() -> list[dict]:
@@ -491,7 +444,6 @@ def _send_agreement_field_specs() -> list[dict]:
             "category": "personal_bank",
         },
         {"fieldname": "bank_ifsc", "label": _("Bank IFSC code"), "category": "personal_bank"},
-        {"fieldname": "hub_fee", "label": _("Hub fee"), "category": "personal_bank"},
         {"fieldname": "lead_name", "label": _("Name"), "category": "personal_bank"},
         {
             "fieldname": "preferred_lang",
@@ -560,6 +512,12 @@ def _send_agreement_field_specs() -> list[dict]:
             "category": "documents",
             "attach": True,
         },
+        {
+            "fieldname": "image",
+            "label": _("DP profile pic"),
+            "category": "documents",
+            "attach": True,
+        },
     ]
 
 
@@ -568,8 +526,6 @@ def _is_send_agreement_field_filled(lead, spec: dict) -> bool:
         account_id = (lead.custom_account_id or "").strip()
         return _portal_driver_has_scheme(account_id)
     fieldname = spec["fieldname"]
-    if fieldname == "hub_fee":
-        return lead.get("hub_fee") is not None
     if spec.get("attach"):
         return not _lead_field_missing(lead.get(fieldname), attach=True)
     return not _lead_field_missing(lead.get(fieldname))
@@ -917,7 +873,7 @@ def send_agreement(leadId: str):
     bank_account_number = lead.bank_account_number
     lead_pk = lead.name
     bank_ifsc_code = lead.bank_ifsc
-    business_type_id = lead.preferred_business_type_1 or lead.business_type_id
+    business_type_id = lead.business_type_id or lead.preferred_business_type_1
     current_address_line1 = lead.current_address_line1
     current_address_line2 = lead.current_address_line2
     current_city = lead.current_city
@@ -1252,13 +1208,11 @@ def update_driver(account_id: str, data: dict | str | None = None):
     if not body:
         return {"success": True}
 
-    print(body)
     url = f"{base}/api/v1/driver/update/{aid}?idType=account"
     headers = {"Authorization": token, "Content-Type": "application/json"}
 
     try:
         response = re.put(url, headers=headers, json=body, timeout=60)
-        print(response.text)
     except re.exceptions.RequestException as e:
         logger.exception("update_driver request failed: %s", e)
         frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
@@ -1286,7 +1240,6 @@ def update_driver(account_id: str, data: dict | str | None = None):
         frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
 
     # Scheme / EMI changes can alter portal wallet balances; align CRM Lead status with
-    # PSD/FSD stages (same rules as payment capture — see maybe_update_lead_status_after_payment_capture).
     _scheme_or_emi_keys = (
         "scheme_id",
         "scheme_type",
@@ -1295,12 +1248,10 @@ def update_driver(account_id: str, data: dict | str | None = None):
         "remove_emi",
     )
     if body and any(k in body for k in _scheme_or_emi_keys):
-        from core.api.carrum_payment import maybe_update_lead_status_after_payment_capture
-
         lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
         if lead_name:
             lead = frappe.get_doc("CRM Lead", lead_name)
-            maybe_update_lead_status_after_payment_capture(lead)
+            util_service.update_lead_status_to_converted_stages(lead.name, "payment_received")
 
     return {"success": True, "data": resp_body}
 

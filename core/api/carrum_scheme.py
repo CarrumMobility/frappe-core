@@ -101,11 +101,12 @@ def get_scheme_list():
 			"success": False,
 		}
 
-	query = f"hub_id={hub_id}&business_type_id={business_type_id}"
+	query = f"hub_id={business_type_id}"
 	url = f"{carrum_base_url}/api/v1/scheme/alias?{query}"
 
 	response = re.get(url, headers={"Authorization": carrum_token})
 	return {
 		"success": True,
 		"data": response.json(),
+		"url": url
 	}

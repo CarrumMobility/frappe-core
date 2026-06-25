@@ -265,6 +265,11 @@ def _carrum_user_rows(payload):
     return rows if isinstance(rows, list) else []
 
 
+def get_hub_telecaller_users(hub_id: str) -> list[dict]:
+    data = get_hub_telecallers(hub_id)
+    return [user for user in _carrum_user_rows(data) if isinstance(user, dict)]
+
+
 def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
     data = get_hub_telecallers(hub_id)
     usernames = []
@@ -279,6 +284,15 @@ def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
         if username:
             usernames.append(username)
     return list(dict.fromkeys(usernames))
+
+
+def get_hub_telecaller_users(hub_id: str) -> list[dict]:
+    """Return Carrum hub telecaller user rows (id, frappeCred, etc.)."""
+    return [
+        row
+        for row in _carrum_user_rows(get_hub_telecallers(hub_id))
+        if isinstance(row, dict)
+    ]
 
 
 def get_dm_of_all_businessTypes(hubId: str):

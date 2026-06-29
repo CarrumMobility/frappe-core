@@ -7,6 +7,8 @@ from core.services import logged_requests as requests
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import flt, today
 
+
+
 def _sync_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 	"""Copy ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead onto Event after insert."""
 	lead_id = (lead_id or "").strip()

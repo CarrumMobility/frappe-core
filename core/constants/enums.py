@@ -20,6 +20,7 @@ class _Roles:
 	ADMIN = "Admin"
 	ADMINISTRATOR = "Administrator"
 	SENIOR_DRIVER_MANAGER = "Senior Driver Manager"
+	SOURCING = "Sourcing"
 
 class _LeadType:
 	LEAD = "LEAD"
@@ -58,6 +59,7 @@ class _ReferenceDocType:
 	GLOBAL_CONFIG = "Global Config"
 	USER_DIALER_SESSION_LOG = "User dialer session logs"
 	CRM_TAB_PERMISSION = "CRM tab permission"
+	CRM_LEAD_SOURCE="CRM Lead Source"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'

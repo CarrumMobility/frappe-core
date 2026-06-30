@@ -53,11 +53,24 @@ def create_message(conversation_id: int, payload: dict, ctx: dict) -> dict:
 	return response.json()
 
 
-def get_my_conversations(ctx: dict) -> dict:
+def parse_conversation_list_body(body: dict) -> list[dict]:
+	inner = body.get("data")
+	if isinstance(inner, dict):
+		return inner.get("payload") or []
+	if isinstance(inner, list):
+		return inner
+	return []
+
+
+def get_my_conversations(ctx: dict, page: int = 1) -> dict:
 	"""
 	GET conversations where assignee_type is me and status is open
 	"""
-	url = f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/conversations?assignee_type=me&status=open"
+	page_i = max(int(page or 1), 1)
+	url = (
+		f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/conversations"
+		f"?assignee_type=me&status=open&page={page_i}"
+	)
 	response = requests.request(
 		method="GET",
 		url=url,

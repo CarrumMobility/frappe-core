@@ -146,21 +146,61 @@ class WhatsappService:
 			"templates": finalTemplates,
 		}
 
+	def _conversation_page_size(self,meta: dict, payload_len: int) -> int:
+		for key in ("per_page", "page_limit", "limit"):
+			value = meta.get(key)
+			if value is not None:
+				try:
+					page_size = int(value)
+					if page_size > 0:
+						return page_size
+				except (TypeError, ValueError):
+					pass
+		if payload_len > 0:
+			return max(payload_len, 15)
+		return 15
+
+
+	def _conversation_list_has_more(self,body: dict, payload: list[dict]) -> bool:
+		data_block = body.get("data")
+		meta = data_block.get("meta") if isinstance(data_block, dict) else {}
+		if not isinstance(meta, dict):
+			meta = {}
+
+		per_page = self._conversation_page_size(meta, len(payload))
+		have_more = len(payload) >= per_page
+
+		for key in ("total_pages", "page_count"):
+			total_pages = meta.get(key)
+			current_page = meta.get("current_page")
+			if total_pages is not None and current_page is not None:
+				try:
+					have_more = int(current_page) < int(total_pages)
+				except (TypeError, ValueError):
+					pass
+				break
+
+		return have_more
+
 	def get_whatsapp_unread_msg_count(self, user: str) -> int:
 		ctx = chatwoot_client.get_chatwoot_ctx(username=user)
 		if ctx is None:
 			frappe.throw("Chatwoot is not configured for this user. Check Carrum chatwoot credentials.")
 
 
-		responseData = chatwoot_client.get_my_conversations(ctx=ctx)
-		
-		data = responseData.get("data") or {}
-		conversations = data.get("payload") or []
-		unread_conversation_count = 0
+		conversations: list[dict] = []
 
-		for conversation in conversations:
-			if conversation.get("unread_count") > 0:
-				unread_conversation_count += 1
-				
-		print(unread_conversation_count)
-		return unread_conversation_count
+		first_page_response = chatwoot_client.get_my_conversations(ctx=ctx, page=1)
+		first_page_conversations = chatwoot_client.parse_conversation_list_body(first_page_response)
+		conversations.extend(first_page_conversations)
+
+		if self._conversation_list_has_more(first_page_response, first_page_conversations):
+			second_page_response = chatwoot_client.get_my_conversations(ctx=ctx, page=2)
+			second_page_conversations = chatwoot_client.parse_conversation_list_body(second_page_response)
+			conversations.extend(second_page_conversations)
+
+		return sum(
+			1 for conversation in conversations if (conversation.get("unread_count") or 0) > 0
+		)
+
+	

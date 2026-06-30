@@ -145,3 +145,22 @@ class WhatsappService:
 			"inboxId": inboxId,
 			"templates": finalTemplates,
 		}
+
+	def get_whatsapp_unread_msg_count(self, user: str) -> int:
+		ctx = chatwoot_client.get_chatwoot_ctx(username=user)
+		if ctx is None:
+			frappe.throw("Chatwoot is not configured for this user. Check Carrum chatwoot credentials.")
+
+
+		responseData = chatwoot_client.get_my_conversations(ctx=ctx)
+		
+		data = responseData.get("data") or {}
+		conversations = data.get("payload") or []
+		unread_conversation_count = 0
+
+		for conversation in conversations:
+			if conversation.get("unread_count") > 0:
+				unread_conversation_count += 1
+				
+		print(unread_conversation_count)
+		return unread_conversation_count

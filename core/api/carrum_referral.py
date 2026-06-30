@@ -16,6 +16,7 @@ def create_lead_referral_on_portal(
 	hubId,
 	agentReferrerId=None,
 	configId=None,
+	businessType=None,
 	base_url=None,
 	token=None,
 ):
@@ -25,6 +26,7 @@ def create_lead_referral_on_portal(
 	Payload includes ``refereeId``, ``referrerId``, and ``hubId``.
 	``referrerId`` / ``hubId`` may be None (sent as JSON null).
 	``configId`` is sent for vendor referral scheme configuration when provided.
+	Optional ``businessType`` is sent when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -46,6 +48,9 @@ def create_lead_referral_on_portal(
 		payload["agentReferrerId"] = agentReferrerId
 	if configId:
 		payload["configId"] = str(configId).strip()
+	business_type = str(businessType).strip() if businessType is not None else ""
+	if business_type:
+		payload["businessType"] = business_type
 	print(payload,'payload')
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -61,6 +66,7 @@ def create_referral_on_portal(
 	agentReferrerId,
 	hubId,
 	referrerId=None,
+	businessType=None,
 	base_url=None,
 	token=None,
 ):
@@ -68,7 +74,7 @@ def create_referral_on_portal(
 	Create a referral on the Carrum portal (POST ``/api/v1/referral-rewards``).
 
 	Payload: ``refereeId``, ``agentReferrerId``, ``hubId`` (may be JSON null),
-	optional ``referrerId`` when provided.
+	optional ``referrerId`` when provided, optional ``businessType`` when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -100,6 +106,9 @@ def create_referral_on_portal(
 		rid = str(referrerId).strip()
 		if rid:
 			payload["referrerId"] = rid
+	business_type = str(businessType).strip() if businessType is not None else ""
+	if business_type:
+		payload["businessType"] = business_type
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -932,7 +941,14 @@ def reject_referral_on_carrum_portal(
 	}
 
 
-def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=None, base_url=None, token=None):
+def get_referral_scheme_list_from_portal(
+	role_id=None,
+	hub_id=None,
+	config_id=None,
+	business_type=None,
+	base_url=None,
+	token=None,
+):
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	params = {}
 	if role_id is not None and str(role_id).strip():
@@ -941,6 +957,8 @@ def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=No
 		params["hubId"] = str(hub_id).strip()
 	if config_id is not None and str(config_id).strip():
 		params["configId"] = str(config_id).strip()
+	if business_type is not None and str(business_type).strip():
+		params["businessType"] = str(business_type).strip()
 	return client.request(
 		method="GET",
 		path="/api/v1/referral-rewards/configs/active",

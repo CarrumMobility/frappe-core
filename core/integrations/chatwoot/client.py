@@ -51,3 +51,19 @@ def create_message(conversation_id: int, payload: dict, ctx: dict) -> dict:
 	if not response.ok:
 		frappe.throw(_("Failed to send WhatsApp template: {0}").format(response.text))
 	return response.json()
+
+
+def get_my_conversations(ctx: dict) -> dict:
+	"""
+	GET conversations where assignee_type is me and status is open
+	"""
+	url = f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/conversations?assignee_type=me&status=open"
+	response = requests.request(
+		method="GET",
+		url=url,
+		headers=ctx['headers']
+	)
+
+	if not response.ok:
+		frappe.throw(_("Failed to get my conversations: {0}").format(response.text))
+	return response.json()

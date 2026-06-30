@@ -32,3 +32,11 @@ def send_whatsapp_template(
 		language=language,
 		processedParams=processedParams or {},
 	)
+
+
+@frappe.whitelist()
+def get_whatsapp_unread_msg_count():
+	user = frappe.session.user
+	count = whatsappService.get_whatsapp_unread_msg_count(user=user)
+
+	return {"count": count}

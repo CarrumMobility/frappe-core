@@ -357,14 +357,15 @@ class UtilService:
         """Clear ``primary_lead`` for all CRM Leads pointing at ``lead_id``."""
         if not lead_id:
             return {"cleared": 0}
-        children = frappe.get_all(
-            "CRM Lead",
+        secondary_drivers = frappe.get_all(
+            EnumValues.ReferenceDocType.CRM_LEAD,
             filters={"primary_lead": lead_id},
             pluck="name",
         )
-        for name in children:
-            frappe.db.set_value("CRM Lead", name, "primary_lead", None)
-        return {"cleared": len(children), "names": children}
+        frappe.logger.info("secondary driver founds: %s", secondary_drivers)
+        for secondary_driver_name in secondary_drivers:
+            frappe.db.set_value(EnumValues.ReferenceDocType.CRM_LEAD, secondary_driver_name, "primary_lead", None)
+        return {"cleared": len(secondary_drivers), "names": secondary_drivers}
 
     def raise_driver_return_request(
         self,

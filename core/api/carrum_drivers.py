@@ -317,9 +317,10 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
     ``driver_status_update_webhook``).
     """
     status = (new_status or "").strip()
+    
     if not status:
         return False
-
+    print("status", status)
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDED:
         _apply_webhook_crm_lead_status_row(
             lead,
@@ -377,6 +378,7 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
         )
         return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
+        print("to_onboard")
         util_service.update_lead_status_to_converted_stages(lead.name,"to_onboard_status")
         return True
     if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
@@ -1348,8 +1350,6 @@ def driver_status_update_webhook():
     lead = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, lead_name)
 
     new_status = payload.get("newStatus")
-    if new_status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-        return {"message": "ok"}
 
     if not apply_portal_driver_status_to_lead(lead, new_status):
         frappe.throw(_("Unhandled status: {0}").format(new_status))

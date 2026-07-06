@@ -4,7 +4,7 @@ import logging
 import core.constants.enums as EnumValues
 from core.services.util_service import UtilService
 from frappe.utils.data import flt
-from core.services import logged_requests as requests
+from core.services.carrum_client import old_carrum_client
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
@@ -165,15 +165,6 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         frappe.throw(_("Payment type must be security_deposit or settlement"))
     tag_type = tag_norm
 
-    base = frappe.conf.get("old_carrum_base_url")
-    if not base:
-        frappe.throw(_("Carrum base URL is not configured (carrum_base_url)"))
-    url = f"{str(base).rstrip('/')}/api/v1/payment/generatePaymentLinkForCRM"
-
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Carrum token is not configured (carrum_token)"))
-
     lead = frappe.get_doc("CRM Lead", lead_id)
     phone_number = lead.mobile_no
 
@@ -208,27 +199,20 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     if account_id is not None:
         payload["accountId"] = account_id
 
-    headers = {"Authorization": token, "Content-Type": "application/json"}
-    print(url)
-    print(headers)
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-    except requests.RequestException as e:
-        frappe.throw(_("Could not reach payment service: {0}").format(str(e)))
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="POST",
+        path="/api/v1/payment/generatePaymentLinkForCRM",
+        json=payload,
+        log_tag="generate-payment-link",
+    )
 
-    if response.status_code >= 400:
-        body = (response.text or "")[:500]
+    if not result.get("success"):
+        error = result.get("error") or _("Payment Service Unavailable")
+        frappe.throw(str(error))
 
-        frappe.throw(
-            _("Payment Service Unavailable ({0}): {1}").format(response.status_code, body or response.reason)
-        )
-
-    try:
-        data = response.json()
-    except ValueError:
-        frappe.throw(_("Invalid JSON from payment service"))
-
-    if data.get("status") != "success":
+    data = result.get("data") or {}
+    if isinstance(data, dict) and data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Payment link generation failed")
         frappe.throw(str(msg))
 
@@ -339,39 +323,38 @@ def add_other_payment(
     if lead_account_id is not None:
         payload['accountId'] = lead_account_id
 
-    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
-    old_carrum_token = frappe.conf.get("old_carrum_token")
-    headers = {"Authorization": old_carrum_token, "Content-Type": "application/json"}
-    url = f"{old_carrum_base_url}/api/v1/payment/otherForCRM"
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="POST",
+        path="/api/v1/payment/otherForCRM",
+        json=payload,
+        log_tag="add-other-payment",
+    )
 
-    response = requests.post(url,headers=headers, json=payload, timeout=60)
-    print(response)
-
-    try:
-        data = response.json()
-    except ValueError:
+    if not result.get("success"):
         return {
             "is_valid": False,
-            "reason": _("Invalid JSON from payment service")
+            "reason": result.get("error") or _("Failed to add other payment"),
         }
 
-    if data.get('status') != "success":
+    data = result.get("data") or {}
+    if not isinstance(data, dict):
+        return {
+            "is_valid": False,
+            "reason": _("Invalid JSON from payment service"),
+        }
+
+    if data.get("status") != "success":
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
         return {
             "is_valid": False,
-            "reason": message
-        }
-
-    if response.ok != True:
-        return {
-            "is_valid": False,
-            "reason": response.text
+            "reason": message,
         }
 
     return {
         "is_valid": True,
         "reason": None,
-        "data": data.get("results") or {}
+        "data": data.get("results") or {},
     }
 
 
@@ -431,34 +414,26 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     if custom_account_id is not None:
         out["accountId"] = custom_account_id
 
-    old_token = frappe.conf.get("old_carrum_token")
-    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="POST",
+        path="/api/v1/payment/add_cash_for_crm",
+        json=out,
+        log_tag="add-cash",
+    )
 
-    url = f"{str(old_carrum_base_url).rstrip('/')}/api/v1/payment/add_cash_for_crm"
-    headers = {"Authorization": old_token, "Content-Type": "application/json"}
-
-    try:
-        response = requests.post(url, json=out, headers=headers, timeout=60)
-    except requests.RequestException:
+    if not result.get("success"):
         frappe.log_error(
-            frappe.get_traceback(),
-            f"add_cash: HTTP request failed (lead_id={lead_id}, url={url})",
+            f"lead_id={lead_id}\n{result.get('error') or result.get('response')}",
+            "add_cash: payment service non-OK response",
         )
         frappe.throw(
             _("Could not reach payment service. Please try again or contact support.")
         )
 
-    if not response.ok:
-        snippet = (response.text or "")[:8000]
-        frappe.log_error(
-            f"lead_id={lead_id}\nHTTP {response.status_code}\n{snippet}",
-            "add_cash: payment service non-OK response",
-        )
-
-    try:
-        data = response.json()
-    except ValueError:
-        snippet = (response.text or "")[:8000]
+    data = result.get("data") or {}
+    if not isinstance(data, dict):
+        snippet = str(result.get("response") or "")[:8000]
         frappe.log_error(
             f"lead_id={lead_id}\n{snippet}",
             "add_cash: invalid JSON from payment service",

@@ -1,9 +1,6 @@
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
-from core.services import logged_requests as re
-
-carrum_base_url = frappe.conf.get("old_carrum_base_url")
-carrum_token = frappe.conf.get('old_carrum_token')
+from core.services.carrum_client import old_carrum_client
 
 
 def _extract_alias_results(data):
@@ -71,12 +68,15 @@ def scheme_requires_car_type_for_hub(hub_id, scheme_id):
 	hub = str(hub_id or "").strip()
 	if not scheme or not hub:
 		return True
-	if not carrum_base_url or not carrum_token:
-		return True
 	try:
-		url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={hub}"
-		response = re.get(url, headers={"Authorization": carrum_token}, timeout=30)
-		payload = response.json() if response.ok else {}
+		client = old_carrum_client(timeout=30)
+		result = client.request(
+			method="GET",
+			path="/api/v1/scheme/alias",
+			params={"hub_id": hub},
+			log_tag="scheme-requires-car-type",
+		)
+		payload = result.get("data") if result.get("success") else {}
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "scheme_requires_car_type_for_hub")
 		return True
@@ -101,11 +101,20 @@ def get_scheme_list():
 			"success": False,
 		}
 
-	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={business_type_id}"
-
-	response = re.get(url, headers={"Authorization": carrum_token})
+	client = old_carrum_client(timeout=30)
+	result = client.request(
+		method="GET",
+		path="/api/v1/scheme/alias",
+		params={"hub_id": business_type_id},
+		log_tag="get-scheme-list",
+	)
+	if not result.get("success"):
+		return {
+			"success": False,
+			"error": result.get("error"),
+		}
 	return {
 		"success": True,
-		"data": response.json(),
-		"url": url
+		"data": result.get("data"),
+		"request_url": result.get("request_url"),
 	}

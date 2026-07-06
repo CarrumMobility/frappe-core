@@ -3,7 +3,7 @@ from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_usernam
 from core.constants.enums import EnumValues
 from frappe.utils import get_datetime, getdate, now_datetime
 import frappe
-from core.services import logged_requests as requests
+from core.services.carrum_client import old_carrum_client
 from frappe.core.doctype.user.user import update_password as original_update_password
 from frappe.utils.data import flt, today
 
@@ -440,40 +440,28 @@ class UtilService:
             frappe.throw(frappe._("Carrum user id not found for current user"))
         body["request_by"] = request_by
 
-        base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-        if not base:
-            frappe.throw(
-                frappe._("Old Carrum base URL is not configured (old_carrum_base_url)")
-            )
+        client = old_carrum_client(timeout=60)
+        result = client.request(
+            method="POST",
+            path="/api/v1/management/reonboarding",
+            json=body,
+            log_tag="driver-reonboarding",
+        )
 
-        url = f"{base}/api/v1/management/reonboarding"
-        token = (frappe.conf.get("old_carrum_token") or "").strip()
-        if not token:
-            frappe.throw(frappe._("Old Carrum token is not configured (old_carrum_token)"))
-        auth = token if token.lower().startswith("carrum ") else f"carrum {token}"
-        headers = {"Authorization": auth, "Content-Type": "application/json", "Accept": "*/*"}
-        response = requests.post(url, headers=headers, json=body, timeout=60)
-
-        try:
-            response_data = response.json()
-        except ValueError:
-            response_data = None
-
-        if not response.ok:
-            msg = response.text or str(response.status_code)
-            if isinstance(response_data, dict) and response_data.get("message"):
-                msg = response_data.get("message")
+        if not result.get("success"):
+            msg = result.get("error") or result.get("response") or _("Request failed")
             frappe.throw(frappe._("Failed to raise driver return request: {0}").format(msg))
 
+        response_data = result.get("data")
         if not response_data:
             frappe.throw(frappe._("Invalid response from driver service"))
 
-        if response_data.get("status") == "success":
+        if isinstance(response_data, dict) and response_data.get("status") == "success":
             return True
 
         err = (
-            response_data.get("message")
-            or response_data.get("error")
+            (response_data.get("message") if isinstance(response_data, dict) else None)
+            or (response_data.get("error") if isinstance(response_data, dict) else None)
             or frappe._("Request was not successful")
         )
         frappe.throw(frappe._("Failed to raise driver return request: {0}").format(err))

@@ -1,9 +1,7 @@
 import frappe
-from core.services import logged_requests as re
+from core.services.carrum_client import old_carrum_client
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 
-carrum_base_url = frappe.conf.get("old_carrum_base_url")
-carrum_token = frappe.conf.get("old_carrum_token")
 
 @frappe.whitelist()
 def get_business_type_list():
@@ -23,19 +21,21 @@ def get_business_type_list():
             "message": "Carrum hub id not found"
         }
 
-    hubId = hubId
-
-    url = f"{carrum_base_url}/api/v1/hub/hub_details/{hubId}"
-    response = re.get(url, headers={"Authorization": carrum_token})
-    if not response.ok:
+    client = old_carrum_client(timeout=30)
+    result = client.request(
+        method="GET",
+        path=f"/api/v1/hub/hub_details/{hubId}",
+        log_tag="get-business-type-list",
+    )
+    if not result.get("success"):
         return {
             "success": False,
-            "message": "Failed to get hub details"
+            "message": result.get("error") or "Failed to get hub details",
         }
 
-    data = response.json()
-    responseData = data['results']
+    data = result.get("data") or {}
+    responseData = data.get("results") if isinstance(data, dict) else None
     return {
         "success": True,
-        "data": responseData
+        "data": responseData,
     }

@@ -6,9 +6,8 @@ from core.constants.enums import EnumValues
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from core.services.util_service import util_service
-from core.services.carrum_client import CarrumHttpClient
+from core.services.carrum_client import old_carrum_client
 from crm.utils import parse_phone_number
-from core.services import logged_requests as re
 import frappe
 from frappe import _
 
@@ -157,17 +156,6 @@ def _portal_driver_has_scheme(account_id: str) -> bool:
 _ACCOUNT_NOT_FOUND_FOR_LEAD_DISPLAY_ID = "Account not found for this lead display ID"
 
 
-def _carrum_portal_auth_config():
-    base = frappe.conf.get("old_carrum_base_url")
-    token = frappe.conf.get("old_carrum_token")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
-    return str(base).rstrip("/"), token
-
-
-
 def _carrum_error_message(resp_body) -> str:
     if not isinstance(resp_body, dict):
         return ""
@@ -187,8 +175,8 @@ def _carrum_error_message(resp_body) -> str:
     return " ".join(str(p).strip() for p in parts if p).strip()
 
 
-def _is_account_not_found_for_lead_display_id(response, resp_body) -> bool:
-    if response.status_code != 400:
+def _is_account_not_found_for_lead_display_id(status_code, resp_body) -> bool:
+    if status_code != 400:
         return False
     msg = _carrum_error_message(resp_body)
     return _ACCOUNT_NOT_FOUND_FOR_LEAD_DISPLAY_ID in msg
@@ -197,49 +185,38 @@ def _is_account_not_found_for_lead_display_id(response, resp_body) -> bool:
 def _fetch_portal_driver_detail_http(name: str):
     if not name:
         return False, None, "missing_name"
-    base, token = _carrum_portal_auth_config()
-    url = f"{base}/api/v1/driver/accounts/{name}"
-    headers = {"Authorization": token}
 
-    try:
-        response = re.get(url, headers=headers, timeout=60)
-    except re.exceptions.RequestException as e:
-        logger.exception(
-            "portal driver detail request failed for lead=%s: %s", name, e
-        )
-        return False, None, "request_failed"
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="GET",
+        path=f"/api/v1/driver/accounts/{name}",
+        log_tag="portal-driver-detail",
+    )
 
+    if result.get("success"):
+        return True, result.get("data"), None
+
+    status_code = result.get("status_code")
     resp_body = None
-    try:
-        if (response.text or "").strip():
-            resp_body = response.json()
-    except ValueError:
-        resp_body = None
+    raw = result.get("response") or ""
+    if raw:
+        try:
+            resp_body = json.loads(raw)
+        except ValueError:
+            resp_body = None
 
-    if _is_account_not_found_for_lead_display_id(response, resp_body):
+    if _is_account_not_found_for_lead_display_id(status_code, resp_body):
         logger.info(
             "portal driver detail: no Carrum account for lead display ID %s", name
         )
         return True, None, "account_not_found_for_lead_display_id"
 
-    if not response.ok:
-        logger.error(
-            "portal driver detail HTTP %s for lead=%s: %s",
-            response.status_code,
-            name,
-            (response.text or "")[:500],
-        )
-        return False, None, "http_error"
-
-    if resp_body is None:
-        logger.error(
-            "portal driver detail non-JSON for lead=%s (HTTP %s)",
-            name,
-            response.status_code,
-        )
-        return False, None, "invalid_json"
-
-    return True, resp_body, None
+    logger.error(
+        "portal driver detail failed for lead=%s: %s",
+        name,
+        result.get("error") or raw[:500],
+    )
+    return False, None, "http_error"
 
 
 def _extract_portal_account_id_from_carrum_data(data) -> str:
@@ -656,11 +633,7 @@ def verify_uber_id(
         "phoneNumber": {"countryCode": "+91", "number": phone},
         "driver_small_id": "FAAC1761",
     }
-    client = CarrumHttpClient(
-        base_url=frappe.conf.get("old_carrum_base_url"),
-        token=frappe.conf.get("old_carrum_token"),
-        timeout=60,
-    )
+    client = old_carrum_client(timeout=60)
 
     return client.request(
         method="POST",
@@ -688,9 +661,6 @@ def _raise_update_driver_validation_error(exc: ValidationError) -> None:
 
 logger = frappe.logger("core::carrum_drivers")
 
-old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
-old_carrum_token = frappe.conf.get("old_carrum_token")
-
 @frappe.whitelist()
 def get_driver_agreements(account_id: str) -> dict:
     """
@@ -698,56 +668,19 @@ def get_driver_agreements(account_id: str) -> dict:
 
     :param account_id: Carrum driver account identifier (query param account_id).
     """
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="GET",
+        path="/api/v1/driver/aggrementHistory/bydriverWise",
+        params={"accountId": account_id},
+        log_tag="driver-agreements",
+    )
 
-    base = frappe.conf.get("old_carrum_base_url")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    if not result.get("success"):
+        error = result.get("error") or _("Carrum API error")
+        frappe.throw(str(error))
 
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old carrum token is not configured (carrum_token)"))
-    url = f"{base}/api/v1/driver/aggrementHistory/bydriverWise"
-    print(url)
-    params = {"accountId": account_id}
-    headers = {"Authorization": token}
-
-    try:
-        response = re.get(url, params=params, headers=headers, timeout=60)
-    except re.exceptions.RequestException as e:
-        logger.exception("Carrum agreements request failed: %s", e)
-        frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
-
-    try:
-        body = response.json()
-        print(body)
-    except ValueError:
-        logger.error(
-            "Carrum agreements non-JSON response (HTTP %s): %s",
-            response.status_code,
-            (response.text or "")[:500],
-        )
-        frappe.throw(_("Invalid response from Carrum"))
-
-    print("====================body============================")
-    print(body)
-    print(response.status_code)
-    print("================================================")
-    if not response.ok:
-        logger.error(
-            "Carrum agreements HTTP %s: %s",
-            response.status_code,
-            json.dumps(body, default=str)[:1000],
-        )
-        message = None
-        if isinstance(body, dict):
-            message = body.get("message") or body.get("error")
-            err = body.get("errors")
-            if isinstance(err, list) and err:
-                message = message or err[0].get("message") if isinstance(err[0], dict) else str(err[0])
-        frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
-
-
-    return body
+    return result.get("data") or {}
 
 @frappe.whitelist()
 def view_agreement(digio_id: str):
@@ -758,42 +691,23 @@ def view_agreement(digio_id: str):
     if not did:
         frappe.throw(_("Digio ID is required"))
 
-    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    client = old_carrum_client(timeout=120)
+    result = client.request_binary(
+        method="GET",
+        path=f"/api/v1/driver/agreement/pdf/{did}",
+        headers={"Accept": "application/pdf, application/octet-stream, */*"},
+        log_tag="view-agreement",
+    )
 
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
+    if not result.get("success"):
+        error = result.get("error") or _("Carrum agreement PDF error")
+        frappe.throw(str(error))
 
-    url = f"{base}/api/v1/driver/agreement/pdf/{did}"
-    headers = {
-        "Authorization": token,
-        "Accept": "application/pdf, application/octet-stream, */*",
-    }
-
-    try:
-        response = re.get(url, headers=headers, timeout=120)
-    except re.exceptions.RequestException as e:
-        logger.exception("view_agreement request failed: %s", e)
-        frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
-
-    if not response.ok:
-        logger.error(
-            "view_agreement HTTP %s: %s",
-            response.status_code,
-            (response.text or "")[:1000],
-        )
-        frappe.throw(
-            _("Carrum agreement PDF error ({0})").format(response.status_code)
-        )
-
-    content = response.content or b""
+    content = result.get("content") or b""
     if not content:
         frappe.throw(_("Empty PDF response from Carrum"))
 
-    ct_header = response.headers.get("Content-Type") or "application/pdf"
-    content_type = ct_header.split(";")[0].strip().lower()
+    content_type = (result.get("content_type") or "application/pdf").lower()
     if "pdf" not in content_type and "octet-stream" not in content_type:
         sample = content[:200].decode("utf-8", errors="replace")
         if sample.lstrip().startswith("<"):
@@ -815,38 +729,20 @@ def get_digio_agreement(digio_id: str):
     if not did:
         frappe.throw(_("Digio ID is required"))
 
-    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    client = old_carrum_client(timeout=120)
+    result = client.request_binary(
+        method="GET",
+        path=f"/api/v1/driver/agreement/pdf/{did}",
+        headers={"Accept": "application/pdf, application/octet-stream, */*"},
+        log_tag="get-digio-agreement",
+    )
 
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
-
-    url = f"{base}/api/v1/driver/agreement/pdf/{did}"
-    headers = {
-        "Authorization": token,
-        "Accept": "application/pdf, application/octet-stream, */*",
-    }
-
-    try:
-        response = re.get(url, headers=headers, timeout=120)
-    except re.exceptions.RequestException as e:
-        logger.exception("view_agreement request failed: %s", e)
-        frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
-
-    if not response.ok:
-        logger.error(
-            "view_agreement HTTP %s: %s",
-            response.status_code,
-            (response.text or "")[:1000],
-        )
-        frappe.throw(
-            _("Carrum agreement PDF error ({0})").format(response.status_code)
-        )
+    if not result.get("success"):
+        error = result.get("error") or _("Carrum agreement PDF error")
+        frappe.throw(str(error))
 
     frappe.local.response.filename = f"agreement_{digio_id}.pdf"
-    frappe.local.response.filecontent = response.content
+    frappe.local.response.filecontent = result.get("content") or b""
     frappe.local.response.type = "download"
 
 @frappe.whitelist()
@@ -897,61 +793,38 @@ def send_agreement(leadId: str):
     if current_pincode:
         current_address += ", " + current_pincode
 
-    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="POST",
+        path="/api/v1/driver/sendAgreementForDriver",
+        json={
+            "accountId": account_id,
+            "driver_phone": phoneNo,
+            "driver_name": driver_name,
+            "driver_current_address": current_address,
+            "aadhar_number": aadhar_number,
+            "pan_card": pan_card,
+            "dl_number": dl_number,
+            "dl_issue_date": _date_to_json_value(dl_issue_date),
+            "dl_expiry_date": _date_to_json_value(dl_expiry_date),
+            "driver_email": email,
+            "driver_bank_account_number": bank_account_number,
+            "driver_small_id": lead_pk,
+            "bank_ifsc_code": bank_ifsc_code,
+            "Witness1": "relative_name",
+            "Witness2": "previous_employer_name",
+            "Witness3": "father_name",
+            "Witness4": "sarpanch",
+            "hubId": business_type_id,
+        },
+        log_tag="send-agreement",
+    )
 
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
+    if not result.get("success"):
+        error = result.get("error") or _("Could not reach Carrum")
+        frappe.throw(str(error))
 
-    url = f"{base}/api/v1/driver/sendAgreementForDriver"
-
-    payload = {
-        "accountId": account_id,
-        "driver_phone": phoneNo,
-        "driver_name": driver_name,
-        "driver_current_address": current_address,
-        "aadhar_number": aadhar_number,
-        "pan_card": pan_card,
-        "dl_number": dl_number,
-        "dl_issue_date": _date_to_json_value(dl_issue_date),
-        "dl_expiry_date": _date_to_json_value(dl_expiry_date),
-        "driver_email": email,
-        "driver_bank_account_number": bank_account_number,
-        "driver_small_id": lead_pk,
-        "bank_ifsc_code": bank_ifsc_code,
-        "Witness1": "relative_name", # relative_name
-        "Witness2": "previous_employer_name", # previous_employer_name
-        "Witness3": "father_name", # father_name
-        "Witness4": "sarpanch", # sarpanch
-        "hubId": business_type_id
-    }
-    headers = {
-        "Authorization": token,
-        "Content-Type": "application/json",
-    }
-
-    try:
-        response = re.post(url=url, headers=headers, json=payload, timeout=60)
-    except re.exceptions.RequestException as e:
-        logger.exception("send_agreement failed: %s", e)
-        frappe.throw(_("Could not reach Carrum"))
-
-    try:
-        resp_body = response.json()
-    except ValueError:
-        frappe.throw(_("Invalid response from Carrum"))
-
-    if not response.ok:
-        logger.error("send_agreement error: %s", resp_body)
-        frappe.throw(
-            resp_body.get("message")
-            or resp_body.get("error")
-            or _("Carrum API error ({0})").format(response.status_code)
-        )
-
-    return {"success": True, "data": resp_body}
+    return {"success": True, "data": result.get("data")}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -977,17 +850,6 @@ def upload_agreement(leadId: str | None = None):
     if file_part is None or getattr(file_part, "filename", None) in (None, ""):
         frappe.throw(_("Image file is required (form field: image)"))
 
-    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
-
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
-
-    url = f"{base}/api/v1/driver/uploadDocsByAccount/{account_id}"
-    headers = {"Authorization": token}
-
     raw = file_part.read()
     if not raw:
         frappe.throw(_("Uploaded file is empty"))
@@ -995,46 +857,20 @@ def upload_agreement(leadId: str | None = None):
     filename = file_part.filename or "agreement-upload.bin"
     content_type = getattr(file_part, "content_type", None) or "application/octet-stream"
 
-    data = {"docType": "offline_aggrement_pic"}
-    files = {"image": (filename, raw, content_type)}
+    client = old_carrum_client(timeout=120)
+    result = client.request(
+        method="POST",
+        path=f"/api/v1/driver/uploadDocsByAccount/{account_id}",
+        data={"docType": "offline_aggrement_pic"},
+        files={"image": (filename, raw, content_type)},
+        log_tag="upload-agreement",
+    )
 
-    try:
-        response = re.post(
-            url,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=120,
-        )
-    except re.exceptions.RequestException as e:
-        logger.exception("upload_agreement failed: %s", e)
-        frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
+    if not result.get("success"):
+        error = result.get("error") or _("Carrum upload error")
+        frappe.throw(str(error))
 
-    try:
-        resp_body = response.json()
-    except ValueError:
-        resp_body = {"_raw": (response.text or "")[:500]}
-
-    if not response.ok:
-        logger.error(
-            "upload_agreement HTTP %s: %s",
-            response.status_code,
-            json.dumps(resp_body, default=str)[:1000],
-        )
-        message = None
-        if isinstance(resp_body, dict):
-            message = resp_body.get("message") or resp_body.get("error")
-            err = resp_body.get("errors")
-            if isinstance(err, list) and err:
-                first = err[0]
-                message = message or (
-                    first.get("message") if isinstance(first, dict) else str(first)
-                )
-        frappe.throw(
-            message or _("Carrum upload error ({0})").format(response.status_code)
-        )
-
-    return {"success": True, "data": resp_body}
+    return {"success": True, "data": result.get("data")}
 
 
 def _coerce_whitelist_bool(value) -> bool:
@@ -1166,14 +1002,6 @@ def update_driver(account_id: str, data: dict | str | None = None):
                 )
             )
 
-    base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
-    if not base:
-        frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
-
-    token = frappe.conf.get("old_carrum_token")
-    if not token:
-        frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
-
     body: dict = {}
     sid = payload.scheme_id
     if sid is not None and str(sid).strip() != "":
@@ -1190,17 +1018,16 @@ def update_driver(account_id: str, data: dict | str | None = None):
         body["scheme_type"] = payload.scheme_type
 
     if payload.tenure is not None and payload.emi_id is not None:
-        body['tenure'] = payload.tenure
-        body['emi_id'] = payload.emi_id
-
+        body["tenure"] = payload.tenure
+        body["emi_id"] = payload.emi_id
 
     if payload.remove_emi is not None:
-        body['remove_emi'] = payload.remove_emi
+        body["remove_emi"] = payload.remove_emi
 
     if payload.uber_id is not None:
-        body['driver_uber_id'] = str(payload.uber_id)
+        body["driver_uber_id"] = str(payload.uber_id)
 
-    if "vendor" in (payload.old_scheme_name or "") or "double driver" in (payload.old_scheme_name or "") :
+    if "vendor" in (payload.old_scheme_name or "") or "double driver" in (payload.old_scheme_name or ""):
         lead = frappe.get_doc("CRM Lead", {"custom_account_id": aid})
         if lead:
             util_service.un_assign_secondary_lead_from_lead(lead.name)
@@ -1210,36 +1037,20 @@ def update_driver(account_id: str, data: dict | str | None = None):
     if not body:
         return {"success": True}
 
-    url = f"{base}/api/v1/driver/update/{aid}?idType=account"
-    headers = {"Authorization": token, "Content-Type": "application/json"}
+    client = old_carrum_client(timeout=60)
+    result = client.request(
+        method="PUT",
+        path=f"/api/v1/driver/update/{aid}",
+        params={"idType": "account"},
+        json=body,
+        log_tag="update-driver",
+    )
 
-    try:
-        response = re.put(url, headers=headers, json=body, timeout=60)
-    except re.exceptions.RequestException as e:
-        logger.exception("update_driver request failed: %s", e)
-        frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
+    if not result.get("success"):
+        error = result.get("error") or _("Carrum API error")
+        frappe.throw(str(error))
 
-    try:
-        resp_body = response.json()
-    except ValueError:
-        resp_body = None
-
-    if not response.ok:
-        logger.error(
-            "update_driver HTTP %s: %s",
-            response.status_code,
-            (response.text or "")[:1000],
-        )
-        message = None
-        if isinstance(resp_body, dict):
-            message = resp_body.get("message") or resp_body.get("error")
-            err = resp_body.get("errors")
-            if isinstance(err, list) and err:
-                first = err[0]
-                message = message or (
-                    first.get("message") if isinstance(first, dict) else str(first)
-                )
-        frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
+    resp_body = result.get("data")
 
     # Scheme / EMI changes can alter portal wallet balances; align CRM Lead status with
     _scheme_or_emi_keys = (

@@ -1,6 +1,6 @@
 from core.constants.enums import EnumValues
 from pydantic import BaseModel
-from core.services import logged_requests as requests
+from core.services.carrum_client import old_carrum_client
 import frappe
 
 logger = frappe.logger("core::carrum_accounts")
@@ -201,16 +201,18 @@ def get_frappe_user_by_smartflo_account(smartflo_external_username: str):
 def get_dms():
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     hubId = carrum_user.get("defaultHub").get("id")
-    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
-    old_carrum_token = frappe.conf.get("old_carrum_token")
-    url = f"{old_carrum_base_url}/api/v1/account/all?role_name=driver_manager&hub_id={hubId}"
-    response = requests.get(url, headers={"Authorization": old_carrum_token})
-    data = response.json()
-    # data = data.get("results") or []
-
+    client = old_carrum_client(timeout=30)
+    result = client.request(
+        method="GET",
+        path="/api/v1/account/all",
+        params={"role_name": "driver_manager", "hub_id": hubId},
+        log_tag="get-dms",
+    )
+    if not result.get("success"):
+        frappe.throw(str(result.get("error") or _("Failed to fetch driver managers")))
     return {
         "success": True,
-        "data": data
+        "data": result.get("data"),
     }
 
 
@@ -296,9 +298,13 @@ def get_hub_telecaller_users(hub_id: str) -> list[dict]:
 
 
 def get_dm_of_all_businessTypes(hubId: str):
-    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
-    old_carrum_token = frappe.conf.get("old_carrum_token")
-    url = f"{old_carrum_base_url}/api/v1/account/driver_manager_for_frappe?hubId={hubId}"
-    response = requests.get(url, headers={"Authorization": old_carrum_token})
-    data = response.json()
-    return data
+    client = old_carrum_client(timeout=30)
+    result = client.request(
+        method="GET",
+        path="/api/v1/account/driver_manager_for_frappe",
+        params={"hubId": hubId},
+        log_tag="get-dm-for-hub",
+    )
+    if not result.get("success"):
+        frappe.throw(str(result.get("error") or _("Failed to fetch driver managers")))
+    return result.get("data")

@@ -63,6 +63,7 @@ class CarrumHttpClient:
 		headers=None,
 		json=None,
 		data=None,
+		files=None,
 	):
 		"""Before-request: URL + headers + payload envelope."""
 		params = params or {}
@@ -85,7 +86,76 @@ class CarrumHttpClient:
 			"timeout": self.timeout,
 			"json": json,
 			"data": data,
+			"files": files,
 		}
+
+	def _send_http_request(self, req, *, log_tag="carrum"):
+		"""Execute prepared request; return ``(response, None)`` or ``(None, error_dict)``."""
+		url = req["url"]
+		kwargs = {
+			"method": req["method"],
+			"url": url,
+			"headers": req["headers"],
+			"timeout": req["timeout"],
+		}
+		if req.get("json") is not None:
+			kwargs["json"] = req["json"]
+		if req.get("data") is not None:
+			kwargs["data"] = req["data"]
+		if req.get("files") is not None:
+			kwargs["files"] = req["files"]
+
+		try:
+			response = requests.request(**kwargs)
+		except requests.exceptions.Timeout:
+			logger.error("Carrum HTTP timeout [%s] url=%s", log_tag, url)
+			return None, {
+				"success": False,
+				"error": _("Request to referral service timed out"),
+				"request_url": url,
+			}
+		except requests.exceptions.ConnectionError as err:
+			logger.error("Carrum HTTP connection error [%s]: %s", log_tag, err)
+			return None, {
+				"success": False,
+				"error": _("Could not connect to referral service"),
+				"request_url": url,
+			}
+		except requests.exceptions.RequestException as err:
+			logger.error("Carrum HTTP request error [%s]: %s", log_tag, err)
+			return None, {
+				"success": False,
+				"error": _("Referral service request failed: {0}").format(str(err)),
+				"request_url": url,
+			}
+
+		try:
+			response.raise_for_status()
+		except requests.exceptions.HTTPError as err:
+			text = ""
+			status = getattr(err.response, "status_code", None)
+			resp = err.response
+			resolved_url = getattr(resp, "url", None) or url if resp is not None else url
+			if resp is not None:
+				try:
+					text = (resp.text or "")[:2000]
+				except Exception:
+					text = ""
+			logger.error(
+				"Carrum HTTP error [%s] status=%s body=%s",
+				log_tag,
+				status,
+				text,
+			)
+			return None, {
+				"success": False,
+				"status_code": status,
+				"error": str(err),
+				"response": text or None,
+				"request_url": resolved_url,
+			}
+
+		return response, None
 
 	def _resolved_request_url(self, response, request_url):
 		return getattr(response, "url", None) or request_url
@@ -136,6 +206,7 @@ class CarrumHttpClient:
 		headers=None,
 		json=None,
 		data=None,
+		files=None,
 		log_tag="carrum",
 	):
 		config_err = self._missing_carrum_config_response()
@@ -149,71 +220,57 @@ class CarrumHttpClient:
 			headers=headers,
 			json=json,
 			data=data,
+			files=files,
 		)
-		url = req["url"]
-		kwargs = {
-			"method": req["method"],
-			"url": url,
-			"headers": req["headers"],
-			"timeout": req["timeout"],
-		}
-		if req["json"] is not None:
-			kwargs["json"] = req["json"]
-		if req["data"] is not None:
-			kwargs["data"] = req["data"]
-
-		try:
-			response = requests.request(**kwargs)
-		except requests.exceptions.Timeout:
-			logger.error("Carrum HTTP timeout [%s] url=%s", log_tag, url)
-			return {
-				"success": False,
-				"error": _("Request to referral service timed out"),
-				"request_url": url,
-			}
-		except requests.exceptions.ConnectionError as err:
-			logger.error("Carrum HTTP connection error [%s]: %s", log_tag, err)
-			return {
-				"success": False,
-				"error": _("Could not connect to referral service"),
-				"request_url": url,
-			}
-		except requests.exceptions.RequestException as err:
-			logger.error("Carrum HTTP request error [%s]: %s", log_tag, err)
-			return {
-				"success": False,
-				"error": _("Referral service request failed: {0}").format(str(err)),
-				"request_url": url,
-			}
-
-		try:
-			response.raise_for_status()
-		except requests.exceptions.HTTPError as err:
-			text = ""
-			status = getattr(err.response, "status_code", None)
-			resp = err.response
-			resolved_url = getattr(resp, "url", None) or url if resp is not None else url
-			if resp is not None:
-				try:
-					text = (resp.text or "")[:2000]
-				except Exception:
-					text = ""
-			logger.error(
-				"Carrum HTTP error [%s] status=%s body=%s",
-				log_tag,
-				status,
-				text,
-			)
-			return {
-				"success": False,
-				"status_code": status,
-				"error": str(err),
-				"response": text or None,
-				"request_url": resolved_url,
-			}
+		response, err = self._send_http_request(req, log_tag=log_tag)
+		if err is not None:
+			return err
 
 		return self.intercept_after_response(
 			response,
-			request_url=url,
+			request_url=req["url"],
 			log_tag=log_tag,
 		)
+
+	def request_binary(
+		self,
+		*,
+		method,
+		path,
+		params=None,
+		headers=None,
+		log_tag="carrum",
+	):
+		"""Like ``request`` but returns raw response bytes (e.g. PDF downloads)."""
+		config_err = self._missing_carrum_config_response()
+		if config_err is not None:
+			return config_err
+
+		req = self.intercept_before_request(
+			method=method,
+			path=path,
+			params=params,
+			headers=headers,
+		)
+		response, err = self._send_http_request(req, log_tag=log_tag)
+		if err is not None:
+			return err
+
+		resolved_url = self._resolved_request_url(response, req["url"])
+		content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip()
+		return {
+			"success": True,
+			"status_code": response.status_code,
+			"content": response.content or b"",
+			"content_type": content_type,
+			"request_url": resolved_url,
+		}
+
+
+def old_carrum_client(timeout=30):
+	"""HTTP client for legacy Carrum portal APIs (``old_carrum_base_url`` / ``old_carrum_token``)."""
+	return CarrumHttpClient(
+		base_url=frappe.conf.get("old_carrum_base_url"),
+		token=frappe.conf.get("old_carrum_token"),
+		timeout=timeout,
+	)

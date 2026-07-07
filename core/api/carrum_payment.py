@@ -4,7 +4,7 @@ import logging
 import core.constants.enums as EnumValues
 from core.services.util_service import UtilService
 from frappe.utils.data import flt
-from core.services.carrum_client import old_carrum_client
+from core.services.carrum_client import old_carrum_client, throw_carrum_api_error, format_carrum_api_error
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
@@ -208,13 +208,12 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     )
 
     if not result.get("success"):
-        error = result.get("error") or _("Payment Service Unavailable")
-        frappe.throw(str(error))
+        throw_carrum_api_error(_("Payment Service Unavailable"), result=result)
 
     data = result.get("data") or {}
     if isinstance(data, dict) and data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Payment link generation failed")
-        frappe.throw(str(msg))
+        throw_carrum_api_error(msg, result=result, response=data)
 
     results = data.get("results") or {}
     payment_link = results.get("payment_link")
@@ -334,21 +333,24 @@ def add_other_payment(
     if not result.get("success"):
         return {
             "is_valid": False,
-            "reason": result.get("error") or _("Failed to add other payment"),
+            "reason": format_carrum_api_error(_("Failed to add other payment"), result=result),
         }
 
     data = result.get("data") or {}
     if not isinstance(data, dict):
         return {
             "is_valid": False,
-            "reason": _("Invalid JSON from payment service"),
+            "reason": format_carrum_api_error(
+                _("Invalid JSON from payment service"),
+                result=result,
+            ),
         }
 
     if data.get("status") != "success":
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
         return {
             "is_valid": False,
-            "reason": message,
+            "reason": format_carrum_api_error(message, result=result, response=data),
         }
 
     return {
@@ -421,24 +423,12 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         json=out,
         log_tag="add-cash",
     )
-
     if not result.get("success"):
-        frappe.log_error(
-            f"lead_id={lead_id}\n{result.get('error') or result.get('response')}",
-            "add_cash: payment service non-OK response",
-        )
-        frappe.throw(
-            _("Could not reach payment service. Please try again or contact support.")
-        )
+        throw_carrum_api_error(_("Failed to add cash"), result=result)
 
     data = result.get("data") or {}
     if not isinstance(data, dict):
-        snippet = str(result.get("response") or "")[:8000]
-        frappe.log_error(
-            f"lead_id={lead_id}\n{snippet}",
-            "add_cash: invalid JSON from payment service",
-        )
-        frappe.throw(_("Invalid JSON from payment service"))
+        throw_carrum_api_error(_("Invalid JSON from payment service"), result=result)
 
     if data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Failed to add cash")
@@ -452,7 +442,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         )
         return {
             "is_valid": False,
-            "reason": msg,
+            "reason": format_carrum_api_error(msg, result=result, response=data),
         }
 
     return {"message": "success"}

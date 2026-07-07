@@ -1,6 +1,6 @@
 from core.constants.enums import EnumValues
 from pydantic import BaseModel
-from core.services.carrum_client import old_carrum_client
+from core.services.carrum_client import CarrumHttpClient, old_carrum_client
 import frappe
 
 logger = frappe.logger("core::carrum_accounts")
@@ -47,28 +47,30 @@ def fetch_carrum_user_data_using_frappe_username(username: str) -> dict:
         return cached
 
     carrum_base_url = frappe.conf.get("carrum_base_url")
-    carrum_token = frappe.conf.get("carrum_token")
-    url = f"{carrum_base_url}/api/v1/users/by-external-username"
-    logger.info("Calling Carrum API for Frappe user: %s url: %s", username, url)
-    requestBody = {
-        "username": username,
-        "credentialType": "frappe"
-    }
-    try:
-        response = requests.post(
-            url,
-            headers={"Authorization": carrum_token},
-            json=requestBody,
-            timeout=10,
+    logger.info(
+        "Calling Carrum API for Frappe user: %s url: %s/api/v1/users/by-external-username",
+        username,
+        carrum_base_url,
+    )
+    client = CarrumHttpClient(timeout=10)
+    result = client.request(
+        method="POST",
+        path="/api/v1/users/by-external-username",
+        json={"username": username, "credentialType": "frappe"},
+        log_tag="carrum-user-by-frappe-username",
+    )
+    if not result.get("success"):
+        logger.error(
+            "Carrum API call failed for user: %s url=%s error=%s response=%s",
+            username,
+            result.get("request_url"),
+            result.get("error"),
+            result.get("response"),
         )
-        carrum_response = response.json()
-    except Exception:
-        logger.exception("Carrum API call failed for user: %s", username)
         return {}
 
-    logger.info("Carrum API response: %s", carrum_response)
-    raw_data = carrum_response.get("data") if isinstance(carrum_response, dict) else None
-    data = raw_data if isinstance(raw_data, dict) else {}
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    logger.info("Carrum API response data for %s: %s", username, data)
 
     # Cache successful lookups only — empty payloads stay un-cached so transient API
     # outages don't poison the cache for the full TTL window.
@@ -159,28 +161,28 @@ def get_frappe_user_by_smartflo_account(smartflo_external_username: str):
     if isinstance(cached, dict) and "frappe_user" in cached:
         return cached
 
-    carrum_base_url = frappe.conf.get("carrum_base_url")
-    carrum_token = frappe.conf.get("carrum_token")
-
-    url = f"{carrum_base_url}/api/v1/users/by-external-username"
-    try:
-        requestBody = {
+    client = CarrumHttpClient(timeout=40)
+    result = client.request(
+        method="POST",
+        path="/api/v1/users/by-external-username",
+        json={
             "username": smartflo_external_username,
-            "credentialType": "smartflow"
-        }
-        response = requests.post(
-            url,
-            headers={"Authorization": carrum_token},
-            json=requestBody,
-            timeout=40,
+            "credentialType": "smartflow",
+        },
+        log_tag="carrum-user-by-smartflo-username",
+    )
+    if not result.get("success"):
+        logger.error(
+            "Carrum Smartflo resolve API call failed for: %s url=%s error=%s response=%s",
+            smartflo_external_username,
+            result.get("request_url"),
+            result.get("error"),
+            result.get("response"),
         )
-        carrum_response = response.json()
-    except Exception:
-        logger.exception("Carrum Smartflo resolve API call failed for: %s", smartflo_external_username)
         return None
-    logger.info("Carrum API response: %s", carrum_response)
-    raw_data = carrum_response.get("data") if isinstance(carrum_response, dict) else None
-    data = raw_data if isinstance(raw_data, dict) else {}
+
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    logger.info("Carrum API response: %s", data)
     frappe_cred = data.get("frappeCred")
 
     if not isinstance(frappe_cred, dict):
@@ -217,14 +219,16 @@ def get_dms():
 
 
 def _get_telecaller_by_inbox_id(inbox_id: int):
-    carrum_base_url = frappe.conf.get("carrum_base_url")
-    carrum_token = frappe.conf.get("carrum_token")
-    url = f"{carrum_base_url}/api/v1/users/inbox/{inbox_id}"
-
-    response = requests.get(url, headers={"Authorization": carrum_token})
-    jsonData = response.json()
-
-    return jsonData.get("data") or []
+    client = CarrumHttpClient(timeout=20)
+    result = client.request(
+        method="GET",
+        path=f"/api/v1/users/inbox/{inbox_id}",
+        log_tag="telecaller-by-inbox-id",
+    )
+    if not result.get("success"):
+        return []
+    data = result.get("data")
+    return data if isinstance(data, list) else []
 
 def get_users_by_inbox_id(inbox_id: int):
     data = _get_telecaller_by_inbox_id(inbox_id)
@@ -237,24 +241,20 @@ def get_users_by_inbox_id(inbox_id: int):
     return data2Return 
 
 def get_hub_telecallers(hub_id: str):
-    carrum_base_url = frappe.conf.get("carrum_base_url")
-    carrum_token = frappe.conf.get("carrum_token")
-    url = f"{carrum_base_url}/api/v1/users"
-    query_params = {
-        "hubId": hub_id,
-        "limit": 100,
-        "roleName": EnumValues.Roles.TELECALLER.lower(),
-    }
-    
-
-    response = requests.get(
-        url,
-        headers={"Authorization": carrum_token},
-        params=query_params,
-        timeout=20,
+    client = CarrumHttpClient(timeout=20)
+    result = client.request(
+        method="GET",
+        path="/api/v1/users",
+        params={
+            "hubId": hub_id,
+            "limit": 100,
+            "roleName": EnumValues.Roles.TELECALLER.lower(),
+        },
+        log_tag="hub-telecallers",
     )
-    data = response.json()
-    return data
+    if not result.get("success"):
+        return {}
+    return result.get("data") or {}
 
 
 def _carrum_user_rows(payload):

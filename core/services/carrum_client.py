@@ -2,6 +2,8 @@
 
 from urllib.parse import urlencode
 
+import json
+
 from core.services import logged_requests as requests
 
 import frappe
@@ -106,6 +108,7 @@ class CarrumHttpClient:
 			kwargs["files"] = req["files"]
 
 		try:
+			logger.info("Executing external API request: payload=%s, url=%s", kwargs, url)
 			response = requests.request(**kwargs)
 		except requests.exceptions.Timeout:
 			logger.error("Carrum HTTP timeout [%s] url=%s", log_tag, url)
@@ -273,4 +276,38 @@ def old_carrum_client(timeout=30):
 		base_url=frappe.conf.get("old_carrum_base_url"),
 		token=frappe.conf.get("old_carrum_token"),
 		timeout=timeout,
+	)
+
+
+def format_carrum_api_error(message=None, *, result=None, request_url=None, response=None):
+	"""Build an error message including Carrum API URL and response body."""
+	if result:
+		message = message or result.get("error")
+		if request_url is None:
+			request_url = result.get("request_url")
+		if response is None:
+			response = result.get("response")
+	message = message or _("Request failed")
+	parts = [str(message)]
+	if request_url:
+		parts.append(_("URL: {0}").format(request_url))
+	if response is not None:
+		if not isinstance(response, str):
+			try:
+				response = json.dumps(response, default=str)[:2000]
+			except Exception:
+				response = str(response)[:2000]
+		parts.append(_("Response: {0}").format(response))
+	return "\n".join(parts)
+
+
+def throw_carrum_api_error(message=None, *, result=None, request_url=None, response=None):
+	"""Raise ``frappe.throw`` with URL and response details from a client result."""
+	frappe.throw(
+		format_carrum_api_error(
+			message,
+			result=result,
+			request_url=request_url,
+			response=response,
+		)
 	)

@@ -121,6 +121,7 @@ class _HUB_VISIT_STATUS:
 class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
+	WalkIn = "WalkIn"
 
 class _CallSessionWebsocketEvents:
 	DialerCallConnected = "dialer_call_connected"

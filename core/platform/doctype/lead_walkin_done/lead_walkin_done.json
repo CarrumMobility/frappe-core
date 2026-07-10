@@ -1,5 +1,6 @@
 {
   "actions": [],
+  "allow_import": 1,
   "allow_rename": 1,
   "creation": "2026-05-19 22:42:59.649893",
   "doctype": "DocType",

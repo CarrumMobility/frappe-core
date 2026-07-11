@@ -17,7 +17,8 @@
     "callback_at",
     "callback_type",
     "telecaller",
-    "business_type"
+    "business_type",
+    "walkin_form_filled_at"
   ],
   "fields": [
     {
@@ -83,6 +84,11 @@
       "fieldname": "business_type",
       "fieldtype": "Data",
       "label": "Business type"
+    },
+    {
+      "fieldname": "walkin_form_filled_at",
+      "fieldtype": "Datetime",
+      "label": "Walkin form filled at"
     }
   ],
   "grid_page_length": 50,

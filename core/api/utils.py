@@ -1,3 +1,4 @@
+from core.services.util_service import publish_docs as publish_docs_to_website
 import frappe
 
 from pydantic import BaseModel
@@ -53,3 +54,11 @@ def get_env_config():
 @frappe.whitelist(allow_guest=True)
 def emit_socket_event(event: str, payload: dict):
     frappe.publish_realtime(event, payload)
+
+
+
+@frappe.whitelist(methods=["POST"])
+def publish_docs():
+	"""Publish markdown docs from core/docs as website pages at /docs/{category}/{file_name}."""
+	frappe.only_for("System Manager")
+	return publish_docs_to_website()

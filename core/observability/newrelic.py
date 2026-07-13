@@ -6,6 +6,10 @@ import json
 
 import frappe
 
+from core.observability.request_logging import format_request_body
+
+_NR_ATTRIBUTE_MAX_LENGTH = 4000
+
 
 def record_custom_event(event_type: str, attributes: dict | None = None) -> None:
 	"""Record a New Relic custom business event."""
@@ -55,9 +59,12 @@ def enrich_newrelic_transaction(response, request) -> None:
 	method = getattr(request, "method", None)
 	path = getattr(request, "path", None)
 	remote_addr = getattr(request, "remote_addr", None)
-	request_body = getattr(request, "get_data", None)
-	request_body = request_body.decode("utf-8") if request_body else None
-	
+	request_body = (
+		format_request_body(request, max_length=_NR_ATTRIBUTE_MAX_LENGTH)
+		if request is not None
+		else ""
+	)
+
 	if site:
 		newrelic.agent.add_custom_attribute("frappe.site", site)
 	if user:

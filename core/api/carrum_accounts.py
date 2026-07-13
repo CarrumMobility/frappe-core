@@ -266,11 +266,6 @@ def _carrum_user_rows(payload):
     return rows if isinstance(rows, list) else []
 
 
-def get_hub_telecaller_users(hub_id: str) -> list[dict]:
-    data = get_hub_telecallers(hub_id)
-    return [user for user in _carrum_user_rows(data) if isinstance(user, dict)]
-
-
 def get_hub_telecaller_usernames(hub_id: str) -> list[str]:
     data = get_hub_telecallers(hub_id)
     usernames = []
@@ -295,6 +290,87 @@ def get_hub_telecaller_users(hub_id: str) -> list[dict]:
         if isinstance(row, dict)
     ]
 
+
+def _carrum_user_role_name(user_row: dict) -> str:
+    if not isinstance(user_row, dict):
+        return ""
+    default_role = user_row.get("defaultRole") or {}
+    if isinstance(default_role, dict):
+        role_name = (default_role.get("name") or "").strip()
+        if role_name:
+            return role_name
+    roles = user_row.get("roles") or []
+    if isinstance(roles, list):
+        for role in roles:
+            if isinstance(role, dict):
+                role_name = (role.get("name") or "").strip()
+                if role_name:
+                    return role_name
+    return ""
+
+
+def _carrum_user_frappe_username(user_row: dict) -> str:
+    if not isinstance(user_row, dict):
+        return ""
+    frappe_cred = user_row.get("frappeCred") or user_row.get("frappe_cred") or {}
+    if not isinstance(frappe_cred, dict):
+        return ""
+    return (frappe_cred.get("username") or frappe_cred.get("userName") or "").strip()
+
+
+def resolve_carrum_user_id_to_frappe_username(
+    carrum_user_id: str, hub_id: str | None = None
+) -> str:
+    """Map a Carrum user UUID to an enabled Frappe username within a hub."""
+    carrum_user_id = (carrum_user_id or "").strip()
+    if not carrum_user_id:
+        return ""
+    if frappe.db.exists("User", {"name": carrum_user_id, "enabled": 1}):
+        return carrum_user_id
+
+    hub_id = (hub_id or "").strip()
+    if not hub_id:
+        return ""
+
+    for row in get_hub_active_users(hub_id):
+        if (row.get("id") or "").strip() != carrum_user_id:
+            continue
+        username = _carrum_user_frappe_username(row)
+        if username and frappe.db.exists("User", {"name": username, "enabled": 1}):
+            return username
+    return ""
+
+
+def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int = 200) -> list[dict]:
+    """Return active Carrum users for a hub, optionally filtered by role."""
+    hub_id = (hub_id or "").strip()
+    if not hub_id:
+        return []
+
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users"
+    query_params = {
+        "hubId": hub_id,
+        "limit": limit,
+        "status": "active",
+    }
+    if role_name:
+        query_params["roleName"] = role_name
+
+    try:
+        response = requests.get(
+            url,
+            headers={"Authorization": carrum_token},
+            params=query_params,
+            timeout=20,
+        )
+        data = response.json()
+    except Exception:
+        logger.exception("Carrum hub users API call failed for hub: %s", hub_id)
+        return []
+
+    return [row for row in _carrum_user_rows(data) if isinstance(row, dict)]
 
 def get_dm_of_all_businessTypes(hubId: str):
     old_carrum_base_url = frappe.conf.get("old_carrum_base_url")

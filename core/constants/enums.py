@@ -25,6 +25,7 @@ class _Roles:
 class _LeadType:
 	LEAD = "LEAD"
 	DRIVER = "DRIVER"
+	VENDOR = "VENDOR"
 
 class _CallDirection:
 	INBOUND = "INBOUND"

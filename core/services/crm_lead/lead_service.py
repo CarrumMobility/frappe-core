@@ -14,6 +14,25 @@ class LeadService:
 			other_info and ("facebook_lead_id" in other_info or "facebook_form_id" in other_info)
 		)
 
+	@staticmethod
+	def get_lead_source_row(
+		source_name: str,
+		purpose: str | None = None,
+	) -> dict | None:
+		"""Resolve CRM Lead Source by display name and optional purpose."""
+		source_name = (source_name or "").strip()
+		if not source_name:
+			return None
+		filters = {"source_name": source_name}
+		if purpose:
+			filters["purpose"] = purpose
+		return frappe.db.get_value(
+			EnumValues.ReferenceDocType.LEAD_SOURCE,
+			filters,
+			["name", "source_name"],
+			as_dict=True,
+		)
+
 	def find_or_create_lead(
 		self,
 		mobile_no: str,

@@ -112,7 +112,9 @@ class _LeadStatus:
 	NOT_INTERESTED = "Not Interested"
 
 class _LEAD_SOURCE:
-	GateApp = "Gate App"
+	Uber = "uber"
+	Website = "Website"
+	Facebook = "Facebook"
 
 class _HUB_VISIT_STATUS:
 	NotInHub = "NOT_IN_HUB"

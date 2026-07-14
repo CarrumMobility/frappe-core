@@ -18,7 +18,10 @@
     "callback_type",
     "telecaller",
     "business_type",
-    "walkin_form_filled_at"
+    "walkin_form_filled_at",
+    "referrer_mobile_no",
+    "referrer_name",
+    "referrer_user_link"
   ],
   "fields": [
     {
@@ -89,6 +92,22 @@
       "fieldname": "walkin_form_filled_at",
       "fieldtype": "Datetime",
       "label": "Walkin form filled at"
+    },
+    {
+      "fieldname": "referrer_user_link",
+      "fieldtype": "Link",
+      "label": "Referrer user link",
+      "options": "User"
+    },
+    {
+      "fieldname": "referrer_name",
+      "fieldtype": "Data",
+      "label": "Referrer name"
+    },
+    {
+      "fieldname": "referrer_mobile_no",
+      "fieldtype": "Data",
+      "label": "Referrer mobile no"
     }
   ],
   "grid_page_length": 50,

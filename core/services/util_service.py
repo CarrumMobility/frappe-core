@@ -365,7 +365,10 @@ class UtilService:
             pluck="name",
         )
         for name in children:
-            frappe.db.set_value("CRM Lead", name, "primary_lead", None)
+            doc = frappe.get_doc("CRM Lead", name)
+            doc.primary_lead = None
+            doc.flags.ignore_permissions = True
+            doc.save()
         return {"cleared": len(children), "names": children}
 
     def raise_driver_return_request(

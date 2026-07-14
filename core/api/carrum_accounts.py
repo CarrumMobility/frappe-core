@@ -1,7 +1,9 @@
 from core.constants.enums import EnumValues
 from pydantic import BaseModel
 from core.services import logged_requests as requests
+from core.services.carrum_client import CarrumHttpClient
 import frappe
+from frappe import _
 
 logger = frappe.logger("core::carrum_accounts")
 
@@ -341,15 +343,18 @@ def resolve_carrum_user_id_to_frappe_username(
     return ""
 
 
-def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int = 200) -> list[dict]:
-    """Return active Carrum users for a hub, optionally filtered by role."""
+def fetch_hub_active_users(
+    hub_id: str, role_name: str | None = None, limit: int = 200
+) -> dict:
+    """Fetch active Carrum users for a hub via the portal API (framed response)."""
     hub_id = (hub_id or "").strip()
     if not hub_id:
-        return []
+        return {
+            "success": False,
+            "error": _("Hub id is required"),
+            "request_url": None,
+        }
 
-    carrum_base_url = frappe.conf.get("carrum_base_url")
-    carrum_token = frappe.conf.get("carrum_token")
-    url = f"{carrum_base_url}/api/v1/users"
     query_params = {
         "hubId": hub_id,
         "limit": limit,
@@ -358,19 +363,28 @@ def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int =
     if role_name:
         query_params["roleName"] = role_name
 
-    try:
-        response = requests.get(
-            url,
-            headers={"Authorization": carrum_token},
-            params=query_params,
-            timeout=20,
-        )
-        data = response.json()
-    except Exception:
-        logger.exception("Carrum hub users API call failed for hub: %s", hub_id)
-        return []
+    client = CarrumHttpClient(timeout=20)
+    result = client.request(
+        method="GET",
+        path="/api/v1/users",
+        params=query_params,
+        log_tag="hub-active-users",
+    )
+    if not result.get("success"):
+        return result
 
-    return [row for row in _carrum_user_rows(data) if isinstance(row, dict)]
+    rows = [
+        row for row in _carrum_user_rows(result.get("data")) if isinstance(row, dict)
+    ]
+    return {**result, "data": rows}
+
+
+def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int = 200) -> list[dict]:
+    """Return active Carrum users for a hub, optionally filtered by role."""
+    result = fetch_hub_active_users(hub_id, role_name=role_name, limit=limit)
+    if not result.get("success"):
+        return []
+    return result.get("data") or []
 
 def get_dm_of_all_businessTypes(hubId: str):
     old_carrum_base_url = frappe.conf.get("old_carrum_base_url")

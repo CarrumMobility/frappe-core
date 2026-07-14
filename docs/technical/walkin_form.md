@@ -111,6 +111,9 @@ flowchart TB
 | `business_type` | Data | When primary status is Interested |
 | `created_by` | Link → `User` | Submitting agent |
 | `walkin_form_filled_at` | Datetime | Defaults to `creation` in `before_save` |
+| `referrer_name` | Data | Snapshot when source is referrals |
+| `referrer_mobile_no` | Data | Referrer phone snapshot |
+| `referrer_user_link` | Link → `User` | Referrer Frappe user when resolved |
 
 ### `CRM Lead` walk-in fields
 
@@ -178,24 +181,85 @@ actions.append({
 
 ### 3. Submit (`take_lead_actions`)
 
+**Endpoint:** `POST /api/method/crm.api.lead.take_lead_actions`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `lead_id` | string | Yes | CRM Lead `name` (display ID) |
+| `action` | string | Yes | Must be `mark_walk_in_done` |
+| `source` | string | Yes | Source label (from WalkIn-purpose CRM Lead Source) |
+| `source_pk` | string | No | `CRM Lead Source.name` — stored on lead as `source_id` |
+| `lead_status` | string | Yes | `CRM Lead Status.name` (aliases: `lead_status_pk`, `status_pk`) |
+| `remarks` | string | Conditional | Required when status has `is_remarks_required` |
+| `comment` | string | No | Alias for `remarks` |
+| `lead_name` | string | Conditional | Required when status has `is_lead_name_required` and lead has no name |
+| `business_type` | string | Conditional | Required in UI when primary status is **Interested** |
+| `callback_datetime` | datetime | Conditional | When disposition requires callback (`is_callback`) |
+| `scheduled_visit_date` | datetime | Conditional | When disposition requires visit date (`is_visit_date_required`) |
+| `callback_type` | string | No | `Callback` or `Visit Date` — inferred from datetime fields if omitted |
+| `callback_at` / `callback_time` | datetime | No | Legacy aliases for callback/visit datetime |
+| `telecaller` | string | Conditional | Frappe username or hub telecaller id when source is **telecaller** |
+| `hub_id` | string | No | Applied when `lead_type = LEAD` and lead has no hub |
+| `hub_name` | string | No | Hub display name (→ `custom_hub_name`) |
+| `referrer_name` / `external_user_name` | string | No | Referral source — stored on walk-in record |
+| `referrer_mobile_no` / `external_phone_number` | string | No | Referral source |
+| `referrer_user_link` | string | No | Link → User for referrer |
+| `remind_before_minutes` | int | No | Callback event reminder (default `0`) |
+| `expected_call_duration_minutes` | int | No | Callback event duration (default `5`) |
+
+```bash
+curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_lead_actions' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Frappe-CSRF-Token: <csrf_token>' \
+  -d '{
+    "lead_id": "AAAA0001",
+    "action": "mark_walk_in_done",
+    "source": "Google",
+    "source_pk": "<crm_lead_source.name>",
+    "lead_status": "<crm_lead_status.name>",
+    "remarks": "Interested in Black rental",
+    "business_type": "Black",
+    "hub_id": "<hub-uuid>",
+    "hub_name": "Bengaluru Hub"
+  }'
 ```
-POST crm.api.lead.take_lead_actions
-{
-  "lead_id": "<lead>",
-  "action": "mark_walk_in_done",
-  "source": "<source label>",
-  "source_pk": "<crm_lead_source.name>",
-  "lead_status": "<crm_lead_status.name>",
-  "remarks": "<comment>",
-  "callback_datetime": "<optional>",
-  "scheduled_visit_date": "<optional>",
-  "callback_type": "Callback" | "Visit Date",
-  "telecaller": "<user or hub telecaller id>",
-  "business_type": "<optional>",
-  "lead_name": "<optional>",
-  "hub_id": "<optional>",
-  "hub_name": "<optional>"
-}
+
+**Callback disposition example:**
+
+```bash
+curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_lead_actions' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Frappe-CSRF-Token: <csrf_token>' \
+  -d '{
+    "lead_id": "AAAA0001",
+    "action": "mark_walk_in_done",
+    "source": "Telecaller",
+    "source_pk": "<crm_lead_source.name>",
+    "lead_status": "<callback_status_pk>",
+    "remarks": "Call back tomorrow morning",
+    "callback_datetime": "2026-07-15 10:00:00",
+    "callback_type": "Callback",
+    "telecaller": "tc.agent@example.com"
+  }'
+```
+
+**Referral source example:**
+
+```bash
+curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_lead_actions' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Frappe-CSRF-Token: <csrf_token>' \
+  -d '{
+    "lead_id": "AAAA0001",
+    "action": "mark_walk_in_done",
+    "source": "referrals",
+    "source_pk": "<crm_lead_source.name>",
+    "lead_status": "<crm_lead_status.name>",
+    "remarks": "Referred by existing driver",
+    "referrer_name": "Raj Kumar",
+    "referrer_mobile_no": "9123456789",
+    "referrer_user_link": "driver.agent@example.com"
+  }'
 ```
 
 ### 4. Server processing (`mark_walk_in_done`)
@@ -265,6 +329,8 @@ Walk-in form submission later sets `hub_visit_status = HUB_VISITED`.
         "remarks": ...,
         "callback_at": ...,
         "business_type": ...,
+        "referrer_name": ...,
+        "referrer_mobile_no": ...,
     }
 }
 ```
@@ -311,13 +377,75 @@ Rendered in `Activities.vue` as **Walk-in Form Submitted**.
 
 ## API reference
 
-| Method | Module | Auth | Description |
+Full CRM Lead REST and method API documentation: **[CRM Lead — Resource API](resource/crm_lead/README.md)** · **[Lead walkin done](resource/lead_walkin_done/README.md)** · **[Generic REST guide](resource/api.md)**
+
+### Walk-in endpoints
+
+| Method | HTTP | Auth | Description |
 |---|---|---|---|
-| `get_lead_action_list` | `crm.api.lead` | Whitelisted POST | Returns available actions including walk-in |
-| `take_lead_actions` | `crm.api.lead` | Whitelisted POST | Executes `mark_walk_in_done` |
-| `get_walkin_form_status` | `crm.api.lead` | Whitelisted | Onboarding status rows for form |
-| `get_lead_referred_by_details` | `crm.api.referral` | Whitelisted | Referrer details for Referral source |
-| `update_lead` | `crm.api.lead` | Whitelisted POST | Gate App — sets IN_HUB, clears walk-in pointers |
+| `crm.api.lead.get_lead_action_list` | POST | Session | Returns available actions including walk-in |
+| `crm.api.lead.take_lead_actions` | POST | Session | Executes `mark_walk_in_done` (and other actions) |
+| `crm.api.lead.get_walkin_form_status` | GET/POST | Onboarding / Telecaller Lead | Onboarding status rows for form |
+| `crm.api.referral.get_lead_referred_by_details` | GET/POST | Session | Referrer details when source = referrals |
+| `crm.api.lead.get_telecaller_user_options` | GET/POST | Session | Hub telecaller dropdown options |
+| `crm.api.lead.update_lead` | POST | Session / Gate App | Sets `IN_HUB`, clears walk-in pointers |
+
+### Load form data (curl)
+
+**Available actions for a lead:**
+
+```bash
+curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.get_lead_action_list' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Frappe-CSRF-Token: <csrf_token>' \
+  -d '{"lead_id": "AAAA0001"}'
+```
+
+**Walk-in disposition options:**
+
+```bash
+curl -b cookies.txt 'https://<your-site>/api/method/crm.api.lead.get_walkin_form_status'
+```
+
+**Referrer details (referrals source):**
+
+```bash
+curl -b cookies.txt -G 'https://<your-site>/api/method/crm.api.referral.get_lead_referred_by_details' \
+  --data-urlencode 'lead_id=AAAA0001'
+```
+
+**Hub telecaller options:**
+
+```bash
+curl -b cookies.txt 'https://<your-site>/api/method/crm.api.lead.get_telecaller_user_options'
+```
+
+### Gate App webhook (curl)
+
+```bash
+curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.update_lead' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Frappe-CSRF-Token: <csrf_token>' \
+  -d '{
+    "phoneNo": "9876543210",
+    "ticketNo": "GT-1001",
+    "createdAt": "2026-07-14T10:30:00+05:30",
+    "hubId": "<hub-uuid>",
+    "hubName": "Bengaluru Hub",
+    "category": "Walk-in",
+    "subCategory": "New Lead"
+  }'
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `phoneNo` | string | Yes | Visitor mobile (normalized to 10-digit Indian) |
+| `ticketNo` | string | No | Gate ticket number → `gate_ticket_no` |
+| `createdAt` | datetime | No | → `custom_gate_ticket_generated_at` (IST) |
+| `hubId` | string | No | → `hub_id` (new leads; existing LEAD only) |
+| `hubName` | string | No | → `custom_hub_name` |
+| `category` | string | No | → `hubvisit_category` |
+| `subCategory` | string | No | → `hubvisit_subcategory` |
 
 ---
 

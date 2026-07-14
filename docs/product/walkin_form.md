@@ -126,11 +126,14 @@ Before agents can use the walk-in form, ensure:
 | **Callback datetime** | If status is callback | Future call time |
 | **Visit datetime** | If status requires visit date | Future hub visit |
 | **Telecaller agent** | If source is **telecaller** | Agent who referred the visit |
-| **Referrer details** | Auto-loaded if source is **referrals** | From Carrum portal |
+| **Referrer name / mobile** | If source is **referrals** | From Carrum portal or manual snapshot on submit |
+| **Referrer user link** | If source is **referrals** | Linked referrer user when resolved |
 
 5. Click **Submit**.
 
-The lead timeline will show **Walk-in Form Submitted** with source, status, remarks, and follow-up details.
+The lead timeline will show **Walk-in Form Submitted** with source, status, remarks, follow-up details, and referrer info when applicable.
+
+> **API integrators:** See [Walk-in Form — Technical](../technical/walkin_form.md), [CRM Lead API](../technical/resource/crm_lead/README.md), [Lead walkin done API](../technical/resource/lead_walkin_done/README.md), and [REST resource guide](../technical/resource/api.md) for curl examples and full parameter lists.
 
 ---
 
@@ -143,6 +146,7 @@ When **referrals** is selected as the source:
 1. CRM fetches referrer details from the Carrum portal automatically.
 2. **Referrer DP Id** and **Referrer Agent Name** are shown (read-only).
 3. Submit is blocked until referrer details load successfully.
+4. On submit, `referrer_name`, `referrer_mobile_no`, and `referrer_user_link` are stored on the **Lead walkin done** audit record.
 
 ### Telecaller source
 

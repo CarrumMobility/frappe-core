@@ -23,5 +23,14 @@ class Leadwalkindone(Document):
 		secondary_status: DF.Data | None
 		source: DF.Data | None
 		telecaller: DF.Link | None
+		walkin_form_filled_at: DF.Datetime | None
+		business_type: DF.Data | None
+		referrer_user_link: DF.Link | None
+		referrer_name: DF.Data | None
+		referrer_mobile_no: DF.Data | None
+		
 	# end: auto-generated types
-	pass
+
+	def before_save(self):
+		if not self.walkin_form_filled_at:
+			self.walkin_form_filled_at = self.creation

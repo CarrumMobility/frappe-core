@@ -3517,15 +3517,10 @@ def update_lead_last_call_date_time(doc, method):
     if saved and hangup_dt <= saved:
         return
 
-    frappe.db.set_value(
-        "CRM Lead",
-        lead_id,
-        {
-            "last_call_date": hangup_dt.date(),
-            "last_call_time": hangup_dt.time(),
-        },
-        update_modified=False,
-    )
+    doc = frappe.get_doc("CRM Lead", lead_id)
+    doc.last_call_date = hangup_dt.date()
+    doc.last_call_time = hangup_dt.time()
+    doc.save(ignore_permissions=True)
 
 def start_dialer_session(user, payload: dict):
     if not isinstance(payload, dict):

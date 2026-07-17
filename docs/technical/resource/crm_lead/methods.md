@@ -144,7 +144,7 @@ Returns `actions[]` and Take Action modal `config`.
 | `source_pk` | string | No |
 | `remarks` | string | Conditional |
 | `lead_name` | string | Conditional |
-| `business_type` | string | Conditional |
+| `business_type` | string | Yes (UI) |
 | `callback_datetime` | datetime | Conditional |
 | `scheduled_visit_date` | datetime | Conditional |
 | `callback_type` | string | No |
@@ -224,12 +224,25 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_le
 
 | Method | Description |
 |---|---|
-| `lead_creation_webhook` | POST — create from portal (`phoneNo`, optional `source`) |
+| `lead_creation_webhook` | POST — create or update from portal (`phoneNo`, optional `source`) |
 | `driver_status_update_webhook` | POST — `accountId`, `newStatus` |
 | `get_portal_driver_detail` | `name`, optional `sync` |
 | `update_driver` | `account_id`, `data` (scheme/EMI) |
 
 ### `lead_creation_webhook`
+
+POST webhook from the Carrum portal.
+
+**Body:** `mobile_no` / `phoneNo` / `phone` (required), optional `source` (`uber` or `website`, case-insensitive).
+
+**Behavior:**
+
+| Case | Action |
+|---|---|
+| Lead exists for normalized phone | Updates `source` and `source_id` when source resolves; returns `created: false` |
+| No matching lead | Creates a new CRM Lead; when source resolves, also sets `upload_source` and `lead_uploaded_at` |
+
+**Response:** `{ "message": "ok", "name": "<lead_id>", "created": true \| false }`
 
 ```bash
 curl -X POST 'https://<your-site>/api/method/core.api.carrum_drivers.lead_creation_webhook' \

@@ -82,7 +82,7 @@ Before agents can use the walk-in form, ensure:
 2. **Walk-In Status** — Onboarding dispositions are configured at **CRM Settings → Walk-In Status**.
 3. **Lead Sources** — Walk-in sources are configured at **CRM Settings → Lead source** with purpose **WalkIn**.
 4. **Tab permissions** — Relevant users have access to lead detail and hub tabs.
-5. **Hub–business type mapping** — Required if agents will select **Interested** status (business type dropdown is hub-scoped).
+5. **Hub–business type mapping** — Required for the walk-in form (business type dropdown is hub-scoped and mandatory on every submission).
 
 ### Step 1: Configure walk-in statuses
 
@@ -122,7 +122,7 @@ Before agents can use the walk-in form, ensure:
 | **Secondary status** | If multiple sub-options | Detailed disposition |
 | **Comment** | If status requires remarks | Free-text notes |
 | **Name** | If lead has no name and status requires it | Lead display name |
-| **Business type** | If primary status is **Interested** | Hub-scoped options |
+| **Business type** | Yes | Hub-scoped options |
 | **Callback datetime** | If status is callback | Future call time |
 | **Visit datetime** | If status requires visit date | Future hub visit |
 | **Telecaller agent** | If source is **telecaller** | Agent who referred the visit |
@@ -131,7 +131,7 @@ Before agents can use the walk-in form, ensure:
 
 5. Click **Submit**.
 
-The lead timeline will show **Walk-in Form Submitted** with source, status, remarks, follow-up details, and referrer info when applicable.
+The lead timeline will show **Walk-in Form Submitted** with the submission timestamp (`walkin_form_filled_at` when available), source, status, remarks, follow-up details, and referrer info when applicable.
 
 > **API integrators:** See [Walk-in Form — Technical](../technical/walkin_form.md), [CRM Lead API](../technical/resource/crm_lead/README.md), [Lead walkin done API](../technical/resource/lead_walkin_done/README.md), and [REST resource guide](../technical/resource/api.md) for curl examples and full parameter lists.
 
@@ -218,7 +218,7 @@ If the form schedules a **new future visit**:
 | No sources in dropdown | No sources with purpose WalkIn | Create WalkIn sources in Lead source settings |
 | Referral details won't load | Lead not linked to Carrum referral | Verify lead referral data in portal |
 | Business type missing | Hub mapping not configured | Set up hub–business type mapping in Global Config |
-| Submit blocked | Required field missing | Check status flags (remarks, callback, visit date, name) |
+| Submit blocked | Required field missing | Check business type, status flags (remarks, callback, visit date, name) |
 | Status not changing | Lead is Drop or Converted | Expected — visit still recorded, status unchanged |
 | Walk-in form cleared after gate entry | Gate App reset walk-in pointers | Re-submit walk-in form after gate check-in |
 
@@ -245,7 +245,7 @@ A: Open Visit Date events are automatically marked Completed.
 A: No. Gate tickets and walk-in forms are independent, but gate entry sets the lead as In Hub first.
 
 **Q: Where can I see past walk-in submissions?**  
-A: On the lead's **Activity** timeline as **Walk-in Form Submitted** entries.
+A: On the lead's **Activity** timeline as **Walk-in Form Submitted** entries, including the submission time when available.
 
 **Q: Who configures walk-in statuses and sources?**  
 A: CRM administrators via **CRM Settings**.

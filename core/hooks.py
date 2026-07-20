@@ -222,8 +222,8 @@ override_whitelisted_methods = {
 
 # Job Events
 # ----------
-# before_job = ["core.utils.before_job"]
-# after_job = ["core.utils.after_job"]
+before_job = ["core.observability.background_tasks.before_job"]
+after_job = ["core.observability.background_tasks.after_job"]
 
 # User Data Protection
 # --------------------

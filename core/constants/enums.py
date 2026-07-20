@@ -25,6 +25,7 @@ class _Roles:
 class _LeadType:
 	LEAD = "LEAD"
 	DRIVER = "DRIVER"
+	VENDOR = "VENDOR"
 
 class _CallDirection:
 	INBOUND = "INBOUND"
@@ -111,7 +112,9 @@ class _LeadStatus:
 	NOT_INTERESTED = "Not Interested"
 
 class _LEAD_SOURCE:
-	GateApp = "Gate App"
+	Uber = "uber"
+	Website = "Website"
+	Facebook = "Facebook"
 
 class _HUB_VISIT_STATUS:
 	NotInHub = "NOT_IN_HUB"
@@ -121,6 +124,7 @@ class _HUB_VISIT_STATUS:
 class _LEAD_SOURCE_PURPOSE:
 	Inbound = "Inbound"
 	ManualSelection = "Manual Selection"
+	WalkIn = "WalkIn"
 
 class _CallSessionWebsocketEvents:
 	DialerCallConnected = "dialer_call_connected"
@@ -148,6 +152,8 @@ class _CRM_LEAD_STATUS_USAGE:
 	DISPOSITIONS = "dispositions"
 	WalkInStatus= "walkin_status"
 
+class _CrmEventTypes:
+	CrmLeadViewed = "CrmLeadViewed"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
@@ -173,5 +179,6 @@ class _EnumValues:
 	AgentPerformanceDialerStatus = _AgentPerformanceDialerStatus
 	TelephonyIntegrationType = _TelephonyIntegrationType
 	CRM_LEAD_STATUS_USAGE = _CRM_LEAD_STATUS_USAGE
+	CrmEventTypes = _CrmEventTypes
 
 EnumValues = _EnumValues()

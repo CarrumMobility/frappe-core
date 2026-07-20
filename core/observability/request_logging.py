@@ -59,7 +59,8 @@ def _content_type(request) -> str:
 	return (getattr(request, "content_type", None) or "").split(";", 1)[0].lower()
 
 
-def _request_body_for_log(request) -> str:
+def format_request_body(request, *, max_length: int | None = None) -> str:
+	"""Serialize a request body for observability (redacted and truncated)."""
 	content_type = _content_type(request)
 	if any(content_type == mime or content_type.startswith(mime) for mime in _BINARY_CONTENT_TYPES):
 		return f"<{content_type or 'binary'} body omitted>"
@@ -85,7 +86,8 @@ def _request_body_for_log(request) -> str:
 	else:
 		serialized_body = json.dumps(body, default=str, ensure_ascii=False, separators=(",", ":"))
 
-	return _truncate(serialized_body, _request_body_limit())
+	limit = max_length if max_length is not None else _request_body_limit()
+	return _truncate(serialized_body, limit)
 
 
 def log_api_request_body(response, request) -> None:
@@ -102,7 +104,7 @@ def log_api_request_body(response, request) -> None:
 			"base_url": getattr(request, "base_url", "NOTFOUND"),
 			"full_path": getattr(request, "full_path", "NOTFOUND"),
 			"method": getattr(request, "method", "NOTFOUND"),
-			"http_status_code": getattr(response, "status_code", "NOTFOUND"),
-			"request_body": _request_body_for_log(request),
+			"http_status_code": getattr(response, "status_code", "NOTFOUND")
+			# "request_body": format_request_body(request),
 		}
 	)

@@ -8,6 +8,31 @@ class LeadService:
 	def __init__(self):
 		pass
 
+	@staticmethod
+	def _has_facebook_lead_fields(other_info: dict | None) -> bool:
+		return bool(
+			other_info and ("facebook_lead_id" in other_info or "facebook_form_id" in other_info)
+		)
+
+	@staticmethod
+	def get_lead_source_row(
+		source_name: str,
+		purpose: str | None = None,
+	) -> dict | None:
+		"""Resolve CRM Lead Source by display name and optional purpose."""
+		source_name = (source_name or "").strip()
+		if not source_name:
+			return None
+		filters = {"source_name": source_name}
+		if purpose:
+			filters["purpose"] = purpose
+		return frappe.db.get_value(
+			EnumValues.ReferenceDocType.LEAD_SOURCE,
+			filters,
+			["name", "source_name"],
+			as_dict=True,
+		)
+
 	def find_or_create_lead(
 		self,
 		mobile_no: str,
@@ -48,15 +73,17 @@ class LeadService:
 			if source is not None and source_id is not None:
 				doc.source = source
 				doc.source_id = source_id
-		elif allow_source_update:
+		elif allow_source_update or self._has_facebook_lead_fields(other_info):
 			if source is not None:
 				doc.source = source
 			if source_id is not None:
 				doc.source_id = source_id
 
-		dirty = not is_new and (allow_source_update and (source is not None or source_id is not None))
+		should_update_source = allow_source_update or self._has_facebook_lead_fields(other_info)
+		dirty = not is_new and should_update_source and (source is not None or source_id is not None)
 
-		if facebook_raw_data is not None:
+		should_apply_facebook_data = is_new or should_update_source
+		if facebook_raw_data is not None and should_apply_facebook_data:
 			doc.facebook_raw_data = (
 				frappe.parse_json(facebook_raw_data)
 				if isinstance(facebook_raw_data, str)

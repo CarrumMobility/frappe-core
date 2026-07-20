@@ -224,12 +224,27 @@ def _find_inbound_lead_source_by_did(phone_raw):
                 "purpose": EnumValues.LeadSourcePurpose.Inbound,
                 "did_number": value,
             },
-            ["name", "source_name"],
+            ["name", "source_name", "allow_source_update_during_call"],
             as_dict=True,
         )
         if row:
             return row
     return None
+
+
+def _inbound_source_allows_call_update(inbound_source) -> bool:
+    if not inbound_source:
+        return False
+    return bool(frappe.utils.cint(inbound_source.get("allow_source_update_during_call")))
+
+
+def _apply_inbound_lead_source_during_call(lead, inbound_source):
+    """Set lead source from inbound DID mapping only when the source allows call-time updates."""
+    if not inbound_source or not _inbound_source_allows_call_update(inbound_source):
+        return
+    lead.set("source", inbound_source.get("source_name"))
+    lead.set("source_id", inbound_source.get("name"))
+    lead.save(ignore_permissions=True)
 
 
 def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
@@ -2466,9 +2481,7 @@ class CallService:
             
 
         if inbound_source:
-            lead.set("source", inbound_source.get("source_name"))
-            lead.set("source_id", inbound_source.get("name"))
-            lead.save(ignore_permissions=True)
+            _apply_inbound_lead_source_during_call(lead, inbound_source)
 
         new_call_session_doc = frappe.new_doc(
             doctype=EnumValues.ReferenceDocType.CALL_SESSION,
@@ -2982,22 +2995,9 @@ class CallService:
 
         if call_status == EnumValues.CallSessionStatus.MISSED:
             did_number = call_to_number
-            inbound_source = None
             if did_number:
-                inbound_source = frappe.db.get_value(
-                    EnumValues.ReferenceDocType.LEAD_SOURCE,
-                    {
-                        "purpose": EnumValues.LeadSourcePurpose.Inbound,
-                        "did_number": did_number,
-                    },
-                    ["name", "source_name"],
-                    as_dict=True,
-                )
-
-                if inbound_source:
-                    lead.set("source", inbound_source.get("source_name"))
-                    lead.set("source_id", inbound_source.get("name"))
-                    lead.save(ignore_permissions=True)
+                inbound_source = _find_inbound_lead_source_by_did(did_number)
+                _apply_inbound_lead_source_during_call(lead, inbound_source)
             
         new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
         new_session.agent_call_id = call_id
@@ -3517,15 +3517,10 @@ def update_lead_last_call_date_time(doc, method):
     if saved and hangup_dt <= saved:
         return
 
-    frappe.db.set_value(
-        "CRM Lead",
-        lead_id,
-        {
-            "last_call_date": hangup_dt.date(),
-            "last_call_time": hangup_dt.time(),
-        },
-        update_modified=False,
-    )
+    doc = frappe.get_doc("CRM Lead", lead_id)
+    doc.last_call_date = hangup_dt.date()
+    doc.last_call_time = hangup_dt.time()
+    doc.save(ignore_permissions=True)
 
 def start_dialer_session(user, payload: dict):
     if not isinstance(payload, dict):

@@ -3509,26 +3509,30 @@ class CallService:
                 "message": callmatic_response_data.get("message")
             }
         else:
-            print(callmatic_response_data)
-            '''
-            {'url': 'https://api.callmatic.ai/v1/calls', 'response_data': {'success': True, 'data': {'callId': '50c0d4c2-5660-4ea7-8ca9-d4ecc036b397', 'phoneNumber': '8287842425', 'variables': {'transferNumber': '7296003817', 'callback': 'callback_url', 'fromNumber': '+918035491373', 'callSessionId': None}, 'campaignId': '9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61'}}}
-            '''
             call_data = callmatic_response_data.get("response_data")
-            call_id = None
-            if call_data.get("response_data") is not None and call_data.get("response_data").get("data"):
+#{'success': True, 'data': {'callId': 'ef27da3e-7b42-403e-8734-9c60c6681bc7', 'phoneNumber': '8287842425', 'variables': {'transferNumber': '8009470573', 'callback': 'http://localhost:8001/api/method/core.api.call.callmatic_start_call_webhook', 'fromNumber': '+918035491373', 'callSessionId': None}, 'campaignId': '9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61'}}
+            is_api_success = call_data.get("success")
+            print(is_api_success)
+            if is_api_success is not None:
+                print(call_data)
+                call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
+                call_session_doc.set("failure_reason", callmatic_response_data.get("message"))
+                call_session_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                return {
+                    "is_valid": False,
+                    "message": callmatic_response_data.get("message")
+                }
+            else:
                 call_id = call_data.get("response_data").get('data').get("callId")
-
-            call_session_doc.set("status", EnumValues.CallSessionStatus.INITIATED)
-            call_session_doc.set("call_id", call_id)
-
-            call_session_doc.save(ignore_permissions=True)
-
-        return {
-            "is_valid": True,
-            "user": user, 
-            "provider_name": payload['provider_name'],
-            "provider_response_data": callmatic_response_data
-        }
+                call_session_doc.set("status", EnumValues.CallSessionStatus.INITIATED)
+                call_session_doc.set("call_id", call_id)
+                call_session_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                return {
+                    "is_valid": False,
+                    "message": callmatic_response_data.get("message")
+                }
 
     def handle_callmatic_start_call_webhook(self, payload: dict):
         {

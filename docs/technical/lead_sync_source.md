@@ -32,7 +32,9 @@ flowchart TB
     subgraph Sync Engine
         FBS[FacebookSyncSource]
         BG[background_sync.py]
-        LS[lead_service.find_or_create_lead]
+        Q[Redis queue - default]
+        W[process_facebook_lead_sync]
+        LS[lead_service.find_or_create_facebook_lead]
     end
 
     subgraph Output
@@ -46,9 +48,11 @@ flowchart TB
     FBLFQ -->|question → CRM field map| FBS
     BG -->|scheduler| LSS
     LSS -->|sync_leads / _sync_leads| FBS
-    FBS --> LS
+    FBS -->|enqueue one job per lead| Q
+    Q --> W
+    W --> LS
     LS --> CRM
-    FBS -->|duplicate / error| FLL
+    W -->|duplicate / error| FLL
 ```
 
 ### Code layout
@@ -56,12 +60,12 @@ flowchart TB
 | Path | Purpose |
 |---|---|
 | `crm/lead_syncing/doctype/lead_sync_source/lead_sync_source.py` | DocType controller, validation, sync entry points |
-| `crm/lead_syncing/doctype/lead_sync_source/facebook.py` | Facebook Graph API client and lead processing |
+| `crm/lead_syncing/doctype/lead_sync_source/facebook.py` | Facebook Graph API client, fetch/enqueue, per-lead worker |
 | `crm/lead_syncing/background_sync.py` | Scheduler-driven batch sync |
 | `crm/lead_syncing/doctype/facebook_page/` | Cached Facebook pages |
 | `crm/lead_syncing/doctype/facebook_lead_form/` | Cached lead gen forms and question metadata |
 | `crm/lead_syncing/doctype/failed_lead_sync_log/` | Failure/duplicate logs and retry |
-| `core/services/crm_lead/lead_service.py` | Lead upsert logic (`find_or_create_lead`) |
+| `core/services/crm_lead/lead_service.py` | Lead creation logic (`find_or_create_facebook_lead`) |
 | `frontend/src/components/Settings/LeadSyncing/` | CRM Settings UI |
 
 ---
@@ -86,7 +90,7 @@ flowchart TB
 | `access_token` | Password | No | Hidden. Populated from site config |
 | `enabled` | Check | No | Default: `1` |
 | `background_sync_frequency` | Select | Yes | Every 5/10/15 min, Hourly, Daily, Monthly |
-| `last_synced_at` | Datetime | No | Read-only. Updated after sync |
+| `last_synced_at` | Datetime | No | Read-only. Updated after Facebook fetch + enqueue |
 | `facebook_page` | Link → `Facebook Page` | No | |
 | `facebook_lead_form` | Link → `Facebook Lead Form` | No | Unique across all sources |
 
@@ -160,7 +164,7 @@ Set via `sites/<site>/site_config.json` or `bench set-config facebook_lead_sync_
 
 1. **CRM Lead Source (required):** A record with `source_name = "Facebook"` and `purpose = Manual Selection` must exist before sync can run. `FacebookSyncSource.sync_single_lead` looks up this record to set `source` and `source_id` on imported leads. Sync fails if it is missing.
 2. **Facebook access token** in site config (`facebook_lead_sync_access_token`)
-3. **Scheduler and workers** running for background sync
+3. **Scheduler and workers** running for background sync (`long` queue for orchestration, `default` queue for per-lead import jobs)
 4. **Tab permission** `LEAD_SYNCING` for users accessing Settings UI
 
 ### Permissions
@@ -173,6 +177,33 @@ Set via `sites/<site>/site_config.json` or `bench set-config facebook_lead_sync_
 ---
 
 ## Sync flow
+
+Sync is a **two-stage, queue-based pipeline**:
+
+1. **Orchestration** — fetch all new leads from Facebook and enqueue one Redis job per lead.
+2. **Consumption** — background workers process each queued lead independently.
+
+```mermaid
+sequenceDiagram
+    participant UI as Sync trigger
+    participant LSS as Lead Sync Source
+    participant FBS as FacebookSyncSource
+    participant FB as Facebook Graph API
+    participant RQ as Redis queue (default)
+    participant W as process_facebook_lead_sync
+    participant CRM as CRM Lead
+
+    UI->>LSS: sync_leads / scheduler _sync_leads
+    LSS->>FBS: sync()
+    FBS->>FB: GET /{form_id}/leads
+    FB-->>FBS: lead payloads
+    loop each lead
+        FBS->>RQ: enqueue_facebook_lead_sync
+    end
+    FBS->>LSS: update last_synced_at
+    RQ->>W: dequeue job
+    W->>CRM: sync_single_lead → find_or_create_facebook_lead
+```
 
 ### 1. Source creation (`before_insert`)
 
@@ -198,7 +229,46 @@ GET https://graph.facebook.com/v23.0/{form_id}/leads
 
 Incremental sync filters by `last_synced_at`. First sync fetches all leads.
 
-### 3. Lead transformation
+### 3. Enqueue per lead
+
+`FacebookSyncSource.sync()` only fetches from Facebook. For each lead returned, it calls `enqueue_facebook_lead_sync()`:
+
+```python
+# facebook.py
+LEAD_SYNC_QUEUE = "default"
+
+frappe.enqueue(
+    process_facebook_lead_sync,
+    queue=LEAD_SYNC_QUEUE,
+    lead=lead,
+    form_id=form_id,
+    source_name=source_name,
+    job_id=f"facebook_lead_sync:{source_name}:{lead_id}",
+    deduplicate=True,
+    now=bool(frappe.conf.developer_mode),
+)
+```
+
+| Behavior | Detail |
+|---|---|
+| Queue | `default` (Frappe RQ / Redis) |
+| Job ID | `facebook_lead_sync:{source_name}:{facebook_lead_id}` |
+| Deduplication | Skips enqueue if the same job is already `QUEUED` or `STARTED` |
+| Developer mode | `now=True` — processes each lead inline without a worker |
+
+After all leads are enqueued, `last_synced_at` is updated immediately (before workers finish).
+
+### 4. Queue worker — `process_facebook_lead_sync`
+
+Each worker job:
+
+1. Loads `Lead Sync Source` by `source_name`
+2. Resolves the Facebook access token via `get_facebook_access_token()`
+3. Instantiates `FacebookSyncSource` and calls `sync_single_lead(lead)`
+
+Manual retry from **Failure logs** bypasses the queue and calls `sync_single_lead(..., raise_exception=True)` directly.
+
+### 5. Lead transformation
 
 ```python
 # facebook.py — sync_single_lead
@@ -207,29 +277,43 @@ crm_lead_data = {mapping[k]: v for k, v in lead_data.items() if k in mapping}
 crm_lead_data["facebook_lead_id"] = lead["id"]
 crm_lead_data["facebook_form_id"] = self.form_id
 
-lead_service.find_or_create_lead(
+lead_service.find_or_create_facebook_lead(
     mobile_no=crm_lead_data["mobile_no"],
-    source="Facebook",
-    source_id=<crm_lead_source.name>,
-    facebook_raw_data=frappe.as_json(lead),
+    source=source_name,
+    source_id=source_id,
+    facebook_raw_data=fb_raw_data,
     other_info=crm_lead_data,
-    allow_source_update=False,
 )
 ```
 
-### 4. Lead upsert (`lead_service.find_or_create_lead`)
+### 6. Lead creation (`lead_service.find_or_create_facebook_lead`)
 
 | Condition | Action |
 |---|---|
-| No `mobile_no` | Return `None` (skipped) |
-| Invalid phone | Return `None` (skipped) |
-| New `mobile_no` | Insert `CRM Lead` |
-| Existing `mobile_no` + Facebook fields | Update source and mapped fields |
-| Existing `mobile_no`, no Facebook fields | No update (`allow_source_update=False`) |
+| No `mobile_no` | Throws validation error → logged as Failure |
+| Invalid phone | Throws validation error → logged as Failure |
+| Existing `mobile_no` | Raises `DuplicateLeadError` → logged as Duplicate |
+| Existing `facebook_lead_id` | Raises `DuplicateLeadError` → logged as Duplicate |
+| New lead | Insert `CRM Lead`, apply mapped fields + Facebook metadata |
 
-### 5. Post-sync
+Facebook sync **creates** leads only; it does not update an existing CRM Lead matched by mobile number.
 
-`last_synced_at` is set to `frappe.utils.now()` on the Lead Sync Source.
+### 7. Post-fetch timestamp
+
+`last_synced_at` is set to `frappe.utils.now()` on the Lead Sync Source **after fetch and enqueue complete**, not after all queue workers finish. A worker failure after this timestamp will not cause the lead to be re-fetched on the next incremental sync; use **Failure logs → Retry sync** instead.
+
+---
+
+## Background jobs and queues
+
+| Stage | Entry point | Queue | Worker method |
+|---|---|---|---|
+| Orchestration | `Lead Sync Source.sync_leads` → `_sync_leads` → `FacebookSyncSource.sync()` | `long` | `_sync_leads` |
+| Per-lead import | `enqueue_facebook_lead_sync()` | `default` | `process_facebook_lead_sync` |
+
+Production requires Frappe background workers listening on both queues (typically via `bench start` or dedicated `bench worker` processes).
+
+In `developer_mode`, `sync_leads` runs `_sync_leads` synchronously and each per-lead job runs with `now=True` (no worker required for local testing).
 
 ---
 
@@ -267,7 +351,8 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 | Entry point | Behavior |
 |---|---|
 | `Lead Sync Source.sync_leads` (whitelisted) | Enqueues `_sync_leads` on `long` queue |
-| `developer_mode` | Runs `_sync_leads` synchronously |
+| `_sync_leads` → `FacebookSyncSource.sync()` | Fetches from Facebook, enqueues one job per lead on `default` queue |
+| `developer_mode` | Runs orchestration and per-lead jobs synchronously |
 | Desk custom button | Calls `sync_leads` via `lead_sync_source.js` |
 | CRM Settings "Sync now" | Calls `sync_leads` via `useDocument` |
 
@@ -278,9 +363,13 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 | Method | Module | Description |
 |---|---|---|
 | `Lead Sync Source.sync_leads` | `lead_sync_source.py` | Trigger sync (enqueue or inline) |
+| `FacebookSyncSource.sync` | `facebook.py` | Fetch leads from Facebook and enqueue import jobs |
+| `enqueue_facebook_lead_sync` | `facebook.py` | Push one lead payload onto Redis (`default` queue) |
+| `process_facebook_lead_sync` | `facebook.py` | Worker: import a single queued Facebook lead |
+| `FacebookSyncSource.sync_single_lead` | `facebook.py` | Map fields and call `find_or_create_facebook_lead` |
 | `fetch_and_store_pages_from_facebook` | `facebook.py` | Fetch and cache pages/forms |
 | `get_pages_with_forms` | `facebook.py` | Return cached pages with forms |
-| `Failed Lead Sync Log.retry_sync` | `failed_lead_sync_log.py` | Retry single failed lead |
+| `Failed Lead Sync Log.retry_sync` | `failed_lead_sync_log.py` | Retry single failed lead (direct, not queued) |
 
 ### Facebook Graph API
 
@@ -299,13 +388,15 @@ Base: `https://graph.facebook.com/v23.0`
 
 | Error | Log type | Per-lead behavior |
 |---|---|---|
-| `DuplicateLeadError` | Duplicate | Skip, continue batch |
-| `UniqueValidationError` | Duplicate | Skip, continue batch |
-| Other exception | Failure | Skip with traceback, continue batch |
+| `DuplicateLeadError` | Duplicate | Skip, worker completes |
+| `UniqueValidationError` | Duplicate | Skip, worker completes |
+| Other exception | Failure | Skip with traceback, worker completes |
+
+Queue worker failures are isolated per lead — one bad lead does not block others in the batch.
 
 `FailedLeadSyncLog.retry_sync`:
 1. Loads parent `Lead Sync Source`
-2. Calls `FacebookSyncSource.sync_single_lead(lead_data, raise_exception=True)`
+2. Calls `FacebookSyncSource.sync_single_lead(lead_data, raise_exception=True)` **directly** (bypasses queue)
 3. Sets log `type` to `Synced` on success
 
 ---
@@ -334,18 +425,23 @@ Field mapping grid loads `Facebook Lead Form.questions` and populates `mapped_to
 4. Access token is global (site config), not per-source
 5. Mandatory CRM field mapping validation is disabled
 6. Beta feature in UI
+7. `last_synced_at` advances after fetch/enqueue — failed queue jobs are not automatically re-fetched; use Failure logs retry
+8. Per-lead jobs require a worker on the `default` queue (in addition to `long` for orchestration)
 
 ---
 
 ## Extending for new source types
 
 1. Add type to `Lead Sync Source.type` options
-2. Create sync class (follow `FacebookSyncSource` pattern)
+2. Create sync class (follow `FacebookSyncSource` pattern):
+   - `sync()` — fetch from external API and enqueue one job per record
+   - `sync_single_lead()` — transform and write to CRM
+   - `enqueue_*` / `process_*` worker entry points for Redis queue consumption
 3. Wire into `_sync_leads()` and `before_insert()`
 4. Add conditional fields in DocType JSON
 5. Register in `leadSyncSourceConfig.js`
 6. Add UI in `LeadSyncSourceForm.vue`
-7. Implement `retry_sync` for the new type
+7. Implement `retry_sync` for the new type (direct processing, not queued)
 
 ---
 

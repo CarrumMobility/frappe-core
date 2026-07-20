@@ -136,6 +136,7 @@ class _CRM_FIELD_DB:
 
 class CallingVendorName:
 	Smartflo = "Smartflo"
+	Callmatic = "Callmatic"
 
 class _CarrumEventTopicName:
 	ReconciliationCallStatus = "reconciliation_call_status"
@@ -155,12 +156,16 @@ class _CRM_LEAD_STATUS_USAGE:
 class _CrmEventTypes:
 	CrmLeadViewed = "CrmLeadViewed"
 
+class _GlobalConfigKeys:
+	DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN= "default_callmatic_outbound_campaign"
+	ROLE_BASED_DEFAULT_CALLING_VENDOR= "role_based_default_calling_vendor"
+
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
 	EventCallbackCategory = _EventCallbackCategory
 	Roles = _Roles
 	LeadType = _LeadType
-	CallDirection = _CallDirection
+	CallSessionDirection = _CallDirection
 	CallingMethod = _CallingMethod
 	CallSessionStatus = _CallSessionStatus
 	ReferenceDocType = _ReferenceDocType
@@ -180,5 +185,6 @@ class _EnumValues:
 	TelephonyIntegrationType = _TelephonyIntegrationType
 	CRM_LEAD_STATUS_USAGE = _CRM_LEAD_STATUS_USAGE
 	CrmEventTypes = _CrmEventTypes
+	GlobalConfigKeys = _GlobalConfigKeys
 
 EnumValues = _EnumValues()

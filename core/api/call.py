@@ -2,6 +2,7 @@ import frappe
 import core.services.call_service as call_service
 log = frappe.logger("core_api_call")
 log.setLevel("INFO")
+import core.constants.enums as EnumValues
 
 
 def _get_webhook_payload(webhook_name: str):
@@ -10,36 +11,46 @@ def _get_webhook_payload(webhook_name: str):
     return payload
 
 @frappe.whitelist(methods=['POST'])
-def start_call(calling_method: str = None, leadId: str = None):
+def start_call(calling_method: str = None, leadId: str = None,provider_name: str | None = None):
     log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId}")
     user = frappe.session.user
     data = frappe.request.get_json(silent=True) or {}
-    if not isinstance(data, dict):
-        data = {}
-    form = dict(frappe.local.form_dict or {})
-    for key, val in form.items():
-        if key not in data and key not in ("cmd", "csrf_token"):
-            data[key] = val
-    if not calling_method:
-        calling_method = data.get("calling_method")
-    if not leadId:
-        leadId = data.get("leadId")
-    manual_dial = bool(
-        data.get("manual_dial")
-        or data.get("manualDial")
-    )
-    campaign_id = (data.get("campaign_id") or data.get("campaignId") or "").strip() or None
-    campaign_name = (data.get("campaign_name") or data.get("campaignName") or "").strip() or None
-    result = call_service.start_call(
-        calling_method,
-        leadId,
-        user,
-        manual_dial=manual_dial,
-        campaign_id=campaign_id,
-        campaign_name=campaign_name,
-    )
-    print(result)
-    return result
+    
+    match provider_name:
+        case EnumValues.CallingVendorName.Callmatic:
+            return call_service.start_callmatic_based_manual_dial(
+                user=user,
+                payload=data
+            )
+        case EnumValues.CallingVendorName.Smartflo:
+            if not isinstance(data, dict):
+                data = {}
+            form = dict(frappe.local.form_dict or {})
+            for key, val in form.items():
+                if key not in data and key not in ("cmd", "csrf_token"):
+                    data[key] = val
+            if not calling_method:
+                calling_method = data.get("calling_method")
+            if not leadId:
+                leadId = data.get("leadId")
+            manual_dial = bool(
+                data.get("manual_dial")
+                or data.get("manualDial")
+            )
+            campaign_id = (data.get("campaign_id") or data.get("campaignId") or "").strip() or None
+            campaign_name = (data.get("campaign_name") or data.get("campaignName") or "").strip() or None
+            result = call_service.start_dialer_based_manual_dial(
+                calling_method,
+                leadId,
+                user,
+                manual_dial=manual_dial,
+                campaign_id=campaign_id,
+                campaign_name=campaign_name,
+            )
+            return result
+        case _:
+            frappe.throw("invalid calling vendor name")
+    
 
 @frappe.whitelist(methods=['POST'])
 def end_call(calling_method: str, call_id: str):
@@ -163,3 +174,9 @@ def get_call_session_disposition_remarks():
 def update_call_session():
     payload = frappe.request.get_json() or {}
     return call_service.update_call_session(payload)
+
+@frappe.whitelist(methods=["POST"],allow_guest=True)
+def callmatic_start_call_webhook():
+    payload = frappe.request.get_json() 
+
+    return call_service.callmatic_start_call_webhook(payload)

@@ -2,7 +2,7 @@ import ast
 import logging
 import re
 from datetime import datetime, timedelta
-from time import sleep
+from core.integrations.callmatic.client import callmatic_client
 from core.api import carrum_accounts
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
 from core.constants.enums import EnumValues
@@ -433,9 +433,9 @@ def _call_session_status_to_ui_bucket(status: str | None) -> str:
 
 def _call_session_direction_to_ui(direction: str | None) -> str:
     d = (direction or "").strip().upper()
-    if d == EnumValues.CallDirection.INBOUND:
+    if d == EnumValues.CallSessionDirection.INBOUND:
         return "Incoming"
-    if d == EnumValues.CallDirection.OUTBOUND:
+    if d == EnumValues.CallSessionDirection.OUTBOUND:
         return "Outgoing"
     return (direction or "").strip()
 
@@ -484,7 +484,7 @@ class CallService:
     AGENT_DIALER_SESSION_LOG_DOCTYPE = "User dialer session logs"
     SESSION_BREAK_LOG_DOCTYPE = "User dialer session break logs"
 
-    def start_call(
+    def start_dialer_based_manual_dial(
         self,
         calling_method: str,
         leadId: str,
@@ -534,7 +534,7 @@ class CallService:
             "agent": user,
             "lead_phone": mobile_no,
             "status": EnumValues.CallSessionStatus.INITIATED,
-            "direction": EnumValues.CallDirection.OUTBOUND,
+            "direction": EnumValues.CallSessionDirection.OUTBOUND,
             "calling_method": calling_method,
             "vendor_name": default_telephony_vendor,
             "campaign_id": resolved_campaign_id,
@@ -574,7 +574,7 @@ class CallService:
                 "calling_method": EnumValues.CallingMethod.Agent,
                 "status": "CALL INITIATED TO AGENT",
                 "direction": _call_session_direction_to_ui(
-                    call_session_doc.get("direction") or EnumValues.CallDirection.OUTBOUND
+                    call_session_doc.get("direction") or EnumValues.CallSessionDirection.OUTBOUND
                 ),
                 "source": source_init,
                 "preferred_scheme_1": pref_sch_init,
@@ -588,7 +588,7 @@ class CallService:
             "status": "success",
             "call_session_id": call_session_doc.name,
             "direction": _call_session_direction_to_ui(
-                call_session_doc.get("direction") or EnumValues.CallDirection.OUTBOUND
+                call_session_doc.get("direction") or EnumValues.CallSessionDirection.OUTBOUND
             ),
         }
 
@@ -1061,7 +1061,7 @@ class CallService:
 
         direction_u = (call_session_record.get("direction") or "").strip().upper()
         lead_fu = (call_session_record.get("lead") or "").strip()
-        if direction_u == EnumValues.CallDirection.OUTBOUND and lead_fu:
+        if direction_u == EnumValues.CallSessionDirection.OUTBOUND and lead_fu:
             enqueue_complete_callback_followups_for_lead(lead_fu)
 
         target_user = call_session_record.get("agent")
@@ -1210,7 +1210,7 @@ class CallService:
         direction_u = (call_session_record.get("direction") or "").strip().upper()
         call_session_record.set(
             "status",
-            EnumValues.CallSessionStatus.NOT_CONNECTED if direction_u == EnumValues.CallDirection.OUTBOUND else EnumValues.CallSessionStatus.MISSED,
+            EnumValues.CallSessionStatus.NOT_CONNECTED if direction_u == EnumValues.CallSessionDirection.OUTBOUND else EnumValues.CallSessionStatus.MISSED,
         )
         call_session_record.set("hangup_event_log", payload)
         call_session_record.set("hangup_event_id", event_id)
@@ -1224,7 +1224,7 @@ class CallService:
         call_session_record.save(ignore_permissions=True)
 
         lead_for_nc = (call_session_record.get("lead") or "").strip()
-        if direction_u == EnumValues.CallDirection.OUTBOUND and lead_for_nc:
+        if direction_u == EnumValues.CallSessionDirection.OUTBOUND and lead_for_nc:
             _enqueue_apply_not_connected_dial_for_today_lead_callback(
                 lead_for_nc,
                 lock_key=str(event_id or payload.get("call_id") or "").strip() or None,
@@ -1246,7 +1246,7 @@ class CallService:
                 "status": "CALL MISSED BY CUSTOMER",
                 "calling_method": EnumValues.CallingMethod.Agent,
                 "direction": _call_session_direction_to_ui(
-                    call_session_record.get("direction") or EnumValues.CallDirection.OUTBOUND
+                    call_session_record.get("direction") or EnumValues.CallSessionDirection.OUTBOUND
                 ),
                 "source": source,
                 "preferred_scheme_1": preferred_scheme_1,
@@ -2430,9 +2430,9 @@ class CallService:
 
         direction = payload.get("direction")
         if direction == "Dialer (outbound)":
-            direction = EnumValues.CallDirection.OUTBOUND
+            direction = EnumValues.CallSessionDirection.OUTBOUND
         else:
-            direction = EnumValues.CallDirection.INBOUND
+            direction = EnumValues.CallSessionDirection.INBOUND
 
         call_to_number = payload.get("call_to_number")
         caller_id_number = payload.get("caller_id_number")
@@ -2440,7 +2440,7 @@ class CallService:
         parsed_call_to_number = _normalize_smartflo_phone_to_national(call_to_number)
         parsed_caller_id_number = _normalize_smartflo_phone_to_national(caller_id_number)
 
-        if direction == EnumValues.CallDirection.OUTBOUND:
+        if direction == EnumValues.CallSessionDirection.OUTBOUND:
             lead_phone = parsed_call_to_number
         else:
             lead_phone = parsed_caller_id_number
@@ -2466,7 +2466,7 @@ class CallService:
                 )
             )
         inbound_source = None
-        did_raw = caller_id_number if direction == EnumValues.CallDirection.OUTBOUND else call_to_number
+        did_raw = caller_id_number if direction == EnumValues.CallSessionDirection.OUTBOUND else call_to_number
         if did_raw:
             inbound_source = _find_inbound_lead_source_by_did(did_raw)
         raw_call_log = payload.get("call_flow")
@@ -2508,7 +2508,7 @@ class CallService:
 
         new_call_session_doc.insert(ignore_permissions=True)
 
-        if direction == EnumValues.CallDirection.OUTBOUND:
+        if direction == EnumValues.CallSessionDirection.OUTBOUND:
             enqueue_complete_callback_followups_for_lead(lead.name)
 
 
@@ -2788,9 +2788,9 @@ class CallService:
         log.info(f"dialer_disconnect: start call_id={call_id} uuid={payload.get('uuid')} direction={payload.get('direction')} answered_agent_present={bool(payload.get('answered_agent'))}")
         direction_raw = (payload.get("direction") or "").strip().lower()
         call_direction = (
-            EnumValues.CallDirection.OUTBOUND
+            EnumValues.CallSessionDirection.OUTBOUND
             if direction_raw in ("dialer (outbound)", "outbound")
-            else EnumValues.CallDirection.INBOUND
+            else EnumValues.CallSessionDirection.INBOUND
         )
         call_status = None
         agentInfo = payload.get("answered_agent")
@@ -2799,7 +2799,7 @@ class CallService:
         else:
             call_status = (
                 EnumValues.CallSessionStatus.NOT_CONNECTED
-                if call_direction == EnumValues.CallDirection.OUTBOUND
+                if call_direction == EnumValues.CallSessionDirection.OUTBOUND
                 else EnumValues.CallSessionStatus.MISSED
             )
 
@@ -2808,7 +2808,7 @@ class CallService:
         call_to_number = payload.get("call_to_number")
         lead_phone_raw = (
             call_to_number
-            if call_direction == EnumValues.CallDirection.OUTBOUND
+            if call_direction == EnumValues.CallSessionDirection.OUTBOUND
             else caller_id_number
         )
         lead_phone = _normalize_smartflo_phone_to_national(lead_phone_raw)
@@ -3447,10 +3447,184 @@ class CallService:
             case EnumValues.CallingVendorName.Smartflo:
                 return self.validate_and_dispose_dialer_call_if_required(payload)
 
+    def start_callmatic_based_manual_dial(self, user: str, payload: dict):
+        response_data = carrum_accounts.fetch_carrum_user_data_using_frappe_username(user)
+        did = response_data.get("did")
+        to_number = payload.get("phone_number")
+        lead_id = payload.get("lead_id")
+        lead_source = payload.get('lead_source')
+
+        if not did:
+            return {
+                "is_valid": False,
+                "message": "Did not mapped against this user"
+            }
+        
+        callmatic_outbound_campaign_id_config = frappe.db.get_value(
+            doctype=EnumValues.ReferenceDocType.GLOBAL_CONFIG,
+            filters={"key": EnumValues.GlobalConfigKeys.DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN},
+            fieldname="value",
+            as_dict=True,
+        )
+
+        callmatic_outbound_campaign_id_config_value = json.loads(callmatic_outbound_campaign_id_config.get("value"))
+        callmatic_outbound_campaign_id = callmatic_outbound_campaign_id_config_value.get("campaign_id") if callmatic_outbound_campaign_id_config_value else None
+        callmatic_outbound_campaign_name = callmatic_outbound_campaign_id_config_value.get("campaign_name") if callmatic_outbound_campaign_id_config_value else None
+
+        if not callmatic_outbound_campaign_id:
+            return {
+                "is_valid": False,
+                "message": "Callmatic outbound campaign id not configured"
+            }
+
+        agent_phone_number = response_data.get("userContact").get('phoneNo')
+
+        call_session_doc = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
+
+        callmatic_response_data = callmatic_client.trigger_call(
+            from_number=agent_phone_number,
+            to_number = to_number,
+            campaign_id = callmatic_outbound_campaign_id,
+            did_number = did,
+            call_session_id = call_session_doc.name
+        )
+
+        call_session_doc.set("direction", EnumValues.CallSessionDirection.OUTBOUND)
+        call_session_doc.set("calling_method", EnumValues.CallingMethod.Agent)
+        call_session_doc.set("lead", lead_id)
+        call_session_doc.set("lead_phone", to_number)
+        call_session_doc.set("agent", user)
+        call_session_doc.set("vendor_name", EnumValues.CallingVendorName.Callmatic)
+        call_session_doc.set("campaign_id",  callmatic_outbound_campaign_id)
+        call_session_doc.set("campaign_name", callmatic_outbound_campaign_name)
+        call_session_doc.set("lead_source_during_call", lead_source)
+
+        if callmatic_response_data.get("is_valid") is False:
+            call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
+            call_session_doc.set("failure_reason", callmatic_response_data.get("message"))
+            call_session_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return {
+                "is_valid": False,
+                "message": callmatic_response_data.get("message")
+            }
+        else:
+            print(callmatic_response_data)
+            '''
+            {'url': 'https://api.callmatic.ai/v1/calls', 'response_data': {'success': True, 'data': {'callId': '50c0d4c2-5660-4ea7-8ca9-d4ecc036b397', 'phoneNumber': '8287842425', 'variables': {'transferNumber': '7296003817', 'callback': 'callback_url', 'fromNumber': '+918035491373', 'callSessionId': None}, 'campaignId': '9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61'}}}
+            '''
+            call_data = callmatic_response_data.get("response_data")
+            call_id = None
+            if call_data.get("response_data") is not None and call_data.get("response_data").get("data"):
+                call_id = call_data.get("response_data").get('data').get("callId")
+
+            call_session_doc.set("status", EnumValues.CallSessionStatus.INITIATED)
+            call_session_doc.set("call_id", call_id)
+
+            call_session_doc.save(ignore_permissions=True)
+
+        return {
+            "is_valid": True,
+            "user": user, 
+            "provider_name": payload['provider_name'],
+            "provider_response_data": callmatic_response_data
+        }
+
+    def handle_callmatic_start_call_webhook(self, payload: dict):
+        {
+            "callId": "a1d1ef78-f7e5-42b4-afaa-9c6f2eac82f7",
+            "callbackVersion": "v2",
+            "campaignId": "9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61",
+            "direction": "INBOUND",
+            "phoneNumber": "+918035491581",
+            "variables": {
+                "transferNumber": "7070639667",
+                "callback": "https://webhook.site/30ee2cf0-d5ed-4852-bad6-5fb5b36f0863",
+                "fromNumber": "+918035491373"
+            },
+            "status": "completed",
+            "retryCount": 0,
+            "triggeredAt": "2026-07-17T07:55:07.912Z",
+            "events": {
+                "upload": "2026-07-17T07:55:07.656Z",
+                "trigger": "2026-07-17T07:55:07.847Z",
+                "ring": "2026-07-17T07:55:09.067Z",
+                "answer": "2026-07-17T07:55:12.972Z",
+                "end": "2026-07-17T07:55:23.427Z"
+            },
+            "duration": 10,
+            "transcript": [],
+            "insights": [],
+            "transfree": [
+                {
+                    "phoneNumber": "7070639667",
+                    "status": "completed",
+                    "startTime": "2026-07-17T07:55:13.446Z",
+                    "endTime": "2026-07-17T07:55:23.144Z"
+                }
+            ],
+            "recordingUrl": "https://api.callmatic.ai/api/recordings/a1d1ef78-f7e5-42b4-afaa-9c6f2eac82f7"
+        }
+
+        agent_call_id = payload.get("callId")
+        campaign_id = payload.get("campaignId")
+        duration = payload.get("duration")
+        computed_status = None
+        recording_url = payload.get("recordingUrl")
+        variables = payload.get("variables")
+        transfree_data = payload.get("transfree")
+        call_session_id = variables.get("call_session_id")
+
+        # find campaign name from against campaign_id
+        outbound_campaign_configuration= frappe.db.get_value(
+            EnumValues.ReferenceDocType.GLOBAL_CONFIG,
+            {"key": EnumValues.GlobalConfigKeys.DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN},
+            "value",
+            as_dict=True
+        )
+        outbound_campaign_configuration_value = json.loads(outbound_campaign_configuration.get("value"))
+        outbound_campaign_name = outbound_campaign_configuration_value.get("campaign_name")
+
+
+        call_session = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
+
+        if call_session is None:
+            return {
+                "is_valid": False,
+                "message": "Call session not found"
+            }
+
+        computed_status = EnumValues.CallSessionStatus.DISCONNECTED # or hangup or IB missed
+
+        call_session.set("calling_method", EnumValues.CallingMethod.Agent)
+        call_session.set("direction", EnumValues.CallSessionDirection.OUTBOUND)
+        call_session.set("vendor_agent_id", None)
+        call_session.set("status", computed_status) 
+        call_session.set("agent_answered_at", None)
+        call_session.set("agent_answer_webhook_arrived_at", None)
+        call_session.set("vendor_agent_answered_at", None)
+        call_session.set("duration", duration)
+        call_session.set("campaign_id", campaign_id)
+        call_session.set("campaign_name", outbound_campaign_name)
+        call_session.set("hangup_event_id", None)
+        call_session.set("hangup_by", None)
+        call_session.set("hangup_reason", None)
+        call_session.set("hangup_at", None)
+        call_session.set("hangup_webhook_arrived_at", None)
+        call_session.set('vendor_hangup_at', None)
+        call_session.set("vendor_name",EnumValues.CallingVendorName.Callmatic)
+        call_session.set("recording_url", recording_url)
+
+
+        return {
+            "is_valid": True,
+            "call_session": call_session.name
+        }
+
 _service = CallService()
 
 
-def start_call(
+def start_dialer_based_manual_dial(
     calling_method: str,
     leadId: str,
     user: str,
@@ -3458,7 +3632,7 @@ def start_call(
     campaign_id: str | None = None,
     campaign_name: str | None = None,
 ):
-    return _service.start_call(
+    return _service.start_dialer_based_manual_dial(
         calling_method,
         leadId,
         user,
@@ -3523,8 +3697,6 @@ def update_lead_last_call_date_time(doc, method):
     doc.save(ignore_permissions=True)
 
 def start_dialer_session(user, payload: dict):
-    if not isinstance(payload, dict):
-        payload = {}
     campaign_id = (payload.get("campaign_id") or "").strip()
     if not campaign_id:
         raise ValueError("campaign_id is required")
@@ -3595,3 +3767,9 @@ def apply_default_campaign_id_to_call_session(call_session_id: str):
 
 def reconciliation_call_status(payload: dict):
     return _service.handle_reconciliation_call_status(payload)
+
+def start_callmatic_based_manual_dial(user: str, payload: dict):
+    return _service.start_callmatic_based_manual_dial(user, payload)
+
+def callmatic_start_call_webhook(payload: dict):
+    return _service.handle_callmatic_start_call_webhook(payload)

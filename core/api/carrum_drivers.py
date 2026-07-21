@@ -1344,8 +1344,9 @@ def lead_creation_webhook():
     if source_row:
         lead.source = source_row.source_name
         lead.source_id = source_row.name
-        lead.lead_uploaded_at = frappe.utils.now_datetime()
-        lead.upload_source = source_row.source_name
+        if not lead.get("upload_source"):
+            lead.upload_source = source_row.source_name
+            lead.lead_uploaded_at = frappe.utils.now_datetime()
 
     lead.insert(ignore_permissions=True)
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)

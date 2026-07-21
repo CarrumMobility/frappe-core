@@ -12,7 +12,7 @@
 | `callback_at` | Datetime | No | Yes | Callback or visit datetime |
 | `callback_type` | Select | No | Yes | `Callback` or `Visit Date` |
 | `telecaller` | Link → User | No | Yes | Telecaller attribution |
-| `business_type` | Data | No | Yes | Product interest |
+| `business_type` | Data | No | Yes | Product interest; required in walk-in form UI for all submissions. Server falls back to lead `business_type_name` if omitted. |
 | `referrer_name` | Data | No | Yes | Referral flow |
 | `referrer_mobile_no` | Data | No | Yes | Referral flow |
 | `referrer_user_link` | Link → User | No | Yes | Referrer user |

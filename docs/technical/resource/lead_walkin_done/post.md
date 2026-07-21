@@ -30,7 +30,7 @@ X-Frappe-CSRF-Token: <csrf_token>
 | `callback_at` | datetime | No | Callback or visit datetime |
 | `callback_type` | string | No | `Callback` or `Visit Date` |
 | `telecaller` | string | No | Frappe username |
-| `business_type` | string | No | Product interest |
+| `business_type` | string | No | Product interest; required in walk-in form UI for all primary statuses |
 | `referrer_name` | string | No | Referral snapshot |
 | `referrer_mobile_no` | string | No | |
 | `referrer_user_link` | string | No | Frappe username |
@@ -85,7 +85,7 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/resource/Lead%20walkin%20do
 | `source_pk` | string | No | `CRM Lead Source.name` |
 | `remarks` | string | Conditional | When status requires remarks |
 | `lead_name` | string | Conditional | When status requires name |
-| `business_type` | string | Conditional | When primary status is Interested |
+| `business_type` | string | Yes (UI) | Hub-scoped product interest; required for all primary statuses in the walk-in form. Server falls back to lead `business_type_name` if omitted. |
 | `callback_datetime` | datetime | Conditional | Callback disposition |
 | `scheduled_visit_date` | datetime | Conditional | Visit date disposition |
 | `callback_type` | string | No | `Callback` or `Visit Date` |
@@ -131,7 +131,8 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_le
     "remarks": "Call back tomorrow",
     "callback_datetime": "2026-07-15 10:00:00",
     "callback_type": "Callback",
-    "telecaller": "tc.agent@example.com"
+    "telecaller": "tc.agent@example.com",
+    "business_type": "Black"
   }'
 ```
 
@@ -149,7 +150,8 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_le
     "lead_status": "<crm_lead_status.name>",
     "remarks": "Referred by driver",
     "referrer_name": "Raj Kumar",
-    "referrer_mobile_no": "9123456789"
+    "referrer_mobile_no": "9123456789",
+    "business_type": "Black"
   }'
 ```
 

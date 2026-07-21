@@ -67,7 +67,7 @@ Direct REST POST is available for admin/testing but bypasses walk-in validation 
 | `callback_at` | Datetime | No | Callback or visit datetime |
 | `callback_type` | Select | No | `Callback` \| `Visit Date` |
 | `telecaller` | Link → User | No | When source is telecaller |
-| `business_type` | Data | No | When Interested |
+| `business_type` | Data | No | Required in walk-in form UI (all primary statuses) |
 | `referrer_name` | Data | No | Referral snapshot |
 | `referrer_mobile_no` | Data | No | |
 | `referrer_user_link` | Link → User | No | |

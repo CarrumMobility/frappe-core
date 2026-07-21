@@ -2,6 +2,7 @@ import ast
 import logging
 import re
 from datetime import datetime, timedelta
+from core.api import carrum_config
 from core.integrations.callmatic.client import callmatic_client
 from core.api import carrum_accounts
 from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
@@ -142,6 +143,27 @@ def _disposition_datetime_or_none(value):
 
 def _schedule_timestamp_ist_or_none(value):
     """Smartflo schedule_timestamp is Asia/Kolkata wall time; store as naive IST (no UTC shift)."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        dt = get_datetime(s)
+        if not dt:
+            return None
+        if dt.tzinfo is not None:
+            import pytz
+
+            ist = pytz.timezone("Asia/Kolkata")
+            return dt.astimezone(ist).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
+
+def _callmatic_iso_to_naive_ist(value):
+    """Callmatic webhook timestamps are ISO-8601 UTC; store as naive IST."""
     if value is None:
         return None
     s = str(value).strip()
@@ -3459,10 +3481,17 @@ class CallService:
         lead_source = payload.get('lead_source')
 
         if not did:
-            return {
-                "is_valid": False,
-                "message": "Did not mapped against this user"
-            }
+            default_hub = response_data.get('default_hub')
+            default_hub_name = default_hub.get("name")
+            if not default_hub_name:
+                return {
+                    "is_valid": False,
+                    "message": "Default hub not configured on user profile"
+                }
+            print(default_hub_name)
+            all_did = carrum_config.get_c2c_did()
+            print(all_did)
+
         
         callmatic_outbound_campaign_id_config = frappe.db.get_value(
             doctype=EnumValues.ReferenceDocType.GLOBAL_CONFIG,
@@ -3504,6 +3533,7 @@ class CallService:
             did_number = did,
             call_session_id = call_session_doc.name,
             user=user,
+            campaign_name = callmatic_outbound_campaign_name,
         )
 
         if callmatic_response_data.get("is_valid") is False:
@@ -3520,9 +3550,7 @@ class CallService:
             is_api_success = call_data.get("success")
             failure_reason = call_data.get("reason")
 
-            print(is_api_success)
             if not is_api_success:
-                print(call_data)
                 call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
                 call_session_doc.set("failure_reason", failure_reason)
                 call_session_doc.save(ignore_permissions=True)
@@ -3534,7 +3562,7 @@ class CallService:
             else:
                 call_id = call_data.get('data').get("callId")
                 call_session_doc.set("status", EnumValues.CallSessionStatus.INITIATED)
-                call_session_doc.set("call_id", call_id)
+                call_session_doc.set("agent_call_id", call_id)
                 call_session_doc.save(ignore_permissions=True)
                 frappe.db.commit()
                 return {
@@ -3542,63 +3570,18 @@ class CallService:
                     "message": "Call Initiated successfully"
                 }
 
-    def handle_callmatic_start_call_webhook(self, payload: dict):
-        {
-            "callId": "a1d1ef78-f7e5-42b4-afaa-9c6f2eac82f7",
-            "callbackVersion": "v2",
-            "campaignId": "9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61",
-            "direction": "INBOUND",
-            "phoneNumber": "+918035491581",
-            "variables": {
-                "transferNumber": "7070639667",
-                "callback": "https://webhook.site/30ee2cf0-d5ed-4852-bad6-5fb5b36f0863",
-                "fromNumber": "+918035491373"
-            },
-            "status": "completed",
-            "retryCount": 0,
-            "triggeredAt": "2026-07-17T07:55:07.912Z",
-            "events": {
-                "upload": "2026-07-17T07:55:07.656Z",
-                "trigger": "2026-07-17T07:55:07.847Z",
-                "ring": "2026-07-17T07:55:09.067Z",
-                "answer": "2026-07-17T07:55:12.972Z",
-                "end": "2026-07-17T07:55:23.427Z"
-            },
-            "duration": 10,
-            "transcript": [],
-            "insights": [],
-            "transfree": [
-                {
-                    "phoneNumber": "7070639667",
-                    "status": "completed",
-                    "startTime": "2026-07-17T07:55:13.446Z",
-                    "endTime": "2026-07-17T07:55:23.144Z"
-                }
-            ],
-            "recordingUrl": "https://api.callmatic.ai/api/recordings/a1d1ef78-f7e5-42b4-afaa-9c6f2eac82f7"
-        }
-
-        agent_call_id = payload.get("callId")
+    def handle_callmatic_start_call_webhook(self, payload: dict, webhook_arrived_at: datetime):
         campaign_id = payload.get("campaignId")
         duration = payload.get("duration")
         computed_status = None
         recording_url = payload.get("recordingUrl")
-        variables = payload.get("variables")
         transfree_data = payload.get("transfree")
-        call_session_id = variables.get("call_session_id")
-
-        # find campaign name from against campaign_id
-        outbound_campaign_configuration= frappe.db.get_value(
-            EnumValues.ReferenceDocType.GLOBAL_CONFIG,
-            {"key": EnumValues.GlobalConfigKeys.DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN},
-            "value",
-            as_dict=True
-        )
-        outbound_campaign_configuration_value = json.loads(outbound_campaign_configuration.get("value"))
-        outbound_campaign_name = outbound_campaign_configuration_value.get("campaign_name")
-
-
-        call_session = frappe.get_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
+        variables = payload.get("variables")
+        events = payload.get("events")
+        call_session_id = variables.get("callSessionId")
+        campaign_name = variables.get('campaign_name')
+        
+        call_session = frappe.get_cached_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
 
         if call_session is None:
             return {
@@ -3606,28 +3589,50 @@ class CallService:
                 "message": "Call session not found"
             }
 
-        computed_status = EnumValues.CallSessionStatus.DISCONNECTED # or hangup or IB missed
+        print("2...", call_session.name)
 
-        call_session.set("calling_method", EnumValues.CallingMethod.Agent)
-        call_session.set("direction", EnumValues.CallSessionDirection.OUTBOUND)
+        duration = None
+
+        agent_answered_at = None
+        hangup_at = None
+        if events is not None:
+            agent_answered_at = _callmatic_iso_to_naive_ist(events.get("answer"))
+            hangup_at = _callmatic_iso_to_naive_ist(events.get("hangup"))
+
+        if transfree_data is not None and len(transfree_data) > 0:
+            transfree_data = transfree_data[0]
+            start_time = transfree_data.get("startTime")
+            end_time = transfree_data.get('endTime')
+            duration = (get_datetime(end_time) - get_datetime(start_time)).total_seconds()
+
+            print(duration)
+
+            if transfree_data.get("status") == "completed" and transfree_data.get("endTime") is not None:
+                computed_status = EnumValues.CallSessionStatus.DISCONNECTED
+            else:
+                computed_status = EnumValues.CallSessionStatus.FAILED
+
+        print('3...', computed_status)
         call_session.set("vendor_agent_id", None)
-        call_session.set("status", computed_status) 
-        call_session.set("agent_answered_at", None)
+        call_session.set("status", computed_status)
+        call_session.set("agent_answered_at", agent_answered_at)
         call_session.set("agent_answer_webhook_arrived_at", None)
         call_session.set("vendor_agent_answered_at", None)
         call_session.set("duration", duration)
         call_session.set("campaign_id", campaign_id)
-        call_session.set("campaign_name", outbound_campaign_name)
+        call_session.set("campaign_name", campaign_name)
         call_session.set("hangup_event_id", None)
         call_session.set("hangup_by", None)
         call_session.set("hangup_reason", None)
-        call_session.set("hangup_at", None)
-        call_session.set("hangup_webhook_arrived_at", None)
+        call_session.set("hangup_at", hangup_at)
+        call_session.set("hangup_webhook_arrived_at", webhook_arrived_at)
         call_session.set('vendor_hangup_at', None)
-        call_session.set("vendor_name",EnumValues.CallingVendorName.Callmatic)
+        call_session.set("vendor_name", EnumValues.CallingVendorName.Callmatic)
         call_session.set("recording_url", recording_url)
+        call_session.set("ring_duration", None)
 
-
+        print("4...", call_session.as_dict())
+        call_session.save(ignore_permissions=True)
         return {
             "is_valid": True,
             "call_session": call_session.name
@@ -3783,5 +3788,5 @@ def reconciliation_call_status(payload: dict):
 def start_callmatic_based_manual_dial(user: str, payload: dict):
     return _service.start_callmatic_based_manual_dial(user, payload)
 
-def callmatic_start_call_webhook(payload: dict):
-    return _service.handle_callmatic_start_call_webhook(payload)
+def callmatic_start_call_webhook(payload: dict, webhook_arrived_at: datetime):
+    return _service.handle_callmatic_start_call_webhook(payload,webhook_arrived_at)

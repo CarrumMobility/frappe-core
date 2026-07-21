@@ -34,6 +34,7 @@ class CallmaticClient:
         did_number: str,
         call_session_id: str,
         user: str | None = None,
+        campaign_name: str | None = None
     ):
         url = f"{self.callmatic_base_url}/calls"
 
@@ -52,7 +53,8 @@ class CallmaticClient:
                 "transferNumber": to_number,
                 "callback": self.webhook_url,
                 "fromNumber": f"{did_number}",
-                "callSessionId": call_session_id
+                "callSessionId": call_session_id,
+                "campaign_name": campaign_name
             }
         }
 

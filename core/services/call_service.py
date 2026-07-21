@@ -655,7 +655,7 @@ class CallService:
 
 
     def reconcile_active_calls(self):
-        self._mark_initiated_stale_calls_as_failed()
+        self._mark_smartflo_initiated_stale_calls_as_failed()
         # match default_telephony_vendor:
         #     case EnumValues.CallingVendorName.Smartflo:
         #         return self._handle_smartflo_reconcile_active_calls()
@@ -664,17 +664,21 @@ class CallService:
 
 
    
-    def _mark_initiated_stale_calls_as_failed(self, call_session_id: str | None = None):
+    def _mark_smartflo_initiated_stale_calls_as_failed(self, call_session_id: str | None = None):
         now = frappe.utils.now_datetime()
         thirty_seconds_ago = now - timedelta(seconds=30)
         if not call_session_id:
-            filters = {"status": EnumValues.CallSessionStatus.INITIATED, "creation": ("<", thirty_seconds_ago)}
+            filters = {"status": EnumValues.CallSessionStatus.INITIATED,"vendor_name": {
+                "in": [EnumValues.CallingVendorName.Smartflo]
+            } ,"creation": ("<", thirty_seconds_ago)}
         else:
-            filters = {"name": call_session_id}
+            filters = {
+                "name": call_session_id,
+                "vendor_name": {"in": [EnumValues.CallingVendorName.Smartflo]},
+                "creation": ("<", thirty_seconds_ago)
+            }
         call_sessions = frappe.db.get_list("Call Session", filters=filters, limit=100)
-        print("======call_sessions: " + str(call_sessions))
         for call_session in call_sessions:
-            print("======call_session: " + str(call_session))
             try:
                 call_session_doc = frappe.get_doc("Call Session", call_session.name, ['name', 'lead', 'lead_id', 'lead_phone', 'agent'])
             except DoesNotExistError:
@@ -3481,13 +3485,6 @@ class CallService:
 
         call_session_doc = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
 
-        callmatic_response_data = callmatic_client.trigger_call(
-            from_number=agent_phone_number,
-            to_number = to_number,
-            campaign_id = callmatic_outbound_campaign_id,
-            did_number = did,
-            call_session_id = call_session_doc.name
-        )
 
         call_session_doc.set("direction", EnumValues.CallSessionDirection.OUTBOUND)
         call_session_doc.set("calling_method", EnumValues.CallingMethod.Agent)
@@ -3498,6 +3495,16 @@ class CallService:
         call_session_doc.set("campaign_id",  callmatic_outbound_campaign_id)
         call_session_doc.set("campaign_name", callmatic_outbound_campaign_name)
         call_session_doc.set("lead_source_during_call", lead_source)
+        call_session_doc.save(ignore_permissions=True)
+
+        callmatic_response_data = callmatic_client.trigger_call(
+            from_number=agent_phone_number,
+            to_number = to_number,
+            campaign_id = callmatic_outbound_campaign_id,
+            did_number = did,
+            call_session_id = call_session_doc.name,
+            user=user,
+        )
 
         if callmatic_response_data.get("is_valid") is False:
             call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
@@ -3510,13 +3517,14 @@ class CallService:
             }
         else:
             call_data = callmatic_response_data.get("response_data")
-#{'success': True, 'data': {'callId': 'ef27da3e-7b42-403e-8734-9c60c6681bc7', 'phoneNumber': '8287842425', 'variables': {'transferNumber': '8009470573', 'callback': 'http://localhost:8001/api/method/core.api.call.callmatic_start_call_webhook', 'fromNumber': '+918035491373', 'callSessionId': None}, 'campaignId': '9b2d9d64-4e41-4d1b-9b7d-7d3a6b2a9f61'}}
             is_api_success = call_data.get("success")
+            failure_reason = call_data.get("reason")
+
             print(is_api_success)
-            if is_api_success is not None:
+            if not is_api_success:
                 print(call_data)
                 call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
-                call_session_doc.set("failure_reason", callmatic_response_data.get("message"))
+                call_session_doc.set("failure_reason", failure_reason)
                 call_session_doc.save(ignore_permissions=True)
                 frappe.db.commit()
                 return {
@@ -3524,14 +3532,14 @@ class CallService:
                     "message": callmatic_response_data.get("message")
                 }
             else:
-                call_id = call_data.get("response_data").get('data').get("callId")
+                call_id = call_data.get('data').get("callId")
                 call_session_doc.set("status", EnumValues.CallSessionStatus.INITIATED)
                 call_session_doc.set("call_id", call_id)
                 call_session_doc.save(ignore_permissions=True)
                 frappe.db.commit()
                 return {
-                    "is_valid": False,
-                    "message": callmatic_response_data.get("message")
+                    "is_valid": True,
+                    "message": "Call Initiated successfully"
                 }
 
     def handle_callmatic_start_call_webhook(self, payload: dict):
@@ -3659,7 +3667,7 @@ def reconcile_active_calls():
     return _service.reconcile_active_calls()
 
 def initiate_stale_call_as_failed(call_session_id: str):
-    return _service._mark_initiated_stale_calls_as_failed(call_session_id)
+    return _service._mark_smartflo_initiated_stale_calls_as_failed(call_session_id)
 
 def handle_agent_call_connected_webhook(vendor_name: str, payload: dict):
     return _service.handle_agent_call_connected_webhook(vendor_name, payload)

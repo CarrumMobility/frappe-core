@@ -28,19 +28,21 @@ Use it to set up lead sources, map form fields, monitor failures, and keep leads
 
 ```mermaid
 flowchart LR
-    A[User submits Facebook Lead Form] --> B[Lead Sync Source pulls data]
-    B --> C[Fields mapped to CRM Lead]
-    C --> D[Lead appears in CRM]
-    D --> E{Duplicate?}
-    E -->|No| F[New or updated CRM Lead]
-    E -->|Yes| G[Logged in Failure Logs]
+    A[User submits Facebook Lead Form] --> B[Lead Sync Source fetches from Facebook]
+    B --> C[Each lead queued in Redis]
+    C --> D[Background worker imports lead]
+    D --> E[Fields mapped to CRM Lead]
+    E --> F{Duplicate?}
+    F -->|No| G[New CRM Lead created]
+    F -->|Yes| H[Logged in Failure Logs]
 ```
 
 1. A prospect fills out a Facebook Lead Ad form.
-2. CRM fetches new submissions from Facebook on your chosen schedule (or on demand).
-3. Facebook form questions are mapped to CRM Lead fields (name, phone, email, etc.).
-4. A CRM Lead is created or updated.
-5. Duplicates and errors are recorded in **Failure Logs** for review and retry.
+2. CRM fetches new submissions from Facebook on your chosen schedule (or when you click **Sync now**).
+3. Each fetched lead is placed in a **background job queue** for import.
+4. A worker processes leads one at a time — mapping form questions to CRM Lead fields (name, phone, email, etc.).
+5. A new CRM Lead is created for each successful import.
+6. Duplicates and errors are recorded in **Failure Logs** for review and retry.
 
 ---
 
@@ -94,7 +96,9 @@ Click **Update** to save mappings.
 
 1. Toggle **Enabled** on.
 2. Click **Update** to save.
-3. Optionally click **Sync now** to import leads immediately.
+3. Optionally click **Sync now** to fetch and queue leads immediately.
+
+Leads are imported by background workers after fetch. Large batches may take a few minutes to fully appear in CRM even after sync starts.
 
 Leads will also sync automatically based on your chosen frequency.
 
@@ -157,7 +161,7 @@ Open any source and go to the **Failure logs** tab to see leads that were not im
 
 ## What gets created in CRM
 
-Each successfully synced Facebook submission creates or updates a **CRM Lead** with:
+Each successfully synced Facebook submission creates a **new CRM Lead** with:
 
 | Data | Description |
 |---|---|
@@ -178,7 +182,7 @@ Duplicates appear in Failure Logs as type **Duplicate** and are not re-imported.
 
 ### Existing leads
 
-If a lead with the same mobile number already exists in CRM, the sync **updates** their record with the Facebook data and source attribution.
+If a CRM Lead with the same **mobile number** or **Facebook lead ID** already exists, the import is skipped and logged as **Duplicate**. Facebook sync does not update existing CRM Leads.
 
 ---
 
@@ -189,11 +193,13 @@ If a lead with the same mobile number already exists in CRM, the sync **updates*
 | Sync fails / leads not created | CRM Lead Source for Facebook (Manual Selection) not set up | Create a CRM Lead Source with source name **Facebook** and purpose **Manual Selection** before syncing |
 | Cannot create source | Facebook token not configured | Contact admin to set `facebook_lead_sync_access_token` |
 | No pages/forms appear | Token invalid or no pages on account | Verify Facebook token and page access |
-| Leads not syncing | Source disabled or scheduler not running | Enable source; confirm background jobs are active |
+| Leads not syncing | Source disabled or workers not running | Enable source; confirm background workers are active on `long` and `default` queues |
 | All leads show as Duplicate | Leads already imported | Expected behavior for re-sync |
 | Leads missing | Phone not mapped to Mobile No | Map phone question to Mobile No field |
 | "Already enabled for this form" | Another source uses same form | Disable or delete the other source |
+| Sync now started but leads appear slowly | Leads queued for background import | Normal for large batches; wait for workers or check Failure logs |
 | Sync now does nothing | Job queued in background | Wait for worker; check Error Log in Desk |
+| Lead failed after sync ran | Worker error after fetch window | Open Failure logs → **Retry sync** (failed leads are not auto re-fetched) |
 
 ---
 
@@ -204,6 +210,8 @@ If a lead with the same mobile number already exists in CRM, the sync **updates*
 - **Phone number required** — leads without a mapped and valid mobile number are skipped.
 - **One source per form** — each Facebook Lead Form supports only one active sync source.
 - **High-volume forms** — very large forms (100k+ leads) may need manual review; pagination is planned.
+- **Async import** — sync fetches from Facebook first, then imports leads via a background queue; large batches finish over time.
+- **No auto-retry** — if a queued lead fails after fetch, use Failure logs to retry manually.
 
 ---
 
@@ -219,7 +227,7 @@ A: Each CRM site manages its own sources independently.
 A: Automatic syncing stops. Existing CRM Leads are not deleted. You can re-enable anytime.
 
 **Q: Can I change field mappings after leads are imported?**  
-A: Yes. Future syncs use the updated mappings. Already-imported leads are not retroactively updated unless re-synced.
+A: Yes. Future syncs use the updated mappings for **new** leads. Already-imported leads are not changed; re-importing the same Facebook submission is blocked as a duplicate.
 
 **Q: Where do I see the original Facebook submission?**  
 A: On the CRM Lead record, in the activity timeline as a Facebook form submission.
@@ -237,5 +245,5 @@ A: Your system administrator or @kapil.rohilla@carrum.co.in.
 | **Facebook Lead Form** | A lead capture form attached to a Facebook Lead Ad |
 | **Field mapping** | Pairing of Facebook form questions to CRM Lead fields |
 | **Failure log** | Record of a lead that was not imported, with reason |
-| **Background sync** | Automatic scheduled import based on chosen frequency |
-| **Sync now** | Manual, on-demand import of new leads since last sync |
+| **Background sync** | Automatic scheduled fetch from Facebook; each lead is then imported via a background queue |
+| **Sync now** | Manual fetch from Facebook; new leads since last sync are queued for import |

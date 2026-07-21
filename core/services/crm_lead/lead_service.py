@@ -142,6 +142,9 @@ class LeadService:
 
 		doc.mobile_no = mobile_no
 		doc.lead_type = EnumValues.LeadType.LEAD
+		if source and not doc.get("upload_source"):
+			doc.upload_source = source
+			doc.lead_uploaded_at = frappe.utils.now_datetime()
 		doc.insert(ignore_permissions=True)
 
 		if self._apply_synced_lead_fields(
@@ -181,6 +184,9 @@ class LeadService:
 
 		if source is not None:
 			doc.source = source
+			if not doc.get("upload_source"):
+				doc.upload_source = source
+				doc.lead_uploaded_at = frappe.utils.now_datetime()
 			dirty = True
 		if source_id is not None:
 			doc.source_id = source_id

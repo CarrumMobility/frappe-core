@@ -100,10 +100,40 @@ class LeadService:
 		mobile_no = parsed.get("national_number")
 		facebook_lead_id = str((other_info or {}).get("facebook_lead_id") or "").strip()
 
-		if frappe.db.exists(EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": mobile_no}):
-			raise DuplicateLeadError(
-				frappe._("A CRM Lead already exists with mobile number {0}").format(mobile_no)
-			)
+		existing_lead_name = frappe.db.get_value(
+			EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": mobile_no}, "name"
+		)
+		if existing_lead_name:
+			doc = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, existing_lead_name)
+			existing_fb_id = str(doc.get("facebook_lead_id") or "").strip()
+
+			if facebook_lead_id and existing_fb_id == facebook_lead_id:
+				raise DuplicateLeadError(
+					frappe._("A CRM Lead already exists with Facebook lead ID {0}").format(facebook_lead_id)
+				)
+
+			if facebook_lead_id:
+				other_owner = frappe.db.get_value(
+					EnumValues.ReferenceDocType.CRM_LEAD,
+					{"facebook_lead_id": facebook_lead_id},
+					"name",
+				)
+				if other_owner and other_owner != doc.name:
+					raise DuplicateLeadError(
+						frappe._("A CRM Lead already exists with Facebook lead ID {0}").format(
+							facebook_lead_id
+						)
+					)
+
+			if self._update_facebook_lead(
+				doc,
+				source=source,
+				source_id=source_id,
+				facebook_raw_data=facebook_raw_data,
+				other_info=other_info,
+			):
+				doc.save(ignore_permissions=True)
+			return doc
 
 		if facebook_lead_id and frappe.db.exists(
 			EnumValues.ReferenceDocType.CRM_LEAD, {"facebook_lead_id": facebook_lead_id}
@@ -179,6 +209,7 @@ class LeadService:
 		source_id: str | None,
 		facebook_raw_data: dict | str | None,
 		other_info: dict | None,
+		preserve_lead_name: bool = False,
 	) -> bool:
 		dirty = False
 
@@ -204,10 +235,30 @@ class LeadService:
 			for key, value in other_info.items():
 				if key == "mobile_no":
 					continue
+				if preserve_lead_name and key == "lead_name" and (doc.get("lead_name") or "").strip():
+					continue
 				doc.set(key, value)
 				dirty = True
 
 		return dirty
+
+	def _update_facebook_lead(
+		self,
+		doc,
+		*,
+		source: str | None,
+		source_id: str | None,
+		facebook_raw_data: dict | str | None,
+		other_info: dict | None,
+	) -> bool:
+		return self._apply_synced_lead_fields(
+			doc,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+			preserve_lead_name=True,
+		)
 
 	def _update_existing_lead(
 		self,

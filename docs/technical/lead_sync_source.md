@@ -276,6 +276,7 @@ lead_data = {item["name"]: item["values"][0] for item in lead["field_data"]}
 crm_lead_data = {mapping[k]: v for k, v in lead_data.items() if k in mapping}
 crm_lead_data["facebook_lead_id"] = lead["id"]
 crm_lead_data["facebook_form_id"] = self.form_id
+fb_raw_data = self.build_facebook_raw_data(lead)  # includes additional_info when Graph API succeeds
 
 lead_service.find_or_create_facebook_lead(
     mobile_no=crm_lead_data["mobile_no"],
@@ -286,17 +287,20 @@ lead_service.find_or_create_facebook_lead(
 )
 ```
 
-### 6. Lead creation (`lead_service.find_or_create_facebook_lead`)
+`build_facebook_raw_data` calls `fetch_fb_lead_info(fb_lead_id)` (Graph API `GET /{lead-id}`) and nests the response under `facebook_raw_data.additional_info`. If that call fails, sync still proceeds with the list-sync payload only; the error is logged via `frappe.log_error`.
+
+### 6. Lead upsert (`lead_service.find_or_create_facebook_lead`)
 
 | Condition | Action |
 |---|---|
 | No `mobile_no` | Throws validation error → logged as Failure |
 | Invalid phone | Throws validation error → logged as Failure |
-| Existing `mobile_no` | Raises `DuplicateLeadError` → logged as Duplicate |
-| Existing `facebook_lead_id` | Raises `DuplicateLeadError` → logged as Duplicate |
-| New lead | Insert `CRM Lead`, apply mapped fields + Facebook metadata |
+| No existing lead for `mobile_no`, new `facebook_lead_id` | Insert `CRM Lead`, apply mapped fields + `facebook_raw_data` (with `additional_info` when available) |
+| Existing lead, saved `facebook_lead_id` == incoming | Raises `DuplicateLeadError` → logged as Duplicate |
+| Existing lead, saved `facebook_lead_id` empty or different from incoming | Update existing lead: set `source`/`source_id` to Facebook, refresh Facebook fields and `facebook_raw_data`; **preserve `lead_name`** if already set |
+| Incoming `facebook_lead_id` already on a **different** lead | Raises `DuplicateLeadError` → logged as Duplicate |
 
-Facebook sync **creates** leads only; it does not update an existing CRM Lead matched by mobile number.
+Facebook sync **creates or updates** leads matched by `mobile_no` based on `facebook_lead_id` comparison; identical `facebook_lead_id` on the same lead is treated as a duplicate retry.
 
 ### 7. Post-fetch timestamp
 

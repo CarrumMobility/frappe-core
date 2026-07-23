@@ -169,7 +169,7 @@ To reserve a specific display ID before insert (admin tooling):
 curl -b cookies.txt 'https://<your-site>/api/method/crm.api.lead.get_next_lead_id'
 ```
 
-Portal webhook `core.api.carrum_drivers.lead_creation_webhook` creates leads with portal-assigned IDs — see [methods.md](methods.md).
+Portal webhook `core.api.carrum_drivers.lead_creation_webhook` creates or updates leads by phone — see [methods.md](methods.md).
 
 ---
 

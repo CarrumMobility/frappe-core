@@ -108,7 +108,7 @@ flowchart TB
 | `callback_at` | Datetime | Callback or visit datetime |
 | `callback_type` | Select | `Callback` / `Visit Date` |
 | `telecaller` | Link → `User` | When source is telecaller |
-| `business_type` | Data | When primary status is Interested |
+| `business_type` | Data | Required on every walk-in submission (hub-scoped in UI) |
 | `created_by` | Link → `User` | Submitting agent |
 | `walkin_form_filled_at` | Datetime | Defaults to `creation` in `before_save` |
 | `referrer_name` | Data | Snapshot when source is referrals |
@@ -193,7 +193,7 @@ actions.append({
 | `remarks` | string | Conditional | Required when status has `is_remarks_required` |
 | `comment` | string | No | Alias for `remarks` |
 | `lead_name` | string | Conditional | Required when status has `is_lead_name_required` and lead has no name |
-| `business_type` | string | Conditional | Required in UI when primary status is **Interested** |
+| `business_type` | string | Yes (UI) | Hub-scoped product interest; required for all primary statuses in the walk-in form. Server falls back to lead `business_type_name` if omitted. |
 | `callback_datetime` | datetime | Conditional | When disposition requires callback (`is_callback`) |
 | `scheduled_visit_date` | datetime | Conditional | When disposition requires visit date (`is_visit_date_required`) |
 | `callback_type` | string | No | `Callback` or `Visit Date` — inferred from datetime fields if omitted |
@@ -239,7 +239,8 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_le
     "remarks": "Call back tomorrow morning",
     "callback_datetime": "2026-07-15 10:00:00",
     "callback_type": "Callback",
-    "telecaller": "tc.agent@example.com"
+    "telecaller": "tc.agent@example.com",
+    "business_type": "Black"
   }'
 ```
 
@@ -258,7 +259,8 @@ curl -b cookies.txt -X POST 'https://<your-site>/api/method/crm.api.lead.take_le
     "remarks": "Referred by existing driver",
     "referrer_name": "Raj Kumar",
     "referrer_mobile_no": "9123456789",
-    "referrer_user_link": "driver.agent@example.com"
+    "referrer_user_link": "driver.agent@example.com",
+    "business_type": "Black"
   }'
 ```
 
@@ -329,13 +331,14 @@ Walk-in form submission later sets `hub_visit_status = HUB_VISITED`.
         "remarks": ...,
         "callback_at": ...,
         "business_type": ...,
+        "walkin_form_filled_at": ...,
         "referrer_name": ...,
         "referrer_mobile_no": ...,
     }
 }
 ```
 
-Rendered in `Activities.vue` as **Walk-in Form Submitted**.
+Rendered in `Activities.vue` as **Walk-in Form Submitted**, with `walkin_form_filled_at` shown as the submission timestamp when present.
 
 ---
 
@@ -363,7 +366,7 @@ Rendered in `Activities.vue` as **Walk-in Form Submitted**.
 | Invalid callback type | `mark_walk_in_done()` | Throws on type mismatch |
 | Telecaller not found | `_resolve_walkin_telecaller_user()` | Throws if unresolvable |
 | Referral details | Frontend | Blocks submit until portal data loads |
-| Business type | Frontend | Required when primary status is Interested |
+| Business type | Frontend | Required for every walk-in submission (hub-scoped options) |
 
 ### Status update exceptions
 

@@ -1266,11 +1266,11 @@ def lead_creation_webhook():
     Carrum webhook: JSON body ``mobile_no`` / ``phoneNo`` / ``phone``,
     ``displayId`` (CRM Lead ``name``, AAAA0001–ZZZZ9999), and optional ``source``.
 
-    Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
-    required because Frappe otherwise clears ``name`` for naming_series autoname).
+    If a lead already exists for the phone number, updates only ``source`` and
+    ``source_id``. Otherwise creates a new lead.
 
     When ``source`` is ``uber`` or ``website`` (case-insensitive), resolves the matching
-    inbound CRM Lead Source and stores ``source`` + ``source_id`` on the lead.
+    inbound CRM Lead Source. New leads also get ``upload_source`` and ``lead_uploaded_at``.
     """
 
     data = frappe.request.get_json(silent=True)
@@ -1280,12 +1280,6 @@ def lead_creation_webhook():
 
     phone_raw = data.get("mobile_no") or data.get("phoneNo") or data.get("phone")
     phone_no = str(phone_raw).strip() if phone_raw is not None else ""
-
-    if phone_no is not None:
-        # fetch lead using phone number
-        lead = frappe.db.get_value(EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": phone_no}, "name")
-        if lead is not None:
-            return {"message": "ok", "name": lead, "created": False}
 
     raw_source = data.get("source")
     if raw_source is not None and isinstance(raw_source, str):
@@ -1305,6 +1299,37 @@ def lead_creation_webhook():
             parsed.get("error"),
         )
 
+    webhook_source_map = {
+        "uber": EnumValues.LeadSource.Uber,
+        "website": EnumValues.LeadSource.Website,
+    }
+    mapped_source_name = webhook_source_map.get(str(raw_source or "").strip().lower())
+    source_row = None
+    if mapped_source_name:
+        source_row = lead_service.get_lead_source_row(
+            mapped_source_name,
+            EnumValues.LeadSourcePurpose.ManualSelection,
+        )
+    else:
+        logger.warning("lead_creation_webhook: no source found for %r", raw_source)
+
+    existing_lead_name = frappe.db.get_value(
+        EnumValues.ReferenceDocType.CRM_LEAD,
+        {"mobile_no": mobile_no},
+        "name",
+    )
+    if existing_lead_name:
+        if source_row:
+            lead = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, existing_lead_name)
+            lead.source = source_row.source_name
+            lead.source_id = source_row.name
+            lead.save(ignore_permissions=True)
+            logger.info(
+                "lead_creation_webhook: updated source on CRM Lead %s",
+                existing_lead_name,
+            )
+        return {"message": "ok", "name": existing_lead_name, "created": False}
+
     lead = frappe.new_doc(EnumValues.ReferenceDocType.CRM_LEAD)
     lead.mobile_no = mobile_no
     if not apply_default_crm_lead_status_to_doc(lead):
@@ -1316,22 +1341,13 @@ def lead_creation_webhook():
     lead.lead_type = EnumValues.LeadType.LEAD
     lead.lead_name = None
 
-    webhook_source_map = {
-        "uber": EnumValues.LeadSource.Uber,
-        "website": EnumValues.LeadSource.Website,
-    }
-    mapped_source_name = webhook_source_map.get(str(raw_source or "").strip().lower())
-    if mapped_source_name:
-        source_row = lead_service.get_lead_source_row(
-            mapped_source_name,
-            EnumValues.LeadSourcePurpose.ManualSelection,
-        )
-        if source_row:
-            lead.source = source_row.source_name
-            lead.source_id = source_row.name
-    else:
-        logger.warning("lead_creation_webhook: no source found for %r", raw_source)
-    
+    if source_row:
+        lead.source = source_row.source_name
+        lead.source_id = source_row.name
+        if not lead.get("upload_source"):
+            lead.upload_source = source_row.source_name
+            lead.lead_uploaded_at = frappe.utils.now_datetime()
+
     lead.insert(ignore_permissions=True)
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}

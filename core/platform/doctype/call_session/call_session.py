@@ -46,7 +46,7 @@ class CallSession(Document):
 		status: DF.Literal["INITIATED", "FAILED", "AGENT_CONNECTED", "CUSTOMER_CONNECTED", "OB Missed", "IB Missed", "DISCONNECTED", "DISPOSED"]
 		sub_disposition_status: DF.Data | None
 		vendor_agent_id: DF.Data | None
-		vendor_name: DF.Literal["", "Smartflo", "Girnar"]
+		vendor_name: DF.Literal["", "Smartflo", "Girnar", "Callmatic"]
 		lead_source_during_call: DF.Data | None
 		recording_url: DF.LongText | None
 		campaign_name: DF.Data | None

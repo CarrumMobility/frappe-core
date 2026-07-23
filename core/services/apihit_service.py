@@ -1,6 +1,36 @@
 import frappe
 from frappe.utils import cint, flt
 
+logger = frappe.logger("core.services.apihit_service")
+
+
+def response_body_for_log(response):
+	if response is None:
+		return None
+	try:
+		return response.json()
+	except (ValueError, TypeError):
+		return response.text
+
+
+def request_headers_for_log(response):
+	if response is None or not getattr(response, "request", None):
+		return None
+	try:
+		return dict(response.request.headers)
+	except (TypeError, ValueError):
+		return None
+
+
+def created_by_user(user=None):
+	if user and user not in (None, "Guest"):
+		return user
+	if getattr(frappe.local, "session", None):
+		u = frappe.session.get("user")
+		if u and u not in (None, "Guest"):
+			return u
+	return None
+
 
 def _persist_api_hit(
 	api_name,
@@ -35,6 +65,46 @@ def _persist_api_hit(
 class ApiHitService:
 	def __init__(self):
 		pass
+
+	def log_api_request(
+		self,
+		api_name,
+		url,
+		request_payload,
+		response_log,
+		status_code,
+		execution_time,
+		headers=None,
+		error_message=None,
+		created_by=None,
+		method="POST",
+	):
+		"""Write request/response to frappe logger and enqueue Api hit log."""
+		log_payload = {
+			"message": f"{api_name} API request {method.upper()}: {url}",
+			"url": url,
+			"request_body": request_payload,
+			"response": response_log,
+			"status_code": status_code,
+		}
+		if error_message:
+			log_payload["error_message"] = error_message
+		logger.info(log_payload)
+		try:
+			print(log_payload)
+			self.enqueue_log_api_hit(
+				api_name,
+				str(url),
+				headers,
+				request_payload,
+				response_log,
+				int(status_code or 0),
+				error_message or None,
+				round(execution_time or 0, 4),
+				created_by=created_by,
+			)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"{api_name} api_hit enqueue")
 
 	def enqueue_log_api_hit(
 		self,

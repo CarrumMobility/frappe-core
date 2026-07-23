@@ -262,7 +262,7 @@ before_insert() → fetch_and_store_pages_from_facebook(token)
 
 ### 2. Lead fetch
 
-Facebook leads are fetched for the **last 24 hours** (`now - 1 day`) during normal sync and scheduled sync. Sync does **not** use `Lead Sync Source.last_synced_at`.
+Facebook leads are fetched for the **last 24 hours** (`now - 1 day`) during normal sync and scheduled sync. Sync does **not** use `Lead Sync Source.last_synced_at`. Each Graph API call writes an **`Api hit log`** record with the full JSON response (stored in MariaDB `LONGTEXT`), redacted request params, status code, and duration.
 
 ```
 GET https://graph.facebook.com/v23.0/{form_id}/leads

@@ -46,15 +46,14 @@ class CallmaticClient:
         headers = {
             "api-key": f"{self.api_key}"
         }
+  
         data = {
-            "phoneNumber": from_number,
             "campaignId": campaign_id,
+            "phoneNumber": from_number,  
             "variables": {
-                "transferNumber": to_number,
-                "callback": self.webhook_url,
-                "fromNumber": f"{did_number}",
-                "callSessionId": call_session_id,
-                "campaign_name": campaign_name
+                "fromNumber": did_number,  
+                "transferNumber": to_number, 
+                "call_session_id": call_session_id  
             }
         }
 

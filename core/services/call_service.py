@@ -3589,7 +3589,7 @@ class CallService:
                 "message": "Call session not found"
             }
 
-        print("2...", call_session.name)
+        log.info("2...", call_session.name)
 
         duration = None
 
@@ -3612,7 +3612,7 @@ class CallService:
             else:
                 computed_status = EnumValues.CallSessionStatus.FAILED
 
-        print('3...', computed_status)
+        log.info('3...', computed_status)
         call_session.set("vendor_agent_id", None)
         call_session.set("status", computed_status)
         call_session.set("agent_answered_at", agent_answered_at)
@@ -3631,7 +3631,7 @@ class CallService:
         call_session.set("recording_url", recording_url)
         call_session.set("ring_duration", None)
 
-        print("4...", call_session.as_dict())
+        log.info("4...", call_session.as_dict())
         call_session.save(ignore_permissions=True)
         return {
             "is_valid": True,

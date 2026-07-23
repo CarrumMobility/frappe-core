@@ -91,6 +91,7 @@ class ApiHitService:
 			log_payload["error_message"] = error_message
 		logger.info(log_payload)
 		try:
+			print(log_payload)
 			self.enqueue_log_api_hit(
 				api_name,
 				str(url),

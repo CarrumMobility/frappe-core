@@ -178,5 +178,6 @@ def update_call_session():
 @frappe.whitelist(methods=["POST"],allow_guest=True)
 def callmatic_start_call_webhook():
     payload = frappe.request.get_json() 
+    log.info("callmatic_start_call_webhook payload: %s", payload)
     webhook_arrived_at = frappe.utils.now_datetime()
     return call_service.callmatic_start_call_webhook(payload, webhook_arrived_at)

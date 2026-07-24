@@ -61,6 +61,7 @@ def create_referral_on_portal(
 	agentReferrerId,
 	hubId,
 	referrerId=None,
+	businessType=None,
 	base_url=None,
 	token=None,
 ):
@@ -68,7 +69,7 @@ def create_referral_on_portal(
 	Create a referral on the Carrum portal (POST ``/api/v1/referral-rewards``).
 
 	Payload: ``refereeId``, ``hubId`` (may be JSON null), optional ``agentReferrerId``
-	and ``referrerId`` when provided.
+	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -94,6 +95,9 @@ def create_referral_on_portal(
 		rid = str(referrerId).strip()
 		if rid:
 			payload["referrerId"] = rid
+	business_type = str(businessType).strip() if businessType is not None else ""
+	if business_type:
+		payload["businessType"] = business_type
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -691,6 +695,7 @@ def reject_reward_ledger_on_carrum_portal(
 	ledger_id=None,
 	logged_in_user_id=None,
 	amount=None,
+	reason=None,
 	remarks=None,
 	base_url=None,
 	token=None,
@@ -699,7 +704,7 @@ def reject_reward_ledger_on_carrum_portal(
 	Reject an amount on a reward ledger entry on the Carrum referral portal.
 
 	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/reject``
-	with query ``loggedInUserId`` and JSON body ``amount``, optional ``remarks``.
+	with query ``loggedInUserId`` and JSON body ``amount``, optional ``reason``.
 
 	Returns:
 		Same framed dict as ``CarrumHttpClient.request``.
@@ -744,9 +749,10 @@ def reject_reward_ledger_on_carrum_portal(
 		if rejection_amount.is_integer()
 		else rejection_amount
 	}
-	remarks_str = str(remarks).strip() if remarks is not None else ""
-	if remarks_str:
-		payload["remarks"] = remarks_str
+	reject_input = reason if reason is not None else remarks
+	reason_str = str(reject_input).strip() if reject_input is not None else ""
+	if reason_str:
+		payload["reason"] = reason_str
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -997,7 +1003,14 @@ def reject_referral_on_carrum_portal(
 	}
 
 
-def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=None, base_url=None, token=None):
+def get_referral_scheme_list_from_portal(
+	role_id=None,
+	hub_id=None,
+	config_id=None,
+	business_type=None,
+	base_url=None,
+	token=None,
+):
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	params = {}
 	if role_id is not None and str(role_id).strip():
@@ -1006,6 +1019,8 @@ def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=No
 		params["hubId"] = str(hub_id).strip()
 	if config_id is not None and str(config_id).strip():
 		params["configId"] = str(config_id).strip()
+	if business_type is not None and str(business_type).strip():
+		params["businessType"] = str(business_type).strip()
 	return client.request(
 		method="GET",
 		path="/api/v1/referral-rewards/configs/active",
@@ -1068,6 +1083,7 @@ def get_referral_details_from_portal(
 	search=None,
 	status=None,
 	agent_role=None,
+	agent_name=None,
 	hub_id=None,
 	referee_id=None,
 	referrer_id=None,
@@ -1076,6 +1092,7 @@ def get_referral_details_from_portal(
 	only_mine=None,
 	sort_by=None,
 	sort_order=None,
+	converted_at=None,
 	base_url=None,
 	token=None,
 ):
@@ -1125,16 +1142,18 @@ def get_referral_details_from_portal(
 	_add("search", search)
 	_add("status", status)
 	_add("agentRole", agent_role)
+	_add("agentName", agent_name)
 	_add("hubId", hub_id)
 	_add("refereeId", referee_id)
 	_add("referrerId", referrer_id)
 	_add("agentReferrerId", agent_referrer_id)
 	_add("configId", config_id)
+	_add("convertedAt", converted_at)
 	_add("sortBy", sort_by)
 	_add("sortOrder", sort_order)
 
 	if only_mine is True or str(only_mine).strip().lower() in ("1", "true", "yes"):
-		params["onlyMine"] = "true"
+		params["OnlyMine"] = "true"
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(

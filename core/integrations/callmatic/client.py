@@ -53,7 +53,7 @@ class CallmaticClient:
             "variables": {
                 "fromNumber": did_number,  
                 "transferNumber": to_number, 
-                "call_session_id": call_session_id  
+                "callSessionId": call_session_id  
             }
         }
 

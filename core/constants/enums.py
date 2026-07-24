@@ -40,10 +40,10 @@ class _CallSessionStatus:
 	FAILED = "FAILED"
 	AGENT_CONNECTED = "AGENT_CONNECTED"
 	CUSTOMER_CONNECTED = "CUSTOMER_CONNECTED"
-	NOT_CONNECTED = "OB Missed"
+	OB_MISSED = "OB Missed"
 	DISCONNECTED = "DISCONNECTED"
 	DISPOSED = "DISPOSED"
-	MISSED = "IB Missed"
+	IB_MISSED = "IB Missed"
 
 
 class _ReferenceDocType:
@@ -160,6 +160,10 @@ class _GlobalConfigKeys:
 	DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN= "default_callmatic_outbound_campaign"
 	ROLE_BASED_DEFAULT_CALLING_VENDOR= "role_based_default_calling_vendor"
 	
+class _CallSessionHangupBy:
+	LEAD = "LEAD"
+	AGENT = "AGENT"
+	SYSTEM = "SYSTEM"
 
 class _EnumValues:
 	EventCallbackStatus = _EventCallbackStatus
@@ -187,5 +191,6 @@ class _EnumValues:
 	CRM_LEAD_STATUS_USAGE = _CRM_LEAD_STATUS_USAGE
 	CrmEventTypes = _CrmEventTypes
 	GlobalConfigKeys = _GlobalConfigKeys
-
+	CallSessionHangupBy = _CallSessionHangupBy
+	
 EnumValues = _EnumValues()

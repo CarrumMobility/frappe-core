@@ -12,14 +12,18 @@
 
 `Lead walkin done` is an **audit record** created each time an onboarding agent submits the walk-in form for a CRM Lead. It snapshots disposition, source, remarks, callback/visit scheduling, and referrer details at submission time.
 
-| Access type | Documentation |
-|---|---|
-| REST CRUD | [GET](get.md) · [POST](post.md) · [PUT](put.md) · [DELETE](delete.md) |
+
+| Access type         | Documentation                                                                    |
+| ------------------- | -------------------------------------------------------------------------------- |
+| REST CRUD           |                                                                                  |
 | Primary create path | [CRM Lead methods — take_lead_actions](../crm_lead/methods.md#take_lead_actions) |
-| Walk-in flow | [Walk-in Form](../../walkin_form.md) |
-| Generic REST guide | [../api.md](../api.md) |
+| Walk-in flow        | [Walk-in Form](../../walkin_form.md)                                             |
+| Generic REST guide  | [../api.md](../api.md)                                                           |
+
 
 ---
+
+
 
 ## Relationships
 
@@ -31,13 +35,19 @@ flowchart LR
     LWD -->|telecaller / referrer_user_link| USER[User]
 ```
 
-| Parent | Child | Link field | Cardinality |
-|---|---|---|---|
-| `CRM Lead` | `Lead walkin done` | `lead` | 1:N |
-| `CRM Lead` | Latest walk-in | `walkin_form_link` | 1:1 pointer |
-| `Lead walkin done` | `CRM Lead Status` | `lead_status_link` | N:1 |
+
+
+
+| Parent             | Child              | Link field         | Cardinality |
+| ------------------ | ------------------ | ------------------ | ----------- |
+| `CRM Lead`         | `Lead walkin done` | `lead`             | 1:N         |
+| `CRM Lead`         | Latest walk-in     | `walkin_form_link` | 1:1 pointer |
+| `Lead walkin done` | `CRM Lead Status`  | `lead_status_link` | N:1         |
+
 
 ---
+
+
 
 ## Primary creation path
 
@@ -54,39 +64,49 @@ Direct REST POST is available for admin/testing but bypasses walk-in validation 
 
 ---
 
+
+
 ## Field summary
 
-| Field | Type | Set on create | Notes |
-|---|---|---|---|
-| `lead` | Link → CRM Lead | Yes | Required |
-| `lead_status_link` | Link → CRM Lead Status | Yes | Disposition FK |
-| `primary_status` | Data | Yes | Snapshot |
-| `secondary_status` | Data | Yes | Snapshot |
-| `source` | Data | Yes | Source label |
-| `remarks` | Small Text | No | Agent comment |
-| `callback_at` | Datetime | No | Callback or visit datetime |
-| `callback_type` | Select | No | `Callback` \| `Visit Date` |
-| `telecaller` | Link → User | No | When source is telecaller |
-| `business_type` | Data | No | Required in walk-in form UI (all primary statuses) |
-| `referrer_name` | Data | No | Referral snapshot |
-| `referrer_mobile_no` | Data | No | |
-| `referrer_user_link` | Link → User | No | |
-| `created_by` | Link → User | Yes | Submitting agent |
-| `walkin_form_filled_at` | Datetime | Auto | Defaults to `creation` in `before_save` |
+
+| Field                   | Type                   | Set on create | Notes                                              |
+| ----------------------- | ---------------------- | ------------- | -------------------------------------------------- |
+| `lead`                  | Link → CRM Lead        | Yes           | Required                                           |
+| `lead_status_link`      | Link → CRM Lead Status | Yes           | Disposition FK                                     |
+| `primary_status`        | Data                   | Yes           | Snapshot                                           |
+| `secondary_status`      | Data                   | Yes           | Snapshot                                           |
+| `source`                | Data                   | Yes           | Source label                                       |
+| `remarks`               | Small Text             | No            | Agent comment                                      |
+| `callback_at`           | Datetime               | No            | Callback or visit datetime                         |
+| `callback_type`         | Select                 | No            | `Callback`                                         |
+| `telecaller`            | Link → User            | No            | When source is telecaller                          |
+| `business_type`         | Data                   | No            | Required in walk-in form UI (all primary statuses) |
+| `referrer_name`         | Data                   | No            | Referral snapshot                                  |
+| `referrer_mobile_no`    | Data                   | No            |                                                    |
+| `referrer_user_link`    | Link → User            | No            |                                                    |
+| `created_by`            | Link → User            | Yes           | Submitting agent                                   |
+| `walkin_form_filled_at` | Datetime               | Auto          | Defaults to `creation` in `before_save`            |
+
 
 Full field details: [fields.md](fields.md)
 
 ---
 
+
+
 ## Permissions
 
-| Layer | Rule |
-|---|---|
-| DocType JSON | System Manager — full CRUD |
-| Runtime (`role_perm_service`) | CRM agent roles: create, read, select, write |
-| Walk-in submit | Onboarding / Telecaller Lead / Administrator via `mark_walk_in_done` |
+
+| Layer                         | Rule                                                                 |
+| ----------------------------- | -------------------------------------------------------------------- |
+| DocType JSON                  | System Manager — full CRUD                                           |
+| Runtime (`role_perm_service`) | CRM agent roles: create, read, select, write                         |
+| Walk-in submit                | Onboarding / Telecaller Lead / Administrator via `mark_walk_in_done` |
+
 
 ---
+
+
 
 ## Quick reference
 
@@ -103,8 +123,11 @@ POST /api/method/crm.api.lead.take_lead_actions
 
 ---
 
+
+
 ## Related
 
 - [CRM Lead](../crm_lead/README.md)
 - [Walk-in Form — Technical](../../walkin_form.md)
 - [Walk-in Form — Product Guide](../../../product/walkin_form.md)
+

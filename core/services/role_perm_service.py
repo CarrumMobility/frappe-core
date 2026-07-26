@@ -42,6 +42,7 @@ CRM_AGENT_PERMISSIONS = {
 	"Failed Lead Sync Log": ["read", "select", "create", "write"],
 	"Facebook Lead Form": ["read", "select", "create", "write"],
 	"Facebook Page": ["read", "select", "create", "write"],
+	"Lead Sync Entry": ["read", "select", "create", "write"],
 }
 
 # Permissions merged on top of ``TEMPLATE_ROLE_NAME`` (union per doctype).

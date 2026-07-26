@@ -95,17 +95,21 @@ def get_scheme_list():
 	business_type_id = str(
 		payload.get("businessTypeId") or payload.get("business_type_id") or ""
 	).strip()
+	hub_id = str(payload.get("hubId") or payload.get("hub_id") or "").strip()
 
-	if not business_type_id:
+	# Carrum `/scheme/alias` is hub-scoped. Prefer explicit hubId from the client;
+	# fall back to businessTypeId for older callers that only sent one id.
+	query_hub_id = hub_id or business_type_id
+	if not query_hub_id:
 		return {
 			"success": False,
 		}
 
-	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={business_type_id}"
+	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={query_hub_id}"
 
 	response = re.get(url, headers={"Authorization": carrum_token})
 	return {
 		"success": True,
 		"data": response.json(),
-		"url": url
+		"url": url,
 	}

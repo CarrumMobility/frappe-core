@@ -2,7 +2,8 @@
 
 **Feature:** Lead Syncing  
 **Status:** Beta  
-**Supported sources:** Facebook Lead Ads
+**Supported sources:** Facebook Lead Ads  
+**Technical docs:** [../technical/lead_sync_source.md](../technical/lead_sync_source.md)
 
 ---
 
@@ -157,6 +158,8 @@ The Lead syncing page shows all configured sources with:
 
 Open any source and go to the **Sync entries** tab to review every lead fetched from the vendor before and after CRM import.
 
+The tab label shows the **total count** as soon as the source opens — for example **Sync entries (2517)** — without waiting for you to open the tab. CRM prefetches the first page of entries in the background so the list feels instant when you switch to it.
+
 ### List view
 
 
@@ -175,7 +178,9 @@ Open any source and go to the **Sync entries** tab to review every lead fetched 
 - **Submitted date range** — filter by when the lead was submitted on Facebook
 - **Search** — match **Vendor ID** or **Lead ID**
 
-Click **Apply** after changing filters.
+Click **Apply** after changing filters. The tab count updates to match the filtered total. **Clear** resets filters and restores the prefetched unfiltered first page when available.
+
+Use **Load more** to fetch the next page of results.
 
 ### Detail view
 
@@ -266,6 +271,7 @@ If a CRM Lead with the same **mobile number** already exists, Facebook sync may 
 | Lead failed after sync ran               | Worker error after fetch                                   | Open Failure logs → **Retry sync**                                                                                       |
 | Date filter shows no results             | Wrong date range or timezone                               | Use **Submitted at** dates from sync entries; click Apply after selecting range                                          |
 | Entry shows Pending                      | Import failed or still queued                              | Check Failure logs; retry if needed                                                                                      |
+| Tab shows Sync entries without (N)       | Prefetch still loading or source just opened               | Wait a moment; count appears after the first page loads                                                                  |
 
 
 ---
@@ -296,6 +302,9 @@ A: Automatic syncing stops. Existing CRM Leads are not deleted. You can re-enabl
 
 **Q: Can I change field mappings after leads are imported?**  
 A: Yes. Future syncs use the updated mappings for **new** leads. Already-imported leads are not changed; re-importing the same Facebook submission is blocked as a duplicate.
+
+**Q: Why does the Sync entries tab show a number?**  
+A: That is the **total count** of sync entries for this source. CRM loads it when you open the source so you can see volume before opening the tab.
 
 **Q: Where do I see the original Facebook submission?**  
 A: Open the source → **Sync entries** tab → click the row for form responses, additional info, and raw JSON. The CRM Lead activity timeline also shows the Facebook submission.

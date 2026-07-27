@@ -2,11 +2,12 @@ import time
 
 import frappe
 import requests
+
 from core.services.apihit_service import (
-	api_hit_service,
-	created_by_user,
-	request_headers_for_log,
-	response_body_for_log,
+    api_hit_service,
+    created_by_user,
+    request_headers_for_log,
+    response_body_for_log,
 )
 
 CALLMATIC_WEBHOOK_PATH = "/api/method/core.api.call.callmatic_start_call_webhook"
@@ -53,7 +54,8 @@ class CallmaticClient:
             "variables": {
                 "fromNumber": did_number,  
                 "transferNumber": to_number, 
-                "callSessionId": call_session_id  
+                "callSessionId": call_session_id,
+                "campaignName": campaign_name
             }
         }
 

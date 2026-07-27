@@ -2,7 +2,41 @@
 
 from __future__ import annotations
 
+import json
+
 import frappe
+
+from core.observability.request_logging import format_request_body
+
+_NR_ATTRIBUTE_MAX_LENGTH = 4000
+
+
+def record_custom_event(event_type: str, attributes: dict | None = None) -> None:
+	"""Record a New Relic custom business event."""
+	try:
+		import newrelic.agent
+	except ImportError:
+		return
+
+	params: dict = {}
+	site = getattr(frappe.local, "site", None)
+	if site:
+		params["frappe.site"] = site
+
+	if attributes:
+		for key, value in attributes.items():
+			if value is None:
+				continue
+			if isinstance(value, (dict, list, tuple)):
+				value = json.dumps(value)
+			params[key] = value
+
+	try:
+		newrelic.agent.record_custom_event(event_type, params)
+	except Exception:
+		frappe.logger("core.observability").error(
+			"Failed to record NR custom event %s", event_type, exc_info=True
+		)
 
 
 def enrich_newrelic_transaction(response, request) -> None:
@@ -25,6 +59,11 @@ def enrich_newrelic_transaction(response, request) -> None:
 	method = getattr(request, "method", None)
 	path = getattr(request, "path", None)
 	remote_addr = getattr(request, "remote_addr", None)
+	request_body = (
+		format_request_body(request, max_length=_NR_ATTRIBUTE_MAX_LENGTH)
+		if request is not None
+		else ""
+	)
 
 	if site:
 		newrelic.agent.add_custom_attribute("frappe.site", site)
@@ -38,6 +77,8 @@ def enrich_newrelic_transaction(response, request) -> None:
 		newrelic.agent.add_custom_attribute("http.path", path)
 	if remote_addr:
 		newrelic.agent.add_custom_attribute("http.remote_addr", remote_addr)
+	if request_body:
+		newrelic.agent.add_custom_attribute("request.body", request_body)
 
 	form_dict = getattr(frappe.local, "form_dict", None) or {}
 	cmd = form_dict.get("cmd") if hasattr(form_dict, "get") else None

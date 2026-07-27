@@ -1,4 +1,6 @@
 from datetime import timedelta
+import re
+
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.constants.enums import EnumValues
 from frappe.utils import get_datetime, getdate, now_datetime
@@ -575,6 +577,103 @@ class UtilService:
         lead.primary_status = status_row.custom_primary_status
         lead.secondary_status = status_row.lead_status
         lead.save(ignore_permissions=True)
+
+
+def publish_docs() -> dict:
+    import os
+
+    docs_folder = os.path.join(frappe.get_app_source_path("core"), "docs")
+    if not os.path.isdir(docs_folder):
+        frappe.throw(f"Docs folder not found: {docs_folder}")
+
+    mermaid_js = """
+(function () {
+    const nodes = document.querySelectorAll(".mermaid");
+    if (!nodes.length) return;
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    script.onload = function () {
+        mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "loose" });
+        mermaid.run({ nodes });
+    };
+    document.head.appendChild(script);
+})();
+""".strip()
+
+    created = updated = 0
+    published = []
+    frappe.flags.in_test = True
+    try:
+        for root, _, files in os.walk(docs_folder):
+            for file in files:
+                if not file.endswith(".md"):
+                    continue
+
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, docs_folder)
+                parts = relative_path.split(os.sep)
+                if len(parts) < 2:
+                    continue
+
+                category, filename = parts[0], parts[-1]
+                route = f"docs/{category}/{filename[:-3]}"
+                with open(file_path, encoding="utf-8") as f:
+                    content = f.read()
+
+                content = re.sub(
+                    r"```mermaid\s*\n(.*?)```",
+                    lambda match: f'<div class="mermaid">\n{match.group(1).strip()}\n</div>',
+                    content,
+                    flags=re.DOTALL,
+                )
+
+                title = next(
+                    (line[2:].strip() for line in content.splitlines() if line.startswith("# ")),
+                    filename[:-3].replace("_", " ").replace("-", " ").title(),
+                )
+                existing = frappe.db.exists("Web Page", {"route": route})
+                doc = frappe.get_doc("Web Page", existing) if existing else frappe.new_doc("Web Page")
+                doc.update(
+                    {
+                        "title": title,
+                        "route": route,
+                        "content_type": "Page Builder",
+                        "main_section_md": "",
+                        "published": 1,
+                        "show_title": 0,
+                        "javascript": mermaid_js,
+                    }
+                )
+                doc.set(
+                    "page_blocks",
+                    [
+                        {
+                            "web_template": "Markdown",
+                            "web_template_values": frappe.as_json(
+                                {"content": content, "align": "Left"}
+                            ),
+                            "add_container": 1,
+                            "add_top_padding": 1,
+                            "add_bottom_padding": 1,
+                        }
+                    ],
+                )
+                doc.save(ignore_permissions=True)
+
+                if existing:
+                    updated += 1
+                    action = "updated"
+                else:
+                    created += 1
+                    action = "created"
+
+                published.append({"action": action, "route": route, "file": relative_path})
+
+        frappe.db.commit()
+    finally:
+        frappe.flags.in_test = False
+
+    return {"created": created, "updated": updated, "published": published}
 
 
 util_service = UtilService()

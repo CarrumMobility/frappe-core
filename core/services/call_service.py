@@ -224,12 +224,27 @@ def _find_inbound_lead_source_by_did(phone_raw):
                 "purpose": EnumValues.LeadSourcePurpose.Inbound,
                 "did_number": value,
             },
-            ["name", "source_name"],
+            ["name", "source_name", "allow_source_update_during_call"],
             as_dict=True,
         )
         if row:
             return row
     return None
+
+
+def _inbound_source_allows_call_update(inbound_source) -> bool:
+    if not inbound_source:
+        return False
+    return bool(frappe.utils.cint(inbound_source.get("allow_source_update_during_call")))
+
+
+def _apply_inbound_lead_source_during_call(lead, inbound_source):
+    """Set lead source from inbound DID mapping only when the source allows call-time updates."""
+    if not inbound_source or not _inbound_source_allows_call_update(inbound_source):
+        return
+    lead.set("source", inbound_source.get("source_name"))
+    lead.set("source_id", inbound_source.get("name"))
+    lead.save(ignore_permissions=True)
 
 
 def _notify_telecaller_missed_call(lead, telecaller_user: str) -> None:
@@ -1431,7 +1446,12 @@ class CallService:
         calling_method = str(data.get("calling_method") or "").strip()
         disposition_status = data.get("disposition_status")
         disposition_code = data.get("disposition_code")
-        is_allow_tc_assignment = data.get("is_allow_tc_assignment")
+        is_allow_tc_assignment = bool(
+            frappe.utils.cint(data.get("is_allow_tc_assignment"))
+        )
+        is_allow_tc_change = bool(
+            frappe.utils.cint(data.get("is_allow_tc_change_during_disposition"))
+        )
         disposition_remarks = data.get("disposition_remarks")
         sub_disposition = data.get("sub_disposition_status") or data.get(
             "sub_disposition"
@@ -1533,9 +1553,10 @@ class CallService:
                     disposition_timing=disposition_timing,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk,
+                    status_pk=status_pk,
                     lead_display_name=new_lead_name,
-                    is_allow_tc_assignment=is_allow_tc_assignment
+                    is_allow_tc_assignment=is_allow_tc_assignment,
+                    is_allow_tc_change=is_allow_tc_change,
                 )
             case EnumValues.CallingMethod.Dialer:
                 return self._handle_dialer_submit_disposition(
@@ -1551,9 +1572,10 @@ class CallService:
                     expected_call_duration_minutes=expected_call_duration_minutes,
                     scheduled_visit_date=scheduled_visit_date,
                     is_visit_scheduled=is_visit_scheduled,
-                    status_pk = status_pk,
+                    status_pk=status_pk,
                     lead_display_name=new_lead_name,
-                    is_allow_tc_assignment=is_allow_tc_assignment
+                    is_allow_tc_assignment=is_allow_tc_assignment,
+                    is_allow_tc_change=is_allow_tc_change,
                 )
             case _:
                 return {
@@ -1610,7 +1632,8 @@ class CallService:
         is_visit_scheduled=None,
         status_pk: str | None = None,
         lead_display_name: str | None = None,
-        is_allow_tc_assignment: bool | None = False
+        is_allow_tc_assignment: bool | None = False,
+        is_allow_tc_change: bool | None = False
     ):
         """Smartflo store-disposition + Call Session update (Agent calling)."""
         try:
@@ -1702,7 +1725,8 @@ class CallService:
                     status_pk=status_pk,
                     lead_display_name=lead_display_name,
                     telecaller=doc.get("agent"),
-                    is_allow_tc_assignment=is_allow_tc_assignment
+                    is_allow_tc_assignment=is_allow_tc_assignment,
+                    is_allow_tc_change=is_allow_tc_change
                 )
 
             except Exception:
@@ -1756,6 +1780,7 @@ class CallService:
         status_pk: str | None = None,
         lead_display_name: str | None = None,
         is_allow_tc_assignment: bool | None = False,
+        is_allow_tc_change: bool | None = False,
     ):
         match default_telephony_vendor:
             case EnumValues.CallingVendorName.Smartflo:
@@ -1772,9 +1797,10 @@ class CallService:
                     expected_call_duration_minutes,
                     scheduled_visit_date,
                     is_visit_scheduled,
-                    status_pk = status_pk,
+                    status_pk=status_pk,
                     lead_display_name=lead_display_name,
                     is_allow_tc_assignment=is_allow_tc_assignment,
+                    is_allow_tc_change=is_allow_tc_change,
                 )
             case _:
                 return {
@@ -1799,6 +1825,7 @@ class CallService:
         status_pk: str | None = None,
         lead_display_name: str | None = None,
         is_allow_tc_assignment: bool = False,
+        is_allow_tc_change: bool = False,
         user: str | None = None
     ):
         try:
@@ -1857,7 +1884,8 @@ class CallService:
                         status_pk,
                         lead_display_name=lead_display_name,
                         telecaller=call_session_doc.get("agent"),
-                        is_allow_tc_assignment=is_allow_tc_assignment
+                        is_allow_tc_assignment=is_allow_tc_assignment,
+                        is_allow_tc_change=is_allow_tc_change
                     )
                 except Exception:
                     frappe.log_error(
@@ -2453,9 +2481,7 @@ class CallService:
             
 
         if inbound_source:
-            lead.set("source", inbound_source.get("source_name"))
-            lead.set("source_id", inbound_source.get("name"))
-            lead.save(ignore_permissions=True)
+            _apply_inbound_lead_source_during_call(lead, inbound_source)
 
         new_call_session_doc = frappe.new_doc(
             doctype=EnumValues.ReferenceDocType.CALL_SESSION,
@@ -2621,7 +2647,15 @@ class CallService:
             crm_lead_status_record = frappe.db.get_value(
                 EnumValues.ReferenceDocType.CRM_LEAD_STATUS,
                 {"dialer_disposition_name": disposition_code},
-                ["custom_primary_status", "lead_status", "name", "is_allow_tc_assignment", "is_callback", "is_visit_date_required"],
+                [
+                    "custom_primary_status",
+                    "lead_status", 
+                    "name", 
+                    "is_allow_tc_assignment", 
+                    "is_callback", 
+                    "is_visit_date_required",
+                    "is_allow_tc_change_during_disposition",
+                ],
                 as_dict=True,
             )
             if crm_lead_status_record:
@@ -2637,7 +2671,18 @@ class CallService:
                     disposition_remarks=disposition_remarks,
                     status_pk=crm_lead_status_record.name,
                     telecaller=row.get("agent") or None,
-                    is_allow_tc_assignment=crm_lead_status_record.get("is_allow_tc_assignment")
+                    is_allow_tc_assignment=bool(
+                        frappe.utils.cint(
+                            crm_lead_status_record.get("is_allow_tc_assignment")
+                        )
+                    ),
+                    is_allow_tc_change=bool(
+                        frappe.utils.cint(
+                            crm_lead_status_record.get(
+                                "is_allow_tc_change_during_disposition"
+                            )
+                        )
+                    ),
                 )
 
                 if crm_lead_status_record.get("is_callback") and schedule_timestamp is not None:
@@ -2950,22 +2995,9 @@ class CallService:
 
         if call_status == EnumValues.CallSessionStatus.MISSED:
             did_number = call_to_number
-            inbound_source = None
             if did_number:
-                inbound_source = frappe.db.get_value(
-                    EnumValues.ReferenceDocType.LEAD_SOURCE,
-                    {
-                        "purpose": EnumValues.LeadSourcePurpose.Inbound,
-                        "did_number": did_number,
-                    },
-                    ["name", "source_name"],
-                    as_dict=True,
-                )
-
-                if inbound_source:
-                    lead.set("source", inbound_source.get("source_name"))
-                    lead.set("source_id", inbound_source.get("name"))
-                    lead.save(ignore_permissions=True)
+                inbound_source = _find_inbound_lead_source_by_did(did_number)
+                _apply_inbound_lead_source_during_call(lead, inbound_source)
             
         new_session = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
         new_session.agent_call_id = call_id
@@ -3093,7 +3125,7 @@ class CallService:
         disposition_record = frappe.db.get_value(
             EnumValues.ReferenceDocType.CRM_LEAD_STATUS, 
             {'is_auto_disposition_status': True}, 
-            ['name', 'custom_primary_status', 'custom_disposition_code', 'lead_status', "is_allow_tc_assignment"],
+            ['name', 'custom_primary_status', 'custom_disposition_code', 'lead_status', "is_allow_tc_assignment", "is_allow_tc_change_during_disposition"],
             as_dict=True
         )
 
@@ -3119,7 +3151,14 @@ class CallService:
             is_visit_scheduled=None,
             status_pk=disposition_record.name,
             lead_display_name=lead_doc.get("lead_name"),
-            is_allow_tc_assignment=disposition_record.get("is_allow_tc_assignment")
+            is_allow_tc_assignment=bool(
+                frappe.utils.cint(disposition_record.get("is_allow_tc_assignment"))
+            ),
+            is_allow_tc_change=bool(
+                frappe.utils.cint(
+                    disposition_record.get("is_allow_tc_change_during_disposition")
+                )
+            ),
         )
         if not result.get("is_valid"):
             return result
@@ -3478,15 +3517,10 @@ def update_lead_last_call_date_time(doc, method):
     if saved and hangup_dt <= saved:
         return
 
-    frappe.db.set_value(
-        "CRM Lead",
-        lead_id,
-        {
-            "last_call_date": hangup_dt.date(),
-            "last_call_time": hangup_dt.time(),
-        },
-        update_modified=False,
-    )
+    doc = frappe.get_doc("CRM Lead", lead_id)
+    doc.last_call_date = hangup_dt.date()
+    doc.last_call_time = hangup_dt.time()
+    doc.save(ignore_permissions=True)
 
 def start_dialer_session(user, payload: dict):
     if not isinstance(payload, dict):

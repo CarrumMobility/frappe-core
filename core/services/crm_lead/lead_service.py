@@ -4,9 +4,38 @@ from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_
 from crm.utils import parse_phone_number
 
 
+class DuplicateLeadError(frappe.ValidationError):
+	pass
+
+
 class LeadService:
 	def __init__(self):
 		pass
+
+	@staticmethod
+	def _has_facebook_lead_fields(other_info: dict | None) -> bool:
+		return bool(
+			other_info and ("facebook_lead_id" in other_info or "facebook_form_id" in other_info)
+		)
+
+	@staticmethod
+	def get_lead_source_row(
+		source_name: str,
+		purpose: str | None = None,
+	) -> dict | None:
+		"""Resolve CRM Lead Source by display name and optional purpose."""
+		source_name = (source_name or "").strip()
+		if not source_name:
+			return None
+		filters = {"source_name": source_name}
+		if purpose:
+			filters["purpose"] = purpose
+		return frappe.db.get_value(
+			EnumValues.ReferenceDocType.LEAD_SOURCE,
+			filters,
+			["name", "source_name"],
+			as_dict=True,
+		)
 
 	def find_or_create_lead(
 		self,
@@ -20,43 +49,181 @@ class LeadService:
 		if not mobile_no:
 			return None
 
-		phone_number = parse_phone_number(mobile_no)
-		if not phone_number.get("success"):
+		parsed = parse_phone_number(mobile_no)
+		if not parsed.get("success"):
 			return None
 
-		mobile_no = phone_number.get("national_number")
+		mobile_no = parsed.get("national_number")
 		lead_name = frappe.db.get_value(
 			EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": mobile_no}, "name"
 		)
 
 		if lead_name:
 			doc = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, lead_name)
-			is_new = False
-		else:
-			doc = frappe.new_doc(EnumValues.ReferenceDocType.CRM_LEAD)
-			if not apply_default_crm_lead_status_to_doc(doc):
-				frappe.log_error(
-					title="findOrCreateLead: no CRM Lead Status",
-					message="Configure at least one CRM Lead Status (mark one as default).",
+			if self._update_existing_lead(
+				doc,
+				source=source,
+				source_id=source_id,
+				allow_source_update=allow_source_update,
+				facebook_raw_data=facebook_raw_data,
+				other_info=other_info,
+			):
+				doc.save(ignore_permissions=True)
+			return doc
+
+		return self._create_lead_with_synced_fields(
+			mobile_no,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+		)
+
+	def find_or_create_facebook_lead(
+		self,
+		mobile_no: str,
+		source: str | None = None,
+		source_id: str | None = None,
+		facebook_raw_data: dict | str | None = None,
+		other_info: dict | None = None,
+	):
+		if not mobile_no:
+			frappe.throw(frappe._("Mobile number is required"), frappe.ValidationError)
+
+		parsed = parse_phone_number(mobile_no)
+		if not parsed.get("success"):
+			frappe.throw(
+				frappe._("Invalid mobile number: {0}").format(mobile_no),
+				frappe.ValidationError,
+			)
+
+		mobile_no = parsed.get("national_number")
+		facebook_lead_id = str((other_info or {}).get("facebook_lead_id") or "").strip()
+
+		existing_lead_name = frappe.db.get_value(
+			EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": mobile_no}, "name"
+		)
+		if existing_lead_name:
+			doc = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, existing_lead_name)
+			existing_fb_id = str(doc.get("facebook_lead_id") or "").strip()
+
+			if facebook_lead_id and existing_fb_id == facebook_lead_id:
+				raise DuplicateLeadError(
+					frappe._("A CRM Lead already exists with Facebook lead ID {0}").format(facebook_lead_id)
 				)
-				return None
-			doc.mobile_no = mobile_no
-			doc.lead_type = EnumValues.LeadType.LEAD
-			is_new = True
 
-		if is_new:
-			if source is not None and source_id is not None:
-				doc.source = source
-				doc.source_id = source_id
-		elif allow_source_update:
-			if source is not None:
-				doc.source = source
-			if source_id is not None:
-				doc.source_id = source_id
+			if facebook_lead_id:
+				other_owner = frappe.db.get_value(
+					EnumValues.ReferenceDocType.CRM_LEAD,
+					{"facebook_lead_id": facebook_lead_id},
+					"name",
+				)
+				if other_owner and other_owner != doc.name:
+					raise DuplicateLeadError(
+						frappe._("A CRM Lead already exists with Facebook lead ID {0}").format(
+							facebook_lead_id
+						)
+					)
 
-		dirty = not is_new and (allow_source_update and (source is not None or source_id is not None))
+			if self._update_facebook_lead(
+				doc,
+				source=source,
+				source_id=source_id,
+				facebook_raw_data=facebook_raw_data,
+				other_info=other_info,
+			):
+				doc.save(ignore_permissions=True)
+			return doc
 
-		if facebook_raw_data is not None:
+		if facebook_lead_id and frappe.db.exists(
+			EnumValues.ReferenceDocType.CRM_LEAD, {"facebook_lead_id": facebook_lead_id}
+		):
+			raise DuplicateLeadError(
+				frappe._("A CRM Lead already exists with Facebook lead ID {0}").format(facebook_lead_id)
+			)
+
+		return self._create_lead_with_synced_fields(
+			mobile_no,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+		)
+
+	def _create_lead_with_synced_fields(
+		self,
+		mobile_no: str,
+		*,
+		source: str | None,
+		source_id: str | None,
+		facebook_raw_data: dict | str | None,
+		other_info: dict | None,
+	):
+		doc = frappe.new_doc(EnumValues.ReferenceDocType.CRM_LEAD)
+		if not apply_default_crm_lead_status_to_doc(doc):
+			frappe.log_error(
+				title="findOrCreateLead: no CRM Lead Status",
+				message="Configure at least one CRM Lead Status (mark one as default).",
+			)
+			frappe.throw(
+				frappe._("No default CRM Lead Status is configured"),
+				frappe.ValidationError,
+			)
+
+		doc.mobile_no = mobile_no
+		doc.lead_type = EnumValues.LeadType.LEAD
+		if source and not doc.get("upload_source"):
+			doc.upload_source = source
+			doc.lead_uploaded_at = frappe.utils.now_datetime()
+		doc.insert(ignore_permissions=True)
+
+		if self._apply_synced_lead_fields(
+			doc,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+		):
+			doc.save(ignore_permissions=True)
+
+		return doc
+
+	@staticmethod
+	def _should_update_facebook_raw_data(
+		doc,
+		other_info: dict | None,
+		facebook_raw_data: dict | str | None,
+	) -> bool:
+		if facebook_raw_data is None:
+			return False
+
+		incoming_fb_lead_id = str((other_info or {}).get("facebook_lead_id") or "").strip()
+		existing_fb_lead_id = str(doc.get("facebook_lead_id") or "").strip()
+		return incoming_fb_lead_id != existing_fb_lead_id
+
+	def _apply_synced_lead_fields(
+		self,
+		doc,
+		*,
+		source: str | None,
+		source_id: str | None,
+		facebook_raw_data: dict | str | None,
+		other_info: dict | None,
+		preserve_lead_name: bool = False,
+	) -> bool:
+		dirty = False
+
+		if source is not None:
+			doc.source = source
+			if not doc.get("upload_source"):
+				doc.upload_source = source
+				doc.lead_uploaded_at = frappe.utils.now_datetime()
+			dirty = True
+		if source_id is not None:
+			doc.source_id = source_id
+			dirty = True
+
+		if self._should_update_facebook_raw_data(doc, other_info, facebook_raw_data):
 			doc.facebook_raw_data = (
 				frappe.parse_json(facebook_raw_data)
 				if isinstance(facebook_raw_data, str)
@@ -66,15 +233,54 @@ class LeadService:
 
 		if other_info:
 			for key, value in other_info.items():
+				if key == "mobile_no":
+					continue
+				if preserve_lead_name and key == "lead_name" and (doc.get("lead_name") or "").strip():
+					continue
 				doc.set(key, value)
-			dirty = True
+				dirty = True
 
-		if is_new:
-			doc.insert(ignore_permissions=True)
-		elif dirty:
-			doc.save(ignore_permissions=True)
+		return dirty
 
-		return doc
+	def _update_facebook_lead(
+		self,
+		doc,
+		*,
+		source: str | None,
+		source_id: str | None,
+		facebook_raw_data: dict | str | None,
+		other_info: dict | None,
+	) -> bool:
+		return self._apply_synced_lead_fields(
+			doc,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+			preserve_lead_name=True,
+		)
+
+	def _update_existing_lead(
+		self,
+		doc,
+		*,
+		source: str | None,
+		source_id: str | None,
+		allow_source_update: bool,
+		facebook_raw_data: dict | str | None,
+		other_info: dict | None,
+	) -> bool:
+		should_update = allow_source_update or self._has_facebook_lead_fields(other_info)
+		if not should_update:
+			return False
+
+		return self._apply_synced_lead_fields(
+			doc,
+			source=source,
+			source_id=source_id,
+			facebook_raw_data=facebook_raw_data,
+			other_info=other_info,
+		)
 
 
 lead_service = LeadService()

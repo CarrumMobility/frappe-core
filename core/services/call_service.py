@@ -3620,10 +3620,23 @@ class CallService:
         variables = payload.get("variables")
         events = payload.get("events")
         call_session_id = variables.get("callSessionId")
-        campaign_name = variables.get('campaign_name')
+        campaign_name = variables.get('campaignName')
         caller_status = payload.get('status')
         call_session = frappe.get_cached_doc(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id)
 
+
+        did_number = variables.get("fromNumber")
+        if did_number:
+            try:
+                parsed_phone_data = parse_phone_number(did_number)
+                log.info('parsed phone data: ' + str(parsed_phone_data))
+                national_number = parsed_phone_data.get("national_number")
+                if national_number:
+                    call_session.set("did_number", national_number)
+                else:
+                    log.error("National number not found for DID number: " + did_number)
+            except Exception as e:
+                log.error("Error while parsing DID number: " + str(e))
         if call_session is None:
             return {
                 "is_valid": False,

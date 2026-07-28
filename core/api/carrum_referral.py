@@ -1093,6 +1093,8 @@ def get_referral_details_from_portal(
 	sort_by=None,
 	sort_order=None,
 	converted_at=None,
+	approval_status=None,
+	payment_status=None,
 	base_url=None,
 	token=None,
 ):
@@ -1149,11 +1151,13 @@ def get_referral_details_from_portal(
 	_add("agentReferrerId", agent_referrer_id)
 	_add("configId", config_id)
 	_add("convertedAt", converted_at)
+	_add("approvalStatus", approval_status)
+	_add("paymentStatus", payment_status)
 	_add("sortBy", sort_by)
 	_add("sortOrder", sort_order)
 
 	if only_mine is True or str(only_mine).strip().lower() in ("1", "true", "yes"):
-		params["OnlyMine"] = "true"
+		params["onlyMine"] = "true"
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(

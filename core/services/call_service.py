@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta
-
+import requests
 import frappe
 from crm.api.event import enqueue_complete_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
@@ -28,6 +28,40 @@ from core.services.util_service import UtilService
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
 util_service = UtilService()
+
+
+def recording_requires_proxy(recording_url: str, vendor_name: str | None = None) -> bool:
+	"""Callmatic recordings need server-side api-key; Smartflo URLs are tokenized."""
+	if vendor_name == EnumValues.CallingVendorName.Callmatic:
+		return True
+	url = (recording_url or "").strip().lower()
+	return "callmatic.ai" in url
+
+
+def call_recording_proxy_url(call_session_id: str, download: bool = False) -> str:
+	from urllib.parse import quote
+
+	from frappe.utils import get_url
+
+	session_id = (call_session_id or "").strip()
+	params = [f"call_session_id={quote(session_id)}"]
+	if download:
+		params.append("download=1")
+	query = "&".join(params)
+	return get_url(f"/api/method/core.api.call.get_recording?{query}")
+
+
+def resolve_call_recording_url(
+	call_session_id: str,
+	recording_url: str,
+	vendor_name: str | None = None,
+) -> str | None:
+	url = (recording_url or "").strip()
+	if not url:
+		return None
+	if recording_requires_proxy(url, vendor_name):
+		return call_recording_proxy_url(call_session_id)
+	return url
 default_telephony_vendor = EnumValues.CallingVendorName.Smartflo
 
 
@@ -3715,6 +3749,63 @@ class CallService:
             "call_session": call_session.name
         }
 
+    def get_recording(self, call_session_id: str, download: bool = False):
+        from frappe import _
+
+        call_session_id = (call_session_id or "").strip()
+        if not call_session_id:
+            frappe.throw(_("Call Session is required"))
+
+        if not frappe.db.exists(EnumValues.ReferenceDocType.CALL_SESSION, call_session_id):
+            frappe.throw(_("Call Session not found"), DoesNotExistError)
+
+        call_session_doc = frappe.get_doc(
+            EnumValues.ReferenceDocType.CALL_SESSION, call_session_id
+        )
+        if not frappe.has_permission(
+            EnumValues.ReferenceDocType.CALL_SESSION, "read", call_session_doc
+        ):
+            frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+        recording_url = (call_session_doc.get("recording_url") or "").strip()
+        if not recording_url:
+            frappe.throw(_("Recording URL not found"))
+
+        request_headers = {}
+        vendor_name = call_session_doc.get("vendor_name")
+        if recording_requires_proxy(recording_url, vendor_name):
+            recording_url, request_headers = callmatic_client.get_recording_api_detail(
+                recording_url
+            )
+
+        try:
+            response = requests.get(
+                recording_url, headers=request_headers, timeout=120
+            )
+        except requests.RequestException as exc:
+            log.exception("get_recording request failed for %s", call_session_id)
+            frappe.throw(_("Could not fetch recording: {0}").format(str(exc)))
+
+        if not response.ok:
+            log.error(
+                "get_recording HTTP %s for session=%s",
+                response.status_code,
+                call_session_id,
+            )
+            frappe.throw(_("Recording not available ({0})").format(response.status_code))
+
+        content_type = response.headers.get("Content-Type") or "audio/mpeg"
+        if ";" in content_type:
+            content_type = content_type.split(";", 1)[0].strip()
+
+        filename = f"{call_session_id}.mp3"
+        frappe.local.response.filename = filename
+        frappe.local.response.filecontent = response.content
+        frappe.local.response.type = "download"
+        frappe.local.response.content_type = content_type
+        frappe.local.response.display_content_as = "attachment" if download else "inline"
+        return frappe.local.response
+
 _service = CallService()
 
 
@@ -3867,3 +3958,6 @@ def start_callmatic_based_manual_dial(user: str, payload: dict):
 
 def callmatic_start_call_webhook(payload: dict, webhook_arrived_at: datetime):
     return _service.handle_callmatic_start_call_webhook(payload,webhook_arrived_at)
+
+def get_recording(call_session_id: str, download: bool = False):
+    return _service.get_recording(call_session_id, download=download)

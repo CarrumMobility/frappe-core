@@ -1,25 +1,30 @@
 import ast
+import json
 import logging
 import re
 from datetime import datetime, timedelta
-from core.api import carrum_config
-from core.integrations.callmatic.client import callmatic_client
-from core.api import carrum_accounts
-from core.api.carrum_accounts import get_frappe_user_by_smartflo_account, get_smartflo_credentials_for_frappe_user
-from core.constants.enums import EnumValues
+
+import frappe
 from crm.api.event import enqueue_complete_callback_followups_for_lead
 from crm.api.lead import update_lead_from_call_disposition
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from crm.fcrm.doctype.crm_notification.crm_notification import notify_user
 from crm.utils import parse_phone_number
-import frappe
-import core.integrations.smartflo.client as smartflo_client
 from frappe.exceptions import DoesNotExistError
 from frappe.utils import flt, get_datetime, get_time, getdate
 from frappe.utils.file_lock import LockTimeoutError
 from frappe.utils.synchronization import filelock as fileLock
+
+import core.integrations.smartflo.client as smartflo_client
+from core.api import carrum_accounts, carrum_config
+from core.api.carrum_accounts import (
+    get_frappe_user_by_smartflo_account,
+    get_smartflo_credentials_for_frappe_user,
+)
+from core.constants.enums import EnumValues
+from core.integrations.callmatic.client import callmatic_client
 from core.services.util_service import UtilService
-import json 
+
 log = frappe.logger("core_services_call_service")
 log.setLevel(logging.INFO)
 util_service = UtilService()
@@ -260,7 +265,7 @@ def _inbound_source_allows_call_update(inbound_source) -> bool:
     return bool(frappe.utils.cint(inbound_source.get("allow_source_update_during_call")))
 
 
-def resolve_callmatic_hangup_reason_and_by(caller_status: str,is_transfree_exists: bool = False) -> tuple[str, EnumValues.CallSessionHangupBy, EnumValues.CallSessionStatus]:
+def resolve_callmatic_hangup_reason_and_by(caller_status: str,transfree_status: str | None = None,is_transfree_exists: bool = False) -> tuple[str, EnumValues.CallSessionHangupBy, EnumValues.CallSessionStatus]:
     caller_status_map = {
         "completed": ('The call connected successfully and ended normally.', None, None),
         "busy": ('The Agent line was busy.', EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED),
@@ -272,13 +277,13 @@ def resolve_callmatic_hangup_reason_and_by(caller_status: str,is_transfree_exist
     tranfree_status_map = {
         'completed': ('normal clearing', None, None),
         'busy': ('Customer was busy.', EnumValues.CallSessionHangupBy.LEAD, EnumValues.CallSessionStatus.OB_MISSED),
-        'no-answer': ('Customer did not answer.', EnumValues.CallSessionHangupBy.LEAD, EnumValues.CallSessionStatus.OB_MISSED),
-        'not-reachable': ('Customer phone could not be reached', EnumValues.CallSessionHangupBy.LEAD, EnumValues.CallSessionStatus.OB_MISSED),
+        'no-answer': ('Customer did not answer.', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
+        'not-reachable': ('Customer phone could not be reached', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
         'failed': ('Call failed due to system or network issues', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.FAILED)
     }
 
     if is_transfree_exists:
-        return tranfree_status_map.get(caller_status, (None, None))
+        return tranfree_status_map.get(transfree_status, (None, None))
     return caller_status_map.get(caller_status, (None, None))
 
 
@@ -3644,7 +3649,7 @@ class CallService:
             }
 
         log.info("2...", call_session.name)
-
+        print(call_session.name)
         duration = None
         hangup_reason = None
         hangup_by = None
@@ -3659,16 +3664,14 @@ class CallService:
             start_time = transfree_data.get("startTime")
             end_time = transfree_data.get('endTime')
             duration = (get_datetime(end_time) - get_datetime(start_time)).total_seconds()
-
-            print(duration)
-            if transfree_data.get("status") == "completed" and transfree_data.get("endTime") is not None:
+            if transfree_data.get("status") == "completed":
                 computed_status = EnumValues.CallSessionStatus.DISCONNECTED
             else:
-                computed_status = EnumValues.CallSessionStatus.FAILED
+                computed_status = EnumValues.CallSessionStatus.OB_MISSED
         else:
             duration = 0
 
-        hangup_reason,hangup_by,override_status= resolve_callmatic_hangup_reason_and_by(caller_status)
+        hangup_reason,hangup_by,override_status= resolve_callmatic_hangup_reason_and_by(caller_status, transfree_status=transfree_data.get("status"), is_transfree_exists=transfree_data is not None)
 
         failure_reason = None
 

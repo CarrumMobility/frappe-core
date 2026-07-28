@@ -1,15 +1,16 @@
-from datetime import timedelta
 import re
+from datetime import timedelta
+
+import frappe
+from frappe.core.doctype.user.user import update_password as original_update_password
+from frappe.utils import get_datetime, getdate, now_datetime
+from frappe.utils.data import flt, today
 
 from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.constants.enums import EnumValues
-from frappe.utils import get_datetime, getdate, now_datetime
-import frappe
 from core.services import logged_requests as requests
-from frappe.core.doctype.user.user import update_password as original_update_password
-from frappe.utils.data import flt, today
 
-
+log = frappe.logger(__name__)
 
 def _sync_crm_lead_snapshot_to_event(event_doc, lead_id: str) -> None:
 	"""Copy ``crm_lead_name`` and ``preferred_scheme_1`` from CRM Lead onto Event after insert."""
@@ -364,9 +365,12 @@ class UtilService:
             filters={"primary_lead": lead_id},
             pluck="name",
         )
-        frappe.logger.info("secondary driver founds: %s", secondary_drivers)
+        log.info("secondary driver founds: %s", secondary_drivers)
         for secondary_driver_name in secondary_drivers:
-            frappe.db.set_value(EnumValues.ReferenceDocType.CRM_LEAD, secondary_driver_name, "primary_lead", None)
+            secondary_driver = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, secondary_driver_name)
+            secondary_driver.primary_lead = None
+            secondary_driver.save(ignore_permissions=True)
+
         return {"cleared": len(secondary_drivers), "names": secondary_drivers}
 
     def raise_driver_return_request(

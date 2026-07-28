@@ -241,6 +241,7 @@ class CallSession(Document):
 			"hangup_reason",
 			"disposed_at",
 			"recording_url",
+			"vendor_name",
 		]
 		return {"columns": columns, "rows": rows}
 
@@ -277,6 +278,15 @@ class CallSession(Document):
 			r["_lead_name"] = lead_names.get(lid) or lid
 			r["_hub_name"] = lead_hubs.get(lid) or ""
 			r["_direction_label"] = r.get("direction") or ""
+			recording_url = (r.get("recording_url") or "").strip()
+			if recording_url:
+				from core.services.call_service import resolve_call_recording_url
+
+				r["recording_url"] = resolve_call_recording_url(
+					r.get("name") or "",
+					recording_url,
+					r.get("vendor_name"),
+				)
 			aid = r.get("agent")
 			if aid:
 				r["_agent"] = {"label": user_names.get(aid) or aid, "image": None}

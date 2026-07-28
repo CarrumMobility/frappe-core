@@ -181,3 +181,9 @@ def callmatic_start_call_webhook():
     log.info("callmatic_start_call_webhook payload: %s", payload)
     webhook_arrived_at = frappe.utils.now_datetime()
     return call_service.callmatic_start_call_webhook(payload, webhook_arrived_at)
+
+@frappe.whitelist(methods=['GET'])
+def get_recording(call_session_id: str):
+	"""Proxy Call Session recording for inline play or download (Callmatic api-key)."""
+	download = frappe.utils.cint(frappe.form_dict.get("download"))
+	return call_service.get_recording(call_session_id, download=bool(download))

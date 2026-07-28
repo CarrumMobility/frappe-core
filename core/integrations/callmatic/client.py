@@ -106,5 +106,10 @@ class CallmaticClient:
             'response_data': response_data,
         }
 
+    def get_recording_api_detail(self, url: str):
+        headers = {
+            "api-key": f"{self.api_key}"
+        }
+        return url, headers
 
 callmatic_client = CallmaticClient(api_key=frappe.conf.get("callmatic_api_key"))

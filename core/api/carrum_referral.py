@@ -764,6 +764,50 @@ def reject_reward_ledger_on_carrum_portal(
 	)
 
 
+def unflag_reward_ledger_payment_issue_on_carrum_portal(
+	ledger_id=None,
+	logged_in_user_id=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Resolve a finance payment dispute on a reward ledger.
+
+	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/unflag-payment-issue``
+	with query ``loggedInUserId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	ledger_key = (str(ledger_id).strip() if ledger_id is not None else "") or ""
+	if not ledger_key:
+		return {
+			"success": False,
+			"error": _("Ledger id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=(
+			f"/api/v1/referral-rewards/reward-ledger/"
+			f"{quote(ledger_key, safe='')}/unflag-payment-issue"
+		),
+		params={"loggedInUserId": user_key},
+		log_tag="unflag-reward-ledger-payment-issue",
+	)
+
+
 def approve_referral_by_referral_id_on_carrum_portal(
 	amount=None,
 	referral_id=None,
@@ -1001,6 +1045,69 @@ def reject_referral_on_carrum_portal(
 		"data": payload_out,
 		"message": _("Referral request rejected"),
 	}
+
+
+def full_reject_referral_on_carrum_portal(
+	referral_id=None,
+	logged_in_user_id=None,
+	reward_type=None,
+	reason=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Complete rejection on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/{referralId}/full-reject``
+	with query ``loggedInUserId`` and JSON body ``rewardType``, ``reason``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	referral_key = (str(referral_id).strip() if referral_id is not None else "") or ""
+	if not referral_key:
+		return {
+			"success": False,
+			"error": _("Referral id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	reward_type_str = (str(reward_type).strip() if reward_type is not None else "") or ""
+	if not reward_type_str:
+		return {
+			"success": False,
+			"error": _("Reward type is required"),
+			"request_url": None,
+		}
+
+	reason_str = (str(reason).strip() if reason is not None else "") or ""
+	if not reason_str:
+		return {
+			"success": False,
+			"error": _("Reason is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/{quote(referral_key, safe='')}/full-reject",
+		params={"loggedInUserId": user_key},
+		json={
+			"rewardType": reward_type_str,
+			"reason": reason_str,
+		},
+		log_tag="full-reject-referral",
+	)
 
 
 def get_referral_scheme_list_from_portal(

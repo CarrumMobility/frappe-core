@@ -1,7 +1,8 @@
-from core.api import carrum_accounts
-from core.services import logged_requests as requests
 import frappe
 from frappe import _
+
+from core.api import carrum_accounts
+from core.services import logged_requests as requests
 
 
 def get_chatwoot_ctx(username: str | None = None) -> dict | None:
@@ -39,8 +40,7 @@ def create_message(conversation_id: int, payload: dict, ctx: dict) -> dict:
 	See: https://developers.chatwoot.com/api-reference/messages/create-new-message
 	"""
 	url = (
-		f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}"
-		f"/conversations/{int(conversation_id)}/messages"
+		f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/conversations/{int(conversation_id)}/messages"
 	)
 	response = requests.request(
 		method="POST",
@@ -71,12 +71,18 @@ def get_my_conversations(ctx: dict, page: int = 1) -> dict:
 		f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/conversations"
 		f"?assignee_type=me&status=open&page={page_i}"
 	)
-	response = requests.request(
-		method="GET",
-		url=url,
-		headers=ctx['headers']
-	)
+	response = requests.request(method="GET", url=url, headers=ctx["headers"])
 
 	if not response.ok:
 		frappe.throw(_("Failed to get my conversations: {0}").format(response.text))
+	return response.json()
+
+
+def search_contact_by_phone(phone_number: str, ctx: dict) -> dict:
+	url = f"{ctx['base_url']}/api/v1/accounts/{ctx['account_id']}/contacts/search?q={phone_number}"
+	response = requests.request(method="GET", url=url, headers=ctx["headers"])
+
+	if not response.ok:
+		frappe.throw(_("Failed to get contact by phone number: {0}").format(response.text))
+
 	return response.json()

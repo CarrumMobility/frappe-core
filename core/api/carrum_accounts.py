@@ -393,3 +393,13 @@ def get_dm_of_all_businessTypes(hubId: str):
     response = requests.get(url, headers={"Authorization": old_carrum_token})
     data = response.json()
     return data
+
+def get_users_details_against_did_number(did_number: str):
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users?page=1&limit=20&searchBy=did&search={did_number}"
+    response = requests.get(url, headers={"Authorization", carrum_token})
+
+    data = response.json()
+
+    return data

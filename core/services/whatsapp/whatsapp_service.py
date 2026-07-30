@@ -203,4 +203,22 @@ class WhatsappService:
 			1 for conversation in conversations if (conversation.get("unread_count") or 0) > 0
 		)
 
-	
+	def get_contacts_by_phone_number(self, phone_number: str, user: str) -> list[dict]:
+		ctx = chatwoot_client.get_chatwoot_ctx(username=user)
+		if ctx is None:
+			frappe.throw("Chatwoot is not configured for this user. Check Carrum chatwoot credentials.")
+
+		contacts = chatwoot_client.search_contact_by_phone(phone_number, ctx)
+		contact_payload = contacts.get("payload") or []
+		contact_data = []
+		for contact in contact_payload:
+			custom_attributes = contact.get("custom_attributes") or {}
+			contact_data.append(
+				{
+					"contact_id": contact.get("id"),
+					"phone": contact.get("phone"),
+					"driver_id": custom_attributes.get("driverId") or None
+				}
+			)
+
+		return contact_data

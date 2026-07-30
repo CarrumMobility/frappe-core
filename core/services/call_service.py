@@ -301,24 +301,25 @@ def _inbound_source_allows_call_update(inbound_source) -> bool:
 
 def resolve_callmatic_hangup_reason_and_by(caller_status: str,transfree_status: str | None = None,is_transfree_exists: bool = False) -> tuple[str, EnumValues.CallSessionHangupBy, EnumValues.CallSessionStatus]:
     caller_status_map = {
-        "completed": ('The call connected successfully and ended normally.', None, None),
+        "completed": ('Call completed successfully', None, None),
         "busy": ('The Agent line was busy.', EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED),
-        "no-answer": ("Agent did not answer", EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED),
-        "not-reachable": ("Agent's phone number could not be reached", EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.FAILED),
-        "caller-cancelled": ("Agent cancelled call before it was answered.", EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED)
+        "no-answer": ("Agent didn't answer", EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED),
+        "not-reachable": ("Agent unreachable", EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.FAILED),
+        "caller-cancelled": ("Cancelled before answer", EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED)
     }
 
     tranfree_status_map = {
         'completed': ('normal clearing', None, None),
         'busy': ('Customer was busy.', EnumValues.CallSessionHangupBy.LEAD, EnumValues.CallSessionStatus.OB_MISSED),
-        'no-answer': ('Customer did not answer.', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
-        'not-reachable': ('Customer phone could not be reached', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
-        'failed': ('Call failed due to system or network issues', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.FAILED)
+        'no-answer': ("Customer didn't answer", EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
+        'not-reachable': ('Customer unreachable', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.OB_MISSED),
+        'failed': ('System or network failure', EnumValues.CallSessionHangupBy.SYSTEM, EnumValues.CallSessionStatus.FAILED),
+        'caller-cancelled': ('Cancelled before customer answered', EnumValues.CallSessionHangupBy.AGENT, EnumValues.CallSessionStatus.FAILED)
     }
 
     if is_transfree_exists:
-        return tranfree_status_map.get(transfree_status, (None, None))
-    return caller_status_map.get(caller_status, (None, None))
+        return tranfree_status_map.get(transfree_status, (None, None, None))
+    return caller_status_map.get(caller_status, (None, None, None))
 
 
 def _apply_inbound_lead_source_during_call(lead, inbound_source):

@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "api_name",
+  "method",
   "end_point",
   "headers",
   "request_payload",
@@ -32,6 +33,11 @@
    "fieldname": "headers",
    "fieldtype": "JSON",
    "label": "Headers"
+  },
+  {
+    "fieldname": "method",
+    "fieldtype": "Data",
+    "label": "Method"
   },
   {
    "fieldname": "request_payload",

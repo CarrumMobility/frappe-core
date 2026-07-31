@@ -112,16 +112,10 @@ def getHubFeeConfig() -> dict:
 def getCarrumUserData() -> dict:
 	user = frappe.session.user
 	# carrum_user = fetch_carrum_user_data_using_frappe_username("admin")
-	print(
-		"----------user1--------------",
-		user,
-		"----------user1--------------",
-	)
-	print(
-		"----------user2--------------",
-		frappe.session,
-		"----------user2--------------",
-	)
 	carrum_user = fetch_carrum_user_data_using_frappe_username(user)
 	print("carrum_user", carrum_user, "frappeUser", frappe.session)
 	return {"success": True, "data": carrum_user}
+
+def get_c2c_did() -> dict:
+    data = _fetch_carrum_config_by_key('DID_FOR_C2C')
+    return data;

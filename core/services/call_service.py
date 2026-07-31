@@ -3692,21 +3692,25 @@ class CallService:
         hangup_at = None
         if events is not None:
             agent_answered_at = _callmatic_iso_to_naive_ist(events.get("answer"))
-            hangup_at = _callmatic_iso_to_naive_ist(events.get("hangup"))
+            hangup_at = _callmatic_iso_to_naive_ist(events.get("hangup") or events.get("end"))
 
-        if transfree_data is not None and len(transfree_data) > 0:
-            transfree_data = transfree_data[0]
-            start_time = transfree_data.get("startTime")
-            end_time = transfree_data.get('endTime')
+        transfree_item = transfree_data[0] if transfree_data else None
+        if transfree_item:
+            start_time = transfree_item.get("startTime")
+            end_time = transfree_item.get("endTime")
             duration = (get_datetime(end_time) - get_datetime(start_time)).total_seconds()
-            if transfree_data.get("status") == "completed":
+            if transfree_item.get("status") == "completed":
                 computed_status = EnumValues.CallSessionStatus.DISCONNECTED
             else:
                 computed_status = EnumValues.CallSessionStatus.OB_MISSED
         else:
             duration = 0
 
-        hangup_reason,hangup_by,override_status= resolve_callmatic_hangup_reason_and_by(caller_status, transfree_status=transfree_data.get("status"), is_transfree_exists=transfree_data is not None)
+        hangup_reason, hangup_by, override_status = resolve_callmatic_hangup_reason_and_by(
+            caller_status,
+            transfree_status=transfree_item.get("status") if transfree_item else None,
+            is_transfree_exists=transfree_item is not None,
+        )
 
         failure_reason = None
 

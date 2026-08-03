@@ -1,7 +1,8 @@
 import frappe
-from core.constants.enums import EnumValues
 from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
 from crm.utils import parse_phone_number
+
+from core.constants.enums import EnumValues
 
 
 class DuplicateLeadError(frappe.ValidationError):

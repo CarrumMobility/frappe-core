@@ -196,7 +196,8 @@ delete_file_data_content=["core.s3_file_hooks.delete_file_data_content"]
 #
 override_whitelisted_methods = {
     "frappe.core.doctype.user.user.update_password": "core.services.util_service.blockPasswordChange",
-    "frappe.core.doctype.user.user.reset_password": "core.services.util_service.blockPasswordChange"
+    "frappe.core.doctype.user.user.reset_password": "core.services.util_service.blockPasswordChange",
+    "frappe.client.set_value": "core.override.client.set_value",
 }
 #
 # each overriding function accepts a `data` argument;

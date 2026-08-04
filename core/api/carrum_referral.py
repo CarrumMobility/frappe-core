@@ -62,6 +62,7 @@ def create_referral_on_portal(
 	hubId,
 	referrerId=None,
 	businessType=None,
+	referrerType=None,
 	base_url=None,
 	token=None,
 ):
@@ -69,7 +70,8 @@ def create_referral_on_portal(
 	Create a referral on the Carrum portal (POST ``/api/v1/referral-rewards``).
 
 	Payload: ``refereeId``, ``hubId`` (may be JSON null), optional ``agentReferrerId``
-	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided.
+	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided,
+	optional ``referrerType`` when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -98,6 +100,9 @@ def create_referral_on_portal(
 	business_type = str(businessType).strip() if businessType is not None else ""
 	if business_type:
 		payload["businessType"] = business_type
+	referrer_type = str(referrerType).strip() if referrerType is not None else ""
+	if referrer_type:
+		payload["referrerType"] = referrer_type
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -1202,6 +1207,8 @@ def get_referral_details_from_portal(
 	converted_at=None,
 	approval_status=None,
 	payment_status=None,
+	referrer_type=None,
+	referral_category=None,
 	base_url=None,
 	token=None,
 ):
@@ -1260,6 +1267,7 @@ def get_referral_details_from_portal(
 	_add("convertedAt", converted_at)
 	_add("approvalStatus", approval_status)
 	_add("paymentStatus", payment_status)
+	_add("referralCategory", referral_category or referrer_type)
 	_add("sortBy", sort_by)
 	_add("sortOrder", sort_order)
 

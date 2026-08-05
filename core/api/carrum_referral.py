@@ -100,7 +100,19 @@ def create_referral_on_portal(
 	business_type = str(businessType).strip() if businessType is not None else ""
 	if business_type:
 		payload["businessType"] = business_type
-	referrer_type = str(referrerType).strip() if referrerType is not None else ""
+	# Normalize LEAD+EMPLOYEE → LEAD, etc. Pure EMPLOYEE / empty → omit.
+	referrer_type_raw = str(referrerType).strip() if referrerType is not None else ""
+	referrer_type = ""
+	if referrer_type_raw:
+		upper = referrer_type_raw.upper()
+		for base in ("LEAD", "VENDOR", "EXISTING_DP"):
+			if (
+				upper == base
+				or upper.startswith(f"{base}+")
+				or upper.endswith(f"+{base}")
+			):
+				referrer_type = base
+				break
 	if referrer_type:
 		payload["referrerType"] = referrer_type
 

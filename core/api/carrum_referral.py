@@ -16,6 +16,7 @@ def create_lead_referral_on_portal(
 	hubId,
 	agentReferrerId=None,
 	configId=None,
+	createdBy=None,
 	base_url=None,
 	token=None,
 ):
@@ -25,6 +26,7 @@ def create_lead_referral_on_portal(
 	Payload includes ``refereeId``, ``referrerId``, and ``hubId``.
 	``referrerId`` / ``hubId`` may be None (sent as JSON null).
 	``configId`` is sent for vendor referral scheme configuration when provided.
+	``createdBy`` is the logged-in Carrum agent UUID (always sent when provided).
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -42,11 +44,13 @@ def create_lead_referral_on_portal(
 		"referrerId": referrerId,
 		"hubId": hubId,
 	}
-	if(agentReferrerId):
+	if agentReferrerId:
 		payload["agentReferrerId"] = agentReferrerId
 	if configId:
 		payload["configId"] = str(configId).strip()
-	print(payload,'payload')
+	created_by = str(createdBy).strip() if createdBy is not None else ""
+	if created_by:
+		payload["createdBy"] = created_by
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
@@ -63,6 +67,7 @@ def create_referral_on_portal(
 	referrerId=None,
 	businessType=None,
 	referrerType=None,
+	createdBy=None,
 	base_url=None,
 	token=None,
 ):
@@ -71,7 +76,7 @@ def create_referral_on_portal(
 
 	Payload: ``refereeId``, ``hubId`` (may be JSON null), optional ``agentReferrerId``
 	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided,
-	optional ``referrerType`` when provided.
+	optional ``referrerType`` when provided, ``createdBy`` (logged-in agent UUID) when provided.
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -100,9 +105,24 @@ def create_referral_on_portal(
 	business_type = str(businessType).strip() if businessType is not None else ""
 	if business_type:
 		payload["businessType"] = business_type
-	referrer_type = str(referrerType).strip() if referrerType is not None else ""
+	# Normalize LEAD+EMPLOYEE → LEAD, etc. Pure EMPLOYEE / empty → omit.
+	referrer_type_raw = str(referrerType).strip() if referrerType is not None else ""
+	referrer_type = ""
+	if referrer_type_raw:
+		upper = referrer_type_raw.upper()
+		for base in ("LEAD", "VENDOR", "EXISTING_DP"):
+			if (
+				upper == base
+				or upper.startswith(f"{base}+")
+				or upper.endswith(f"+{base}")
+			):
+				referrer_type = base
+				break
 	if referrer_type:
 		payload["referrerType"] = referrer_type
+	created_by = str(createdBy).strip() if createdBy is not None else ""
+	if created_by:
+		payload["createdBy"] = created_by
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -1196,6 +1216,7 @@ def get_referral_details_from_portal(
 	status=None,
 	agent_role=None,
 	agent_name=None,
+	created_by_name=None,
 	hub_id=None,
 	referee_id=None,
 	referrer_id=None,
@@ -1259,6 +1280,7 @@ def get_referral_details_from_portal(
 	_add("status", status)
 	_add("agentRole", agent_role)
 	_add("agentName", agent_name)
+	_add("createdByName", created_by_name)
 	_add("hubId", hub_id)
 	_add("refereeId", referee_id)
 	_add("referrerId", referrer_id)

@@ -51,7 +51,8 @@
         "lead_callback_datetime",
         "redial_time",
         "vendor_disposition_code",
-        "is_auto_disposed"
+        "is_auto_disposed",
+        "did_number"
     ],
     "fields": [
         {
@@ -234,7 +235,7 @@
             "fieldname": "vendor_name",
             "fieldtype": "Select",
             "label": "Vendor name",
-            "options": "\nSmartflo\nGirnar",
+            "options": "\nSmartflo\nGirnar\nCallmatic",
             "reqd": 1
         },
         {
@@ -319,6 +320,12 @@
             "fieldname": "is_auto_disposed",
             "fieldtype": "Check",
             "label": "Is auto disposed"
+        },
+        {
+            "fieldname": "did_number",
+            "fieldtype": "Data",
+            "label": "DID Number",
+            "search_index": 1
         }
     ],
     "grid_page_length": 50,

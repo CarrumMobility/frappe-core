@@ -22,5 +22,6 @@ class Apihitlog(Document):
 		request_payload: DF.JSON | None
 		response: DF.JSON | None
 		status_code: DF.Int
+		method: DF.Data
 	# end: auto-generated types
 	pass

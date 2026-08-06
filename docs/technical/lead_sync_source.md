@@ -2,7 +2,8 @@
 
 **DocType:** `Lead Sync Source`  
 **Module:** Lead Syncing (`crm` app)  
-**Status:** Beta
+**Status:** Beta  
+**Product guide:** [../product/lead_sync_source.md](../product/lead_sync_source.md)
 
 ---
 
@@ -262,7 +263,7 @@ before_insert() → fetch_and_store_pages_from_facebook(token)
 
 ### 2. Lead fetch
 
-Facebook leads are fetched for the **last 24 hours** (`now - 1 day`) during normal sync and scheduled sync. Sync does **not** use `Lead Sync Source.last_synced_at`.
+Facebook leads are fetched for the **last 24 hours** (`now - 1 day`) during normal sync and scheduled sync. Sync does **not** use `Lead Sync Source.last_synced_at`. Each Graph API call writes an **`Api hit log`** record with the full JSON response (stored in MariaDB `LONGTEXT`), redacted request params, status code, and duration.
 
 ```
 GET https://graph.facebook.com/v23.0/{form_id}/leads
@@ -494,6 +495,22 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 | `start` | int | Pagination offset |
 | `page_length` | int | Page size (default 20) |
 
+#### `get_lead_sync_entries` response
+
+```json
+{
+  "entries": [ /* Lead Sync Entry rows including raw */ ],
+  "total_count": 2517,
+  "has_next_page": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `entries` | list | Page of sync entry rows (`name`, `vendor_id`, `vendor_name`, `lead_id`, `submitted_at`, `creation`, `raw`) |
+| `total_count` | int | Total matching rows for the current filters (used by UI tab badge) |
+| `has_next_page` | bool | `start + page_length < total_count` |
+
 ### Facebook Graph API
 
 | Endpoint | Purpose |
@@ -549,8 +566,8 @@ Pending `Lead Sync Entry` rows (no `lead_id`) are automatically picked up on the
 |---|---|
 | `LeadSyncSourcePage.vue` | List ↔ form navigation |
 | `LeadSyncSources.vue` | Source list, enable/disable, delete |
-| `LeadSyncSourceForm.vue` | Create/edit, mapping grid, sync now, force sync, tabs |
-| `LeadSyncEntries.vue` | Sync entries list, date range filter, search, detail view |
+| `LeadSyncSourceForm.vue` | Create/edit, mapping grid, sync now, force sync, tabs; **prefetches** first sync-entries page |
+| `LeadSyncEntries.vue` | Sync entries list, date range filter, search, detail view; reuses parent prefetch |
 | `leadSyncEntryUtils.js` | Parse `raw` JSON into form responses + additional info rows |
 | `FailureLogs.vue` | Failure log viewer with retry |
 | `leadSyncSourceConfig.js` | Supported source types |
@@ -562,10 +579,24 @@ Each source form has three tabs (when editing):
 | Tab | Purpose |
 |---|---|
 | **Details** | Page/form selection, field mapping, **Sync now**, **Force sync** (role-gated) |
-| **Sync entries** | Paginated list of `Lead Sync Entry` records with date range filter and vendor/lead ID search; click a row for detail (form responses, additional info, raw JSON) |
+| **Sync entries (`N`)** | Paginated list of `Lead Sync Entry` records with date range filter and vendor/lead ID search; click a row for detail (form responses, additional info, raw JSON). Tab label includes `total_count` when known |
 | **Failure logs** | Failed/duplicate imports with retry |
 
+### Sync entries prefetch
+
+Opening an existing source (not create mode) triggers an early `get_lead_sync_entries` call from `LeadSyncSourceForm.vue`:
+
+| Behavior | Detail |
+|---|---|
+| When | As soon as the source name is known (`watch` on `[isLocal, syncSource.name]`) |
+| Request | `source`, `start=0`, `page_length=20` (no date/search filters) |
+| Tab label | `Sync entries (total_count)` once the response returns |
+| Tab open | `LeadSyncEntries.vue` reuses the prefetched first page — no duplicate fetch unless filters / load-more / clear require a refresh |
+| Count updates | Child emits `update:totalCount` after filtered fetches so the tab badge stays in sync |
+
 Field mapping grid loads `Facebook Lead Form.questions` and populates `mapped_to_crm_field` from `CRM Lead` field metadata.
+
+**Product guide:** [../product/lead_sync_source.md](../product/lead_sync_source.md)
 
 ---
 

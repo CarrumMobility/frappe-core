@@ -46,7 +46,7 @@ class CallSession(Document):
 		status: DF.Literal["INITIATED", "FAILED", "AGENT_CONNECTED", "CUSTOMER_CONNECTED", "OB Missed", "IB Missed", "DISCONNECTED", "DISPOSED"]
 		sub_disposition_status: DF.Data | None
 		vendor_agent_id: DF.Data | None
-		vendor_name: DF.Literal["", "Smartflo", "Girnar"]
+		vendor_name: DF.Literal["", "Smartflo", "Girnar", "Callmatic"]
 		lead_source_during_call: DF.Data | None
 		recording_url: DF.LongText | None
 		campaign_name: DF.Data | None
@@ -54,6 +54,7 @@ class CallSession(Document):
 		lead_callback_datetime: DF.Datetime | None
 		ring_duration: DF.Duration | None
 		is_auto_disposed: DF.Check | None
+		did_number: DF.Data | None
 	# end: auto-generated types
 
 	def validate(self) -> None:
@@ -240,6 +241,7 @@ class CallSession(Document):
 			"hangup_reason",
 			"disposed_at",
 			"recording_url",
+			"vendor_name",
 		]
 		return {"columns": columns, "rows": rows}
 
@@ -276,6 +278,15 @@ class CallSession(Document):
 			r["_lead_name"] = lead_names.get(lid) or lid
 			r["_hub_name"] = lead_hubs.get(lid) or ""
 			r["_direction_label"] = r.get("direction") or ""
+			recording_url = (r.get("recording_url") or "").strip()
+			if recording_url:
+				from core.services.call_service import resolve_call_recording_url
+
+				r["recording_url"] = resolve_call_recording_url(
+					r.get("name") or "",
+					recording_url,
+					r.get("vendor_name"),
+				)
 			aid = r.get("agent")
 			if aid:
 				r["_agent"] = {"label": user_names.get(aid) or aid, "image": None}

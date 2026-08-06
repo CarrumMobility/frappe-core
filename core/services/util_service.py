@@ -615,12 +615,8 @@ def publish_docs() -> dict:
 
                 file_path = os.path.join(root, file)
                 relative_path = os.path.relpath(file_path, docs_folder)
-                parts = relative_path.split(os.sep)
-                if len(parts) < 2:
-                    continue
-
-                category, filename = parts[0], parts[-1]
-                route = f"docs/{category}/{filename[:-3]}"
+                route_path = relative_path[:-3].replace(os.sep, "/")
+                route = f"docs/{route_path}"
                 with open(file_path, encoding="utf-8") as f:
                     content = f.read()
 
@@ -633,7 +629,7 @@ def publish_docs() -> dict:
 
                 title = next(
                     (line[2:].strip() for line in content.splitlines() if line.startswith("# ")),
-                    filename[:-3].replace("_", " ").replace("-", " ").title(),
+                    os.path.basename(file)[:-3].replace("_", " ").replace("-", " ").title(),
                 )
                 existing = frappe.db.exists("Web Page", {"route": route})
                 doc = frappe.get_doc("Web Page", existing) if existing else frappe.new_doc("Web Page")

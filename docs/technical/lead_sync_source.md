@@ -9,9 +9,9 @@
 
 ## Overview
 
-Lead Sync Source is the configuration and orchestration layer for automatically importing leads from external platforms into `CRM Lead`. It currently supports **Facebook Lead Ads** and is designed to be extended for additional source types.
+Lead Sync Source is the configuration and orchestration layer for automatically importing leads from external platforms into `CRM Lead`. It supports **Facebook Lead Ads** and **OLX Business Lead Sharing**.
 
-Each record represents one integration endpoint — typically one Facebook Lead Form — with its own sync schedule, field mappings, and failure logs.
+Each record represents one integration endpoint — a Facebook Lead Form or an OLX Business account — with its own sync schedule, field mappings (Facebook), and failure logs.
 
 ---
 
@@ -21,22 +21,26 @@ Each record represents one integration endpoint — typically one Facebook Lead 
 flowchart TB
     subgraph External
         FB[Facebook Graph API v23.0]
+        OLX[OLX Business API]
     end
 
     subgraph Configuration
         LSS[Lead Sync Source]
-        FBP[Facebook Page]
-        FBLF[Facebook Lead Form]
+        CLS[CRM Lead Source via source_id]
+        FBP[Facebook Page / Lead Form]
         FBLFQ[Facebook Lead Form Question]
+        OLXC[OLX username + password]
     end
 
     subgraph Sync Engine
         FBS[FacebookSyncSource]
+        OSS[OlxSyncSource]
+        OC[OlxClient]
         BG[background_sync.py]
         Q[Redis queue - default]
-        W[process_facebook_lead_sync]
+        WFB[process_facebook_lead_sync]
+        WOLX[process_olx_lead_sync]
         LSE[Lead Sync Entry]
-        LS[lead_service.find_or_create_facebook_lead]
     end
 
     subgraph Output
@@ -44,21 +48,28 @@ flowchart TB
         FLL[Failed Lead Sync Log]
     end
 
-    FB -->|fetch pages/forms/leads| FBS
+    LSS --> CLS
+    FB --> FBS
+    OLX --> OC --> OSS
     LSS --> FBS
-    FBLF --> FBLFQ
-    FBLFQ -->|question → CRM field map| FBS
+    LSS --> OSS
+    OLXC --> OSS
+    FBLFQ -->|field mapping| FBS
     BG -->|scheduler| LSS
-    LSS -->|sync_leads / _sync_leads| FBS
-    FBS -->|skip if lead_id linked| LSE
-    FBS -->|create Lead Sync Entry then enqueue| LSE
-    FBS -->|enqueue one job per lead| Q
-    Q --> W
-    W --> LSE
-    W --> LS
-    LS --> CRM
-    W -->|update lead_id on LSE| LSE
-    W -->|duplicate / error| FLL
+    LSS -->|_sync_leads| FBS
+    LSS -->|_sync_leads| OSS
+    FBS -->|create entry then enqueue| LSE
+    FBS --> Q
+    OSS -->|delete today's entries| LSE
+    OSS -->|enqueue only| Q
+    Q --> WFB
+    Q --> WOLX
+    WFB --> LSE
+    WOLX -->|create entry in worker| LSE
+    WFB -->|find_or_create_facebook_lead| CRM
+    WOLX -->|find_or_create_lead + olx fields| CRM
+    WFB --> FLL
+    WOLX --> FLL
 ```
 
 ### Code layout
@@ -67,12 +78,17 @@ flowchart TB
 |---|---|
 | `crm/lead_syncing/doctype/lead_sync_source/lead_sync_source.py` | DocType controller, validation, sync entry points |
 | `crm/lead_syncing/doctype/lead_sync_source/facebook.py` | Facebook Graph API client, fetch/enqueue, per-lead worker |
+| `crm/lead_syncing/doctype/lead_sync_source/olx.py` | OLX fetch/enqueue, per-lead worker, CRM import |
+| `crm/lead_syncing/doctype/lead_sync_source/sync_utils.py` | CRM Lead Source resolution, `last_synced_at` helper |
+| `core/integrations/olx/client.py` | OLX Business API HTTP client (login, paginated leads) |
 | `crm/lead_syncing/background_sync.py` | Scheduler-driven batch sync |
 | `crm/lead_syncing/doctype/facebook_page/` | Cached Facebook pages |
 | `crm/lead_syncing/doctype/facebook_lead_form/` | Cached lead gen forms and question metadata |
 | `crm/lead_syncing/doctype/failed_lead_sync_log/` | Failure/duplicate logs and retry |
 | `core/platform/doctype/lead_sync_entry/` | Audit trail: raw vendor payload before CRM import |
-| `core/services/crm_lead/lead_service.py` | Lead creation logic (`find_or_create_facebook_lead`) |
+| `core/services/crm_lead/lead_service.py` | Lead creation (`find_or_create_facebook_lead`, `find_or_create_lead`) |
+| `crm/api/activities.py` | Activity timeline grouping for OLX lead intent |
+| `crm/api/crm_lead_source.py` | CRM Lead Source search for `source_id` dropdown |
 | `crm/lead_syncing/config.py` | Global Config helpers for force sync role gating |
 
 ---
@@ -94,13 +110,16 @@ flowchart TB
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `type` | Select (`Facebook`) | Yes | Default: `Facebook` |
-| `access_token` | Password | No | Hidden. Populated from site config |
+| `type` | Select (`Facebook`, `Olx`) | Yes | |
+| `source_id` | Link → `CRM Lead Source` | Yes | Sets `source` / `source_id` on imported CRM Leads |
+| `access_token` | Password | No | Hidden. Populated from site config (Facebook) |
 | `enabled` | Check | No | Default: `1` |
 | `background_sync_frequency` | Select | Yes | Every 5/10/15 min, Hourly, Daily, Monthly |
-| `last_synced_at` | Datetime | No | Legacy read-only field on DocType; **not updated by sync** |
-| `facebook_page` | Link → `Facebook Page` | No | |
-| `facebook_lead_form` | Link → `Facebook Lead Form` | No | Unique across all sources |
+| `last_synced_at` | Datetime | No | Read-only; updated after OLX sync completes |
+| `username` | Data | OLX only | OLX Business login |
+| `password` | Password | OLX only | OLX Business password |
+| `facebook_page` | Link → `Facebook Page` | Facebook only | |
+| `facebook_lead_form` | Link → `Facebook Lead Form` | Facebook only | Unique across all sources |
 
 ### `Facebook Page`
 
@@ -139,23 +158,23 @@ Autoname: `id` (Facebook form ID)
 |---|---|---|
 | `type` | Select | Duplicate, Failure, Synced |
 | `source` | Link → `Lead Sync Source` | |
-| `lead_data` | Code (JSON) | Raw Facebook lead payload |
+| `lead_data` | Code (JSON) | Raw vendor lead payload (Facebook or OLX) |
 | `traceback` | Code | Stack trace for failures |
 
 ### `Lead Sync Entry`
 
 DocType name: `Lead Sync Entry` (module: Platform, `core` app)
 
-Every fetched vendor lead is recorded in **`Lead Sync Entry` before CRM import**. A row is created during orchestration (before enqueue) and is guaranteed again inside the worker via `get_or_create_lead_sync_entry()`. `vendor_id` is unique and used as the idempotency key.
+Every fetched vendor lead is recorded in **`Lead Sync Entry` before CRM import**. Facebook uses `vendor_id` (Facebook lead ID) as the idempotency key with **application-level duplicate validation** in `LeadSyncEntry.validate_unique_vendor_id()`. OLX entries intentionally **omit `vendor_id`** on the row (insert uses `ignore_mandatory=True` when a Property Setter marks the field required).
 
 | Field | Type | Notes |
 |---|---|---|
-| `vendor_id` | Data | Required. Unique. Facebook lead ID for Facebook sync |
-| `vendor_name` | Data | Vendor label (e.g. `Facebook`) |
+| `vendor_id` | Data | **Facebook:** required in practice; Facebook lead ID. **OLX:** left empty |
+| `vendor_name` | Data | Vendor label (e.g. `Facebook`, `Olx`) |
 | `lead_sync_source` | Link → `Lead Sync Source` | Parent source |
 | `lead_id` | Link → `CRM Lead` | Set after successful import; empty while pending |
 | `raw` | JSON | Full vendor payload (see [Raw payload format](#raw-payload-format)) |
-| `submitted_at` | Datetime | Vendor submission time (`created_time` for Facebook) |
+| `submitted_at` | Datetime | Vendor submission time (`created_time` for Facebook; OLX lead date) |
 
 ### `CRM Lead` fields written by sync
 
@@ -165,7 +184,9 @@ Every fetched vendor lead is recorded in **`Lead Sync Entry` before CRM import**
 | `facebook_form_id` | Data | Campaign-scoped duplicate check |
 | `facebook_raw_data` | JSON | Full Facebook response |
 | `mobile_no` | Data | Required for upsert |
-| `source` / `source_id` | Link | From `CRM Lead Source` (Facebook) |
+| `source` / `source_id` | Link | From selected `CRM Lead Source` on the Lead Sync Source (`source_id` field) |
+| `olx_ad_id` | Data | OLX ad ID (OLX sync only) |
+| `olx_raw_data` | JSON | Full OLX lead payload (OLX sync only) |
 
 ---
 
@@ -181,7 +202,17 @@ Every fetched vendor lead is recorded in **`Lead Sync Entry` before CRM import**
 
 Set via `sites/<site>/site_config.json` or `bench set-config facebook_lead_sync_access_token <token>`.
 
-`LeadSyncSource.validate()` throws if the token is missing. `get_facebook_access_token()` reads from `frappe.conf` first, then falls back to the password field.
+`LeadSyncSource.validate()` throws if the token is missing when `type=Facebook`. `get_facebook_access_token()` reads from `frappe.conf` first, then falls back to the password field.
+
+### Site config — OLX API (optional)
+
+```json
+{
+  "olx_base_url": "https://business.olx.in"
+}
+```
+
+Defaults to `https://business.olx.in` when omitted. OLX credentials are stored per **Lead Sync Source** (`username` / `password`).
 
 ### Global Config — force sync roles
 
@@ -198,10 +229,11 @@ Helper module: `crm/lead_syncing/config.py` (`get_force_sync_roles`, `user_can_f
 
 ### Prerequisites
 
-1. **CRM Lead Source (required):** A record with `source_name = "Facebook"` and `purpose = Manual Selection` must exist before sync can run. `FacebookSyncSource.sync_single_lead` looks up this record to set `source` and `source_id` on imported leads. Sync fails if it is missing.
-2. **Facebook access token** in site config (`facebook_lead_sync_access_token`)
-3. **Scheduler and workers** running for background sync (`long` queue for orchestration, `default` queue for per-lead import jobs)
-4. **Tab permission** `LEAD_SYNCING` for users accessing Settings UI
+1. **CRM Lead Source (required):** Each Lead Sync Source must link a **CRM Lead Source** via `source_id`. Imported leads receive that record's `source_name` and UUID. The UI dropdown shows `source_name (purpose)`.
+2. **Facebook access token** in site config when using Facebook sources
+3. **OLX username/password** on the Lead Sync Source when using OLX sources
+4. **Scheduler and workers** running for background sync (`long` queue for orchestration, `default` queue for per-lead import jobs)
+5. **Tab permission** `LEAD_SYNCING` for users accessing Settings UI
 
 ### Permissions
 
@@ -214,11 +246,18 @@ Helper module: `crm/lead_syncing/config.py` (`get_force_sync_roles`, `user_can_f
 
 ## Sync flow
 
-Sync is a **three-stage pipeline**:
+Both vendors use the same high-level stages — **orchestration** (fetch + enqueue on `long` queue), **per-lead worker** (`default` queue), and **CRM import** — but the details differ materially:
 
-1. **Orchestration** — fetch leads from Facebook (last 24h for normal sync; all leads for force sync). For each lead without a linked `lead_id`, create a `Lead Sync Entry`, then enqueue one Redis job.
-2. **Audit** — the worker ensures a `Lead Sync Entry` exists (reuses pending rows from failed imports).
-3. **Consumption** — map fields, upsert `CRM Lead`, then set `Lead Sync Entry.lead_id`.
+| Stage | Facebook | OLX |
+|---|---|---|
+| Fetch window | Last 24h (normal) or all leads (`force=True`) | **Today only** (`00:00:00`–`23:59:59`, site timezone); `force` ignored |
+| When `Lead Sync Entry` is created | During orchestration (`get_or_create_lead_sync_entry`) **before** enqueue | During worker (`sync_single_lead` → `create_lead_sync_entry`) **after** enqueue |
+| Pre-enqueue dedup | Skip when entry exists with `lead_id` set | None — deletes today's entries for this source, then enqueues all fetched leads |
+| `vendor_id` on entry | Facebook lead ID (required for dedup) | Left empty (`ignore_mandatory=True` on insert) |
+| CRM import helper | `find_or_create_facebook_lead` | `find_or_create_lead` + `_update_olx_lead_fields` |
+| `last_synced_at` | Not updated | Updated after orchestration via `update_last_synced_at()` |
+
+### Facebook sync
 
 ```mermaid
 sequenceDiagram
@@ -249,7 +288,7 @@ sequenceDiagram
     W->>LSE: set lead_id
 ```
 
-### 1. Source creation (`before_insert`)
+### 1. Facebook source creation (`before_insert`)
 
 ```
 validate() → check token, duplicate form constraint
@@ -261,7 +300,7 @@ before_insert() → fetch_and_store_pages_from_facebook(token)
   → create Facebook Lead Form + questions
 ```
 
-### 2. Lead fetch
+### 2. Facebook lead fetch
 
 Facebook leads are fetched for the **last 24 hours** (`now - 1 day`) during normal sync and scheduled sync. Sync does **not** use `Lead Sync Source.last_synced_at`. Each Graph API call writes an **`Api hit log`** record with the full JSON response (stored in MariaDB `LONGTEXT`), redacted request params, status code, and duration.
 
@@ -277,7 +316,7 @@ GET https://graph.facebook.com/v23.0/{form_id}/leads
 
 Before enqueueing, `FacebookSyncSource.is_vendor_fully_synced(vendor_id)` skips only when a `Lead Sync Entry` exists **and** `lead_id` is already set. Pending entries (no `lead_id`) are re-enqueued on the next sync so failed imports can be retried automatically.
 
-### 3. Enqueue per lead
+### 3. Facebook enqueue per lead
 
 `FacebookSyncSource.sync()` fetches from Facebook. For each lead that is not fully synced, it **creates the `Lead Sync Entry` first**, then calls `enqueue_facebook_lead_sync()`:
 
@@ -305,7 +344,7 @@ frappe.enqueue(
 | Vendor dedup | Skips only when `Lead Sync Entry.lead_id` is set; pending entries are retried |
 | Developer mode | `now=True` — processes each lead inline without a worker |
 
-### 4. Queue worker — `process_facebook_lead_sync`
+### 4. Facebook queue worker — `process_facebook_lead_sync`
 
 Each worker job:
 
@@ -315,7 +354,7 @@ Each worker job:
 
 Manual retry from **Failure logs** bypasses the queue and calls `sync_single_lead(..., raise_exception=True)` directly.
 
-### 5. `Lead Sync Entry` then CRM import
+### 5. Facebook `Lead Sync Entry` then CRM import
 
 `sync_single_lead` always ensures the audit record exists **before** CRM import:
 
@@ -345,7 +384,7 @@ frappe.db.set_value("Lead Sync Entry", lead_entry_doc.name, "lead_id", crm_lead_
 
 `submitted_at` is stored using `frappe.utils.get_datetime_str()` so Facebook timezone-aware timestamps are MySQL-compatible.
 
-#### Raw payload format
+#### Facebook raw payload format
 
 Stored in `Lead Sync Entry.raw`:
 
@@ -371,7 +410,7 @@ Stored in `Lead Sync Entry.raw`:
 - `field_data` keys vary per Facebook Lead Form.
 - `additional_info` is populated by `fetch_fb_lead_info()` when the Graph API call succeeds.
 
-### 6. Lead transformation
+### 6. Facebook lead transformation
 
 ```python
 # facebook.py — sync_single_lead
@@ -379,8 +418,9 @@ lead_data = {item["name"]: item["values"][0] for item in lead["field_data"]}
 crm_lead_data = {mapping[k]: v for k, v in lead_data.items() if k in mapping}
 crm_lead_data["facebook_lead_id"] = lead["id"]
 crm_lead_data["facebook_form_id"] = self.form_id
-fb_raw_data = self.build_facebook_raw_data(lead)  # includes additional_info when Graph API succeeds
+fb_raw_data = self.build_facebook_raw_data(lead)
 
+source_name, source_id = resolve_crm_lead_source(self.crm_source_id)
 lead_service.find_or_create_facebook_lead(
     mobile_no=crm_lead_data["mobile_no"],
     source=source_name,
@@ -392,7 +432,7 @@ lead_service.find_or_create_facebook_lead(
 
 `build_facebook_raw_data` calls `fetch_fb_lead_info(fb_lead_id)` (Graph API `GET /{lead-id}`) and nests the response under `facebook_raw_data.additional_info`. If that call fails, sync still proceeds with the list-sync payload only; the error is logged via `frappe.log_error`.
 
-### 7. Lead upsert (`lead_service.find_or_create_facebook_lead`)
+### 7. Facebook lead upsert (`lead_service.find_or_create_facebook_lead`)
 
 | Condition | Action |
 |---|---|
@@ -400,10 +440,199 @@ lead_service.find_or_create_facebook_lead(
 | Invalid phone | Throws validation error → logged as Failure |
 | No existing lead for `mobile_no`, new `facebook_lead_id` | Insert `CRM Lead`, apply mapped fields + `facebook_raw_data` (with `additional_info` when available) |
 | Existing lead, saved `facebook_lead_id` == incoming | Raises `DuplicateLeadError` → logged as Duplicate |
-| Existing lead, saved `facebook_lead_id` empty or different from incoming | Update existing lead: set `source`/`source_id` to Facebook, refresh Facebook fields and `facebook_raw_data`; **preserve `lead_name`** if already set |
+| Existing lead, saved `facebook_lead_id` empty or different from incoming | Update existing lead: refresh Facebook fields and `facebook_raw_data`; **preserve `lead_name`** if already set; source updated via `resolve_crm_lead_source()` |
 | Incoming `facebook_lead_id` already on a **different** lead | Raises `DuplicateLeadError` → logged as Duplicate |
 
 Facebook sync **creates or updates** leads matched by `mobile_no` based on `facebook_lead_id` comparison; identical `facebook_lead_id` on the same lead is treated as a duplicate retry.
+
+### OLX sync
+
+OLX integration lives in `OlxSyncSource` (`olx.py`) and `OlxClient` (`core/integrations/olx/client.py`). There is no Facebook-style page/form cache and no field-mapping grid — lead fields are mapped directly from the OLX API payload in code.
+
+```mermaid
+sequenceDiagram
+    participant UI as Sync trigger
+    participant LSS as Lead Sync Source
+    participant OSS as OlxSyncSource
+    participant OC as OlxClient
+    participant OLX as OLX Business API
+    participant RQ as Redis queue (default)
+    participant W as process_olx_lead_sync
+    participant LSE as Lead Sync Entry
+    participant CRM as CRM Lead
+
+    UI->>LSS: sync_leads / scheduler _sync_leads
+    LSS->>OSS: sync()
+    OSS->>OC: login() + get_leads() paginated
+    OC->>OLX: POST /api/v1/auth/login
+    OC->>OLX: GET /api/v1/leads?startDate&endDate&page
+    OLX-->>OC: leads + ads + pagination
+    OC-->>OSS: enriched leads (ads_data attached)
+    OSS->>LSE: DELETE today's entries for this source
+    loop each lead
+        OSS->>RQ: enqueue_olx_lead_sync
+    end
+    OSS->>LSS: update_last_synced_at()
+    RQ->>W: dequeue job
+    W->>OSS: sync_single_lead(lead)
+    OSS->>LSE: create_lead_sync_entry (no vendor_id)
+    OSS->>CRM: find_or_create_lead + _update_olx_lead_fields
+    OSS->>LSE: set lead_id
+```
+
+#### OLX: source setup and validation
+
+| Check | When | Behavior |
+|---|---|---|
+| `source_id` required | Save (`validate_source_id`) | Must link a valid **CRM Lead Source** |
+| `username` / `password` required | Sync (`_sync_leads`) | Throws if missing before `OlxSyncSource.sync()` |
+| Facebook token | Save | Not required for `type=Olx` |
+| `before_insert` | Create | Facebook only — OLX has no auto-fetch on insert |
+
+Credential APIs (whitelisted):
+
+| Method | Purpose |
+|---|---|
+| `test_olx_credentials(username, password?, source?)` | Validate login; accepts stored password via `source` when UI sends mask `********` |
+| `has_stored_olx_password(source)` | Whether a saved password exists (for masked field UX) |
+| `Lead Sync Source.test_credentials(password?)` | Doc method wrapper for OLX sources |
+
+`test_credentials()` clears the Redis auth cache and calls `OlxClient.login()`. Failures return `{ is_valid: false, reason: "..." }` from `get_olx_error_message()`.
+
+#### OLX: authentication (`OlxClient.login`)
+
+```
+POST {olx_base_url}/api/v1/auth/login
+Headers: Content-Type: text/plain, client-language: en-IN, Api-Version: 134
+Body: { "login": "<username>", "password": "<password>" }
+Response: { "access_token", "user_id" }
+```
+
+| Detail | Value |
+|---|---|
+| Base URL | `frappe.conf.olx_base_url` or `https://business.olx.in` |
+| Auth cache | Redis key `olx_auth:{username}`, TTL 14 minutes |
+| 403 on login | Clears cache and surfaces `OlxApiError` |
+
+#### OLX: lead fetch (`OlxSyncSource.sync`)
+
+1. Compute today's window via `get_olx_sync_date_range()` (server date, `00:00:00`–`23:59:59`).
+2. Call `fetch_all_olx_leads()` which paginates `OlxClient.get_leads()` (page size 100, reads `pagination.totalPages`).
+3. Collect `ads` from each page into `ads_by_id`; attach matching ad as `ads_data` on each lead via `_attach_olx_ads_data()`.
+4. **Delete** all `Lead Sync Entry` rows where `lead_sync_source = source` and `submitted_at` is between today's start/end (committed before enqueue).
+5. Enqueue one job per lead via `enqueue_olx_lead_sync()`.
+6. Call `update_last_synced_at(source_name)`.
+
+API request (one page):
+
+```
+GET {olx_base_url}/api/v1/leads
+Headers: Authorization: Bearer <token>, Client-Language: en-in, Api-Version: 134
+Params:
+  startDate=yyyy-MM-dd
+  endDate=yyyy-MM-dd
+  userId=<from login>
+  page=1
+  pageSize=100
+```
+
+Date params are formatted as **`yyyy-MM-dd` only** (`_format_api_date()` strips any time component). A 404 response returns an empty leads list rather than failing.
+
+**Important:** OLX orchestration does **not** create sync entries or skip by `lead_id`. Re-running sync today is **destructive** for today's audit rows (they are deleted and recreated by workers).
+
+#### OLX: enqueue per lead
+
+```python
+# olx.py
+frappe.enqueue(
+    process_olx_lead_sync,
+    queue="default",
+    lead=lead,
+    source_name=source_name,
+    job_id=f"olx_lead_sync:{source_name}:{vendor_id}",
+    now=bool(frappe.conf.developer_mode),
+)
+```
+
+| Behavior | Detail |
+|---|---|
+| Job ID | `olx_lead_sync:{source_name}:{adId\|phoneNumber\|date}` via `olx_lead_vendor_id()` |
+| Skip enqueue | When composite id cannot be built (missing `adId` or `phoneNumber`) |
+| Deduplication | **No** `deduplicate=True` (unlike Facebook) |
+| Developer mode | `now=True` — inline worker |
+
+#### OLX: worker — `process_olx_lead_sync`
+
+1. Load `Lead Sync Source`; verify `type == "Olx"`.
+2. Instantiate `OlxSyncSource` with `username`, `password`, `source_name`, `crm_source_id` (`source_id` field).
+3. Call `sync_single_lead(lead)`.
+4. On any exception, log `OLX lead sync worker failed` (does not re-raise).
+
+#### OLX: `sync_single_lead` — entry + CRM import
+
+```python
+# olx.py — sync_single_lead (simplified)
+vendor_id = olx_lead_vendor_id(lead)  # logging/enqueue only; NOT stored on Lead Sync Entry
+lead_entry_doc = create_lead_sync_entry(raw_data=lead, submitted_at=parse_olx_lead_date(lead["date"]))
+
+crm_source_name, crm_source_id = resolve_crm_lead_source(self.crm_source_id)
+crm_lead_doc = lead_service.find_or_create_lead(
+    mobile_no=phone,
+    source=crm_source_name,
+    source_id=crm_source_id,
+    allow_source_update=False,
+    other_info={"lead_name": ..., "email": ...},
+)
+_update_olx_lead_fields(crm_lead_doc, raw_data, ad_id)  # olx_ad_id, olx_raw_data
+frappe.db.set_value("Lead Sync Entry", lead_entry_doc.name, "lead_id", crm_lead_doc.name)
+```
+
+| Lead payload field | Used for |
+|---|---|
+| `adId` / `ad_id` | Composite vendor id, `olx_ad_id` on CRM Lead |
+| `phoneNumber` / `phone_number` | Composite vendor id, `mobile_no` (required) |
+| `date` | Composite vendor id, `submitted_at` on sync entry (`dd/mm/yy` or `dd/mm/YYYY`) |
+| `name` | CRM Lead `lead_name` (when creating / via `other_info`) |
+| `emailId` / `email_id` | CRM Lead `email` |
+| `ads_data` | Attached during fetch; stored inside `olx_raw_data` / `Lead Sync Entry.raw` |
+
+`create_lead_sync_entry()` always **inserts a new row** (no `get_or_create`). `vendor_id` is omitted; insert uses `ignore_mandatory=True` to bypass a Property Setter that may mark the field required.
+
+#### OLX: lead upsert (`find_or_create_lead`)
+
+| Condition | Action |
+|---|---|
+| Invalid / empty phone | Returns `None` → worker throws validation error → **Failure** log |
+| No existing lead for `mobile_no` | Insert CRM Lead with `source`, `source_id`, `lead_name`, `email` |
+| Existing lead for `mobile_no` | Returns existing doc; **does not** change `source`/`source_id` (`allow_source_update=False`) |
+| After upsert | `_update_olx_lead_fields` sets/updates `olx_ad_id` and `olx_raw_data` when ad or payload differs |
+
+OLX does **not** use `find_or_create_facebook_lead` or Facebook duplicate checks (`facebook_lead_id`). Failures and duplicates are logged via `create_failure_log()` → **Failed Lead Sync Log**.
+
+#### OLX: raw payload format
+
+Stored in `Lead Sync Entry.raw` (and mirrored on CRM Lead as `olx_raw_data`):
+
+```json
+{
+  "adId": "123456789",
+  "phoneNumber": "+919876543210",
+  "name": "Rahul Sharma",
+  "emailId": "rahul@example.com",
+  "date": "05/08/26",
+  "ads_data": {
+    "id": "123456789",
+    "title": "2019 Honda City VX CVT",
+    "price": "850000"
+  }
+}
+```
+
+Field names may appear as `ad_id`, `phone_number`, or `email_id` — code accepts both camelCase and snake_case.
+
+#### OLX: activity timeline
+
+When `olx_raw_data` or `olx_ad_id` changes on a CRM Lead, `activities.py` groups version rows into an **OLX Lead Intent** activity (`activity_type: olx_lead_intent`). Frontend: `OlxLeadIntent.vue` renders the card; `phoneNumber` is stripped from the payload shown in the UI.
 
 ---
 
@@ -411,8 +640,10 @@ Facebook sync **creates or updates** leads matched by `mobile_no` based on `face
 
 | Stage | Entry point | Queue | Worker method |
 |---|---|---|---|
-| Orchestration | `Lead Sync Source.sync_leads` → `_sync_leads` → `FacebookSyncSource.sync()` | `long` | `_sync_leads` |
-| Per-lead import | `enqueue_facebook_lead_sync()` | `default` | `process_facebook_lead_sync` |
+| Orchestration (Facebook) | `_sync_leads` → `FacebookSyncSource.sync()` | `long` | `_sync_leads` |
+| Orchestration (OLX) | `_sync_leads` → `OlxSyncSource.sync()` | `long` | `_sync_leads` |
+| Per-lead import (Facebook) | `enqueue_facebook_lead_sync()` | `default` | `process_facebook_lead_sync` |
+| Per-lead import (OLX) | `enqueue_olx_lead_sync()` | `default` | `process_olx_lead_sync` |
 
 Production requires Frappe background workers listening on both queues (typically via `bench start` or dedicated `bench worker` processes).
 
@@ -424,12 +655,15 @@ In `developer_mode`, `sync_leads` runs `_sync_leads` synchronously and each per-
 
 | Rule | Location | Behavior |
 |---|---|---|
-| Access token required | `validate()` | Blocks save |
-| One enabled source per form | `validate_same_fb_form_active()` | Blocks save if another enabled source uses same `facebook_lead_form` |
-| Lead form required for sync | `_sync_leads()` | Throws on manual/scheduled sync |
-| Duplicate by mapped fields + form | `validate_duplicate_lead()` | Logs as Duplicate, skips lead |
-| Duplicate by `facebook_lead_id` | DB unique constraint | Logs as Duplicate, skips lead |
-| Duplicate by `vendor_id` | `Lead Sync Entry.vendor_id` unique | Skip only when `lead_id` is linked; pending entries retried |
+| CRM Lead Source required | `validate_source_id()` | Blocks save when `source_id` empty or missing |
+| Access token required | `validate()` | Blocks save for `type=Facebook` only |
+| One enabled source per form | `validate_same_fb_form_active()` | Facebook only |
+| Lead form required for sync | `_sync_leads()` | Facebook: throws if `facebook_lead_form` empty |
+| OLX credentials required for sync | `_sync_leads()` | OLX: throws if `username` or `password` empty |
+| Duplicate by mapped fields + form | `validate_duplicate_lead()` | Facebook: logs as Duplicate |
+| Duplicate by `facebook_lead_id` | DB unique constraint | Facebook: logs as Duplicate |
+| Duplicate by `vendor_id` (Facebook) | `LeadSyncEntry.validate_unique_vendor_id()` | Rejects duplicate non-empty `vendor_id` on insert |
+| OLX sync entry | No `vendor_id` stored | No entry-level dedup; today's rows deleted on each orchestration run |
 
 ---
 
@@ -455,9 +689,9 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 | Entry point | Behavior |
 |---|---|
 | `Lead Sync Source.sync_leads` (whitelisted) | Enqueues `_sync_leads` on `long` queue |
-| `_sync_leads` → `FacebookSyncSource.sync()` | Fetches leads from the **last 24 hours** on Facebook, enqueues one job per lead on `default` queue |
-| `Lead Sync Source.force_sync_leads` (whitelisted) | Requires role in Global Config `lead_sync_force_sync_roles`; enqueues `_force_sync_leads` on `long` queue |
-| `_force_sync_leads` → `FacebookSyncSource.sync(force=True)` | Fetches **all** leads from Facebook (no `time_created` filter), enqueues one job per new `vendor_id` |
+| `_sync_leads` → vendor `sync()` | Facebook: last 24h; OLX: today only (paginated) |
+| `_force_sync_leads` → vendor `sync(force=True)` | Facebook: all leads; OLX: same as normal sync (`force` ignored) |
+| `Lead Sync Source.force_sync_leads` (whitelisted) | Role-gated via Global Config; OLX force sync still fetches today only |
 | `developer_mode` | Runs orchestration and per-lead jobs synchronously |
 | Desk custom button | Calls `sync_leads` via `lead_sync_source.js` |
 | CRM Settings "Sync now" | Calls `sync_leads` via `useDocument` |
@@ -478,6 +712,15 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 | `enqueue_facebook_lead_sync` | `facebook.py` | Push one lead payload onto Redis (`default` queue) |
 | `process_facebook_lead_sync` | `facebook.py` | Worker: import a single queued Facebook lead |
 | `FacebookSyncSource.sync_single_lead` | `facebook.py` | Map fields and call `find_or_create_facebook_lead` |
+| `OlxSyncSource.sync` | `olx.py` | Fetch today's OLX leads (paginated), delete today's sync entries, enqueue jobs |
+| `enqueue_olx_lead_sync` / `process_olx_lead_sync` | `olx.py` | Queue worker for a single OLX lead |
+| `OlxSyncSource.sync_single_lead` | `olx.py` | Create sync entry (no `vendor_id`), import CRM Lead, set `olx_ad_id` / `olx_raw_data` |
+| `test_olx_credentials` | `lead_sync_source.py` | Whitelisted OLX login test |
+| `has_stored_olx_password` | `lead_sync_source.py` | Whether saved OLX password exists |
+| `Lead Sync Source.test_credentials` | `lead_sync_source.py` | Doc method for OLX credential test |
+| `resolve_crm_lead_source` | `sync_utils.py` | Resolve `source_id` → `(source_name, docname)` |
+| `update_last_synced_at` | `sync_utils.py` | Set `last_synced_at` after OLX orchestration |
+| `find_lead_sync_entry_name_by_vendor_id` | `lead_sync_entry.py` | Facebook application-level vendor dedup helper |
 | `fetch_and_store_pages_from_facebook` | `facebook.py` | Fetch and cache pages/forms |
 | `get_pages_with_forms` | `facebook.py` | Return cached pages with forms |
 | `get_lead_sync_entries` | `lead_sync_source.py` | List sync entries with date range + search filters |
@@ -522,6 +765,25 @@ Registered in `crm/hooks.py` → `scheduler_events`:
 
 Base: `https://graph.facebook.com/v23.0`
 
+### OLX Business API
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/v1/auth/login` | POST | Obtain `access_token` and `user_id` |
+| `/api/v1/leads` | GET | Paginated leads for `startDate`–`endDate` (date-only `yyyy-MM-dd`) |
+
+Base: `frappe.conf.olx_base_url` (default `https://business.olx.in`). API version header: `134`.
+
+Response shape (normalized by `OlxClient`):
+
+```json
+{
+  "leads": [ /* lead objects */ ],
+  "ads": [ /* ad metadata */ ],
+  "pagination": { "page": 1, "pageSize": 100, "totalPages": 3, "totalRecords": 250 }
+}
+```
+
 ---
 
 ## Error handling and retry
@@ -534,13 +796,19 @@ All sync failures are recorded in two places:
 | Stage | Error log title (examples) | User-visible log |
 |---|---|---|
 | Facebook fetch | `Facebook lead sync fetch failed` | — |
-| Orchestration (per lead) | `Facebook lead sync orchestration failed` | — |
-| Worker setup | `Facebook lead sync worker failed` | — |
-| CRM import | `Facebook lead sync import failed` | Failure |
-| Duplicate import | `Facebook lead sync duplicate` | Duplicate |
-| `additional_info` fetch | `Facebook lead additional_info fetch failed` | — (sync continues) |
-| Scheduled sync | `Scheduled lead sync failed for source {name}` | — |
-| Manual sync | `Lead sync failed for source {name}` | — |
+| Facebook orchestration (per lead) | `Facebook lead sync orchestration failed` | — |
+| Facebook worker | `Facebook lead sync worker failed` | — |
+| Facebook CRM import | `Facebook lead sync import failed` | Failure |
+| Facebook duplicate | `Facebook lead sync duplicate` | Duplicate |
+| Facebook `additional_info` | `Facebook lead additional_info fetch failed` | — (sync continues) |
+| OLX fetch | `OLX lead sync fetch failed` | — |
+| OLX enqueue skip | `OLX lead sync enqueue skipped — missing vendor id` | — |
+| OLX enqueue failure | `OLX lead sync enqueue failed` | — |
+| OLX worker | `OLX lead sync worker failed` | — |
+| OLX CRM import | `OLX lead sync import failed` | Failure |
+| OLX duplicate | `OLX lead sync duplicate` | Duplicate |
+| OLX import skip | `OLX lead sync import skipped — missing vendor id` | — |
+| Scheduled / manual sync | `Scheduled lead sync failed for source {name}` / `Lead sync failed for source {name}` | — |
 | Force sync | `Lead force sync failed for source {name}` | — |
 
 | Error | Log type | Per-lead behavior |
@@ -551,12 +819,13 @@ All sync failures are recorded in two places:
 
 Queue worker failures are isolated per lead — one bad lead does not block others in the batch.
 
-Pending `Lead Sync Entry` rows (no `lead_id`) are automatically picked up on the next scheduled or manual sync.
+Pending **Facebook** sync entries (no `lead_id`) are automatically picked up on the next scheduled or manual sync. **OLX** does not retry pending entries — re-running sync deletes and recreates today's entries.
 
 `FailedLeadSyncLog.retry_sync`:
 1. Loads parent `Lead Sync Source`
-2. Calls `FacebookSyncSource.sync_single_lead(lead_data, raise_exception=True)` **directly** (bypasses queue)
-3. Sets log `type` to `Synced` on success
+2. **Facebook:** calls `FacebookSyncSource.sync_single_lead(lead_data, raise_exception=True)` directly (bypasses queue)
+3. **OLX:** calls `OlxSyncSource.sync_single_lead(lead_data, raise_exception=True)` with `username` / `password` from the source
+4. Sets log `type` to `Synced` on success
 
 ---
 
@@ -566,8 +835,9 @@ Pending `Lead Sync Entry` rows (no `lead_id`) are automatically picked up on the
 |---|---|
 | `LeadSyncSourcePage.vue` | List ↔ form navigation |
 | `LeadSyncSources.vue` | Source list, enable/disable, delete |
-| `LeadSyncSourceForm.vue` | Create/edit, mapping grid, sync now, force sync, tabs; **prefetches** first sync-entries page |
-| `LeadSyncEntries.vue` | Sync entries list, date range filter, search, detail view; reuses parent prefetch |
+| `LeadSyncSourceForm.vue` | Create/edit; **CRM Lead Source** (`source_id`) for Facebook and OLX; Facebook page/form + field mapping; OLX username/password + **Test credentials**; sync now / force sync |
+| `LeadSyncEntries.vue` | Sync entries list (columns: Lead ID, Vendor, Vendor ID, Submitted at, Created at, Lead); OLX rows have empty Vendor ID |
+| `OlxLeadIntent.vue` | OLX lead intent card on CRM Lead activity timeline |
 | `leadSyncEntryUtils.js` | Parse `raw` JSON into form responses + additional info rows |
 | `FailureLogs.vue` | Failure log viewer with retry |
 | `leadSyncSourceConfig.js` | Supported source types |
@@ -578,9 +848,9 @@ Each source form has three tabs (when editing):
 
 | Tab | Purpose |
 |---|---|
-| **Details** | Page/form selection, field mapping, **Sync now**, **Force sync** (role-gated) |
-| **Sync entries (`N`)** | Paginated list of `Lead Sync Entry` records with date range filter and vendor/lead ID search; click a row for detail (form responses, additional info, raw JSON). Tab label includes `total_count` when known |
-| **Failure logs** | Failed/duplicate imports with retry |
+| **Details** | Facebook: page/form + field mapping. OLX: username/password + test credentials. Both: CRM Lead Source, **Sync now**, **Force sync** (Facebook only; role-gated) |
+| **Sync entries (`N`)** | Paginated `Lead Sync Entry` list with date range and search |
+| **Failure logs** | Failed/duplicate imports with retry (Facebook and OLX) |
 
 ### Sync entries prefetch
 
@@ -594,7 +864,7 @@ Opening an existing source (not create mode) triggers an early `get_lead_sync_en
 | Tab open | `LeadSyncEntries.vue` reuses the prefetched first page — no duplicate fetch unless filters / load-more / clear require a refresh |
 | Count updates | Child emits `update:totalCount` after filtered fetches so the tab badge stays in sync |
 
-Field mapping grid loads `Facebook Lead Form.questions` and populates `mapped_to_crm_field` from `CRM Lead` field metadata.
+Field mapping grid (Facebook only) loads `Facebook Lead Form.questions` and populates `mapped_to_crm_field` from `CRM Lead` field metadata. CRM Lead Source options use the standard Link search query (`crm.api.crm_lead_source.crm_lead_source_link_search_query`); UI label format is `source_name (purpose)`.
 
 **Product guide:** [../product/lead_sync_source.md](../product/lead_sync_source.md)
 
@@ -602,16 +872,19 @@ Field mapping grid loads `Facebook Lead Form.questions` and populates `mapped_to
 
 ## Known limitations
 
-1. No pagination on lead fetch (`limit: 100000`)
-2. Only Facebook source type implemented
-3. `mobile_no` mapping is mandatory for lead creation
-4. Access token is global (site config), not per-source
-5. Mandatory CRM field mapping validation is disabled
+1. Facebook lead fetch has no pagination on Graph API (`limit: 100000`)
+2. Facebook and OLX source types are implemented; other platforms require extension
+3. `mobile_no` mapping is mandatory for Facebook lead creation; OLX requires a valid phone on the lead payload
+4. Facebook access token is global (site config), not per-source; OLX credentials are per-source
+5. Mandatory CRM field mapping validation is disabled (Facebook)
 6. Beta feature in UI
-7. Fetch window is fixed at last 24 hours for normal/scheduled sync — use **Force sync** for full historical backfill (role-gated via Global Config)
-8. Pending sync entries (no `lead_id`) are retried automatically on the next sync run
-9. Per-lead jobs require a worker on the `default` queue (in addition to `long` for orchestration)
-10. In `developer_mode`, manual sync runs inline in the web process (no RQ worker required for testing)
+7. Facebook fetch window is fixed at last 24 hours for normal/scheduled sync — use **Force sync** for full historical backfill (role-gated via Global Config)
+8. OLX sync always re-fetches **today only** and deletes today's sync entries before re-import (destructive for that window)
+9. OLX `force=True` is ignored
+10. Pending Facebook sync entries (no `lead_id`) are retried automatically on the next sync run
+11. Per-lead jobs require a worker on the `default` queue (in addition to `long` for orchestration)
+12. In `developer_mode`, manual sync runs inline in the web process (no RQ worker required for testing)
+13. No OLX unit tests yet
 
 ---
 
@@ -665,13 +938,19 @@ apps/crm/crm/lead_syncing/
     │   ├── test_lead_sync_source.py
     │   ├── lead_sync_source.json
     │   ├── lead_sync_source.js
-    │   └── facebook.py
+    │   ├── facebook.py
+    │   ├── olx.py
+    │   └── sync_utils.py
     ├── facebook_page/
     ├── facebook_lead_form/
     ├── facebook_lead_form_question/
     └── failed_lead_sync_log/
 
+apps/core/core/integrations/olx/client.py
 apps/core/core/platform/doctype/lead_sync_entry/
+
+apps/crm/crm/api/activities.py
+apps/crm/frontend/src/components/Activities/OlxLeadIntent.vue
 
 apps/crm/frontend/src/components/Settings/LeadSyncing/
 ├── LeadSyncSourcePage.vue

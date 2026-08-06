@@ -22,8 +22,7 @@
   {
    "fieldname": "vendor_id",
    "fieldtype": "Data",
-   "label": "Vendor Id",
-   "unique": 1
+   "label": "Vendor Id"
   },
   {
    "fieldname": "vendor_name",

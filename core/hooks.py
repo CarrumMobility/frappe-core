@@ -157,8 +157,8 @@ scheduler_events = {
 	"cron": {
 		# every day at IST time 12:05 AM, GMT time 06:35 PM (previous day)
     	# "35 18 * * *": ["core.services.agent_performance.agent_performance_service.cron_task_update_agent_performance"],
-    	# every 15 minutes
-    	"*/15 * * * *": [
+    	# every 30 minutes
+    	"*/30 * * * *": [
         	"core.services.agent_performance.cron_task_update_today_telecaller_agents_performance_5_minute"
     	],
 	},
@@ -222,8 +222,8 @@ override_whitelisted_methods = {
 
 # Job Events
 # ----------
-# before_job = ["core.utils.before_job"]
-# after_job = ["core.utils.after_job"]
+before_job = ["core.observability.background_tasks.before_job"]
+after_job = ["core.observability.background_tasks.after_job"]
 
 # User Data Protection
 # --------------------
@@ -291,8 +291,8 @@ before_request = [
 ]
 
 after_request = [
-	"core.observability.newrelic.enrich_newrelic_transaction",
-	"core.observability.request_logging.log_api_request_body",
+	"core.observability.newrelic.enrich_newrelic_transaction"
+	# "core.observability.request_logging.log_api_request_body",
 ]
 
 after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

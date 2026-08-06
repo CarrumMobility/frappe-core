@@ -4,7 +4,10 @@ from datetime import date, datetime
 from uuid import UUID
 from core.constants.enums import EnumValues
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
-from crm.fcrm.doctype.crm_lead.crm_lead import apply_default_crm_lead_status_to_doc
+from crm.fcrm.doctype.crm_lead.crm_lead import (
+    apply_default_crm_lead_status_to_doc,
+)
+from core.services.crm_lead.lead_service import lead_service
 from core.services.util_service import util_service
 from core.services.carrum_client import CarrumHttpClient
 from crm.utils import parse_phone_number
@@ -1260,11 +1263,14 @@ def update_driver(account_id: str, data: dict | str | None = None):
 @frappe.whitelist(methods=["POST"])
 def lead_creation_webhook():
     """
-    Carrum webhook: JSON body ``mobile_no``, ``displayId`` (CRM Lead ``name``, AAAA0001–ZZZZ9999),
-    and optional ``source``.
+    Carrum webhook: JSON body ``mobile_no`` / ``phoneNo`` / ``phone``,
+    ``displayId`` (CRM Lead ``name``, AAAA0001–ZZZZ9999), and optional ``source``.
 
-    Creates a lead with **exactly** ``displayId`` as the document name (via ``insert(set_name=…)`` —
-    required because Frappe otherwise clears ``name`` for naming_series autoname).
+    If a lead already exists for the phone number, updates only ``source`` and
+    ``source_id``. Otherwise creates a new lead.
+
+    When ``source`` is ``uber`` or ``website`` (case-insensitive), resolves the matching
+    inbound CRM Lead Source. New leads also get ``upload_source`` and ``lead_uploaded_at``.
     """
 
     data = frappe.request.get_json(silent=True)
@@ -1272,26 +1278,57 @@ def lead_creation_webhook():
         data = {}
     logger.info("lead_creation_webhook payload: %s", data)
 
-    phone_raw =  data.get("phone")
-    phoneNo = str(phone_raw).strip() if phone_raw is not None else ""
+    phone_raw = data.get("mobile_no") or data.get("phoneNo") or data.get("phone")
+    phone_no = str(phone_raw).strip() if phone_raw is not None else ""
 
-    source = data.get("source")
-    if source is not None and isinstance(source, str):
-        source = source.strip()
+    raw_source = data.get("source")
+    if raw_source is not None and isinstance(raw_source, str):
+        raw_source = raw_source.strip()
 
-    if not phoneNo:
+    if not phone_no:
         frappe.throw(_("phone is required"), frappe.ValidationError)
 
-    parsed = parse_phone_number(phoneNo)
+    parsed = parse_phone_number(phone_no)
     if parsed.get("success"):
-        mobile_no = parsed.get("national_number") or phoneNo
+        mobile_no = parsed.get("national_number") or phone_no
     else:
-        mobile_no = phoneNo
+        mobile_no = phone_no
         logger.warning(
             "lead_creation_webhook: phone parse failed for %r: %s",
-            phoneNo,
+            phone_no,
             parsed.get("error"),
         )
+
+    webhook_source_map = {
+        "uber": EnumValues.LeadSource.Uber,
+        "website": EnumValues.LeadSource.Website,
+    }
+    mapped_source_name = webhook_source_map.get(str(raw_source or "").strip().lower())
+    source_row = None
+    if mapped_source_name:
+        source_row = lead_service.get_lead_source_row(
+            mapped_source_name,
+            EnumValues.LeadSourcePurpose.ManualSelection,
+        )
+    else:
+        logger.warning("lead_creation_webhook: no source found for %r", raw_source)
+
+    existing_lead_name = frappe.db.get_value(
+        EnumValues.ReferenceDocType.CRM_LEAD,
+        {"mobile_no": mobile_no},
+        "name",
+    )
+    if existing_lead_name:
+        if source_row:
+            lead = frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, existing_lead_name)
+            lead.source = source_row.source_name
+            lead.source_id = source_row.name
+            lead.save(ignore_permissions=True)
+            logger.info(
+                "lead_creation_webhook: updated source on CRM Lead %s",
+                existing_lead_name,
+            )
+        return {"message": "ok", "name": existing_lead_name, "created": False}
 
     lead = frappe.new_doc(EnumValues.ReferenceDocType.CRM_LEAD)
     lead.mobile_no = mobile_no
@@ -1300,13 +1337,18 @@ def lead_creation_webhook():
             _("No CRM Lead Status is configured. Add one in CRM Lead Status."),
             frappe.ValidationError,
         )
-    lead.lead_type = EnumValues.LeadType.DRIVER
+
+    lead.lead_type = EnumValues.LeadType.LEAD
     lead.lead_name = None
 
-    meta = frappe.get_meta(EnumValues.ReferenceDocType.CRM_LEAD)
-    if source and meta.get_field("source"):
-        lead.set("source", source)
+    if source_row:
+        lead.source = source_row.source_name
+        lead.source_id = source_row.name
+        if not lead.get("upload_source"):
+            lead.upload_source = source_row.source_name
+            lead.lead_uploaded_at = frappe.utils.now_datetime()
 
+    lead.insert(ignore_permissions=True)
     logger.info("lead_creation_webhook: created CRM Lead %s", lead.name)
     return {"message": "ok", "name": lead.name, "created": True}
 

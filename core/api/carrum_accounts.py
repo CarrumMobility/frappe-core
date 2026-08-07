@@ -376,7 +376,7 @@ def resolve_carrum_user_id_to_frappe_username(
 
 
 def fetch_hub_active_users(
-    hub_id: str, role_name: str | None = None, limit: int = 200
+    hub_id: str, role_name: str | None = None, limit: int = 500
 ) -> dict:
     """Fetch active Carrum users for a hub via the portal API (framed response)."""
     hub_id = (hub_id or "").strip()

@@ -2,22 +2,22 @@
 
 **Feature:** Lead Syncing  
 **Status:** Beta  
-**Supported sources:** Facebook Lead Ads  
+**Supported sources:** Facebook Lead Ads, OLX Business Lead Sharing  
 **Technical docs:** [../technical/lead_sync_source.md](../technical/lead_sync_source.md)
 
 ---
 
 ## What is Lead Sync Source?
 
-Lead Sync Source lets your sales team automatically pull leads from Facebook Lead Ads into CRM — without manual CSV uploads or copy-paste.
+Lead Sync Source lets your sales team automatically pull leads from **Facebook Lead Ads** and **OLX Business** into CRM — without manual CSV uploads or copy-paste.
 
-Each **Lead Sync Source** connects one Facebook Lead Form to CRM. When someone submits that form on Facebook, their details are imported as a **CRM Lead** on a schedule you choose, or immediately when you click **Sync now**.
+Each **Lead Sync Source** connects one Facebook Lead Form or one OLX Business account to CRM. When someone submits that form on Facebook (or shares a lead on OLX), their details are imported as a **CRM Lead** on a schedule you choose, or immediately when you click **Sync now**.
 
 ---
 
 ## Who is this for?
 
-Teams that run Facebook Lead Ads and want those submissions to flow into CRM automatically — without manual imports.
+Teams that run Facebook Lead Ads or OLX Business lead sharing and want those submissions to flow into CRM automatically — without manual imports.
 
 Use it to set up lead sources, map form fields, monitor failures, and keep leads attributed to the correct campaign.
 
@@ -61,23 +61,27 @@ flowchart LR
 
 Before setting up Lead Sync Source, ensure:
 
-1. **Facebook Lead Ads** are running and collecting submissions on your Facebook Page.
-2. A **Facebook access token** is configured on the server (contact your system administrator).
-3. **Important:** A **CRM Lead Source** record for **Facebook** with purpose **Manual Selection** must exist before you proceed. Lead sync looks up this record to attribute imported leads. Without it, sync will fail.
-4. The **Lead syncing** tab is enabled for your user in CRM tab permissions.
+1. **Facebook Lead Ads** are running (Facebook sources) or you have **OLX Business** credentials (OLX sources).
+2. A **CRM Lead Source** record exists for attribution — you select it on each Lead Sync Source (`source_id`). The dropdown shows **source name (purpose)**.
+3. For Facebook: a **Facebook access token** is configured on the server (contact your system administrator).
+4. For OLX: you will enter **username** and **password** on the Lead Sync Source form (password is masked after save; use **Test credentials** to verify).
+5. The **Lead syncing** tab is enabled for your user in CRM tab permissions.
 
 ### Step 1: Create a new source
 
 1. Go to **Settings → Integrations → Lead syncing**.
 2. Click **New**.
 3. Enter a **source name** (e.g. "Bengaluru Walk-in Campaign").
-4. Select **Facebook** as the source type.
-5. Choose a **background sync frequency**.
-6. Click **Create**.
+4. Select **Facebook** or **OLX** as the source type.
+5. Select the **CRM Lead Source** that imported leads should be attributed to.
+6. Choose a **background sync frequency**.
+7. Click **Create**.
 
-On creation, CRM automatically fetches your Facebook Pages and Lead Forms from Facebook.
+For **Facebook**, CRM automatically fetches your Facebook Pages and Lead Forms on creation.
 
-### Step 2: Select page and form
+For **OLX**, enter **username** and **password**, then use **Test credentials** before enabling sync.
+
+### Step 2: Configure the source (Facebook)
 
 1. Open the source you just created.
 2. Select the **Facebook Page** that owns the lead form.
@@ -85,7 +89,15 @@ On creation, CRM automatically fetches your Facebook Pages and Lead Forms from F
 
 > **Note:** Each Facebook Lead Form can only have **one enabled** sync source at a time.
 
-### Step 3: Map form fields to CRM
+### Step 2: Configure the source (OLX)
+
+1. Open the OLX source.
+2. Confirm **username** and **password** are saved.
+3. Click **Test credentials** to verify login before enabling sync.
+
+OLX sync fetches **today's leads only** (not a rolling 24-hour window). Re-running sync today replaces today's sync entries for that source before re-importing.
+
+### Step 3: Map form fields to CRM (Facebook only)
 
 After selecting a lead form, a mapping table appears showing all Facebook form questions.
 
@@ -123,7 +135,7 @@ Leads will also sync automatically based on your chosen frequency.
 The Lead syncing page shows all configured sources with:
 
 - **Name** — your label for the source
-- **Source** — platform type (Facebook)
+- **Source** — platform type (Facebook or OLX)
 - **Enabled** — toggle to start/stop automatic syncing
 
 ### Actions per source
@@ -165,18 +177,18 @@ The tab label shows the **total count** as soon as the source opens — for exam
 
 | Column       | Description                                         |
 | ------------ | --------------------------------------------------- |
-| Vendor ID    | Facebook lead ID (unique per submission)            |
-| Lead         | Summary from form data (name, phone)                |
 | Lead ID      | CRM Lead link once imported; **Pending** until then |
-| Vendor       | Source platform (e.g. Facebook)                     |
-| Submitted at | When the lead was submitted on Facebook             |
-| Created      | When the sync entry was created in CRM              |
+| Vendor       | Source platform (e.g. Facebook, Olx)                |
+| Vendor ID    | Facebook lead ID (OLX entries leave this empty)     |
+| Submitted at | When the lead was submitted on the vendor platform  |
+| Created at   | When the sync entry was created in CRM              |
+| Lead         | Summary from form/data (name, phone)                |
 
 
 ### Filters
 
-- **Submitted date range** — filter by when the lead was submitted on Facebook
-- **Search** — match **Vendor ID** or **Lead ID**
+- **Submitted date range** — filter by when the lead was submitted on the vendor platform
+- **Search** — match **Vendor ID** or **Lead ID** (Vendor ID is empty for OLX)
 
 Click **Apply** after changing filters. The tab count updates to match the filtered total. **Clear** resets filters and restores the prefetched unfiltered first page when available.
 
@@ -189,8 +201,8 @@ Click any row to open the full record:
 
 | Section             | Content                                                       |
 | ------------------- | ------------------------------------------------------------- |
-| **Form responses**  | Mapped Facebook form answers (`field_data` — varies per form) |
-| **Additional info** | Ad, campaign, platform, and other Graph API enrichment        |
+| **Form responses**  | Mapped Facebook form answers (`field_data` — Facebook only) |
+| **Additional info** | Ad, campaign, platform (Facebook Graph API enrichment)        |
 | **Raw payload**     | Complete JSON stored for audit                                |
 
 
@@ -224,26 +236,29 @@ Open any source and go to the **Failure logs** tab to see leads that were not im
 
 ## What gets created in CRM
 
-Each successfully synced Facebook submission creates or updates a **CRM Lead** with:
-
+Each successfully synced submission creates or updates a **CRM Lead** with:
 
 | Data              | Description                                                              |
 | ----------------- | ------------------------------------------------------------------------ |
-| Mapped fields     | Values from your field mapping (name, phone, email, etc.)                |
-| Source            | Set to "Facebook"                                                        |
+| Mapped fields     | Values from your field mapping (Facebook) or OLX payload (name, phone)   |
+| Source            | From the **CRM Lead Source** you selected on the Lead Sync Source        |
 | Facebook lead ID  | Unique identifier from Facebook (stored as `vendor_id` on sync entry)    |
-| Facebook form ID  | The form this lead came from                                             |
-| Facebook raw data | Full submission payload (visible in lead activity and sync entry detail) |
+| Facebook form ID  | The form this lead came from (Facebook)                                  |
+| Facebook raw data | Full submission payload (Facebook activity + sync entry detail)          |
+| OLX ad ID         | OLX ad identifier (`olx_ad_id` on CRM Lead)                              |
+| OLX raw data      | Full OLX lead payload (activity timeline + sync entry detail)            |
 
 
 A **sync entry** is created for every fetched lead **before** CRM import begins, linking the vendor payload to the CRM Lead once import succeeds.
 
 ### Duplicate handling
 
-CRM prevents re-processing the same Facebook submission once import succeeded:
+CRM prevents re-processing the same vendor submission once import succeeded:
 
-- **`Lead ID` on sync entry** — if a sync entry already has a CRM Lead linked, the lead is not re-imported
-- Pending sync entries (no Lead ID) are retried on the next sync
+- **`Lead ID` on sync entry** — if a sync entry already has a CRM Lead linked, the lead is not re-imported (Facebook)
+- Pending Facebook sync entries (no Lead ID) are retried on the next sync
+- Facebook: duplicate non-empty **Vendor ID** on sync entries is blocked at application level
+- OLX: sync entries do not store Vendor ID; today's entries are refreshed on each OLX sync run
 - Mapped field values and Facebook lead ID checks during CRM import
 - Duplicates during import appear in Failure Logs as type **Duplicate**
 
@@ -258,9 +273,10 @@ If a CRM Lead with the same **mobile number** already exists, Facebook sync may 
 
 | Problem                                  | Likely cause                                               | Solution                                                                                                                 |
 | ---------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Sync fails / leads not created           | CRM Lead Source for Facebook (Manual Selection) not set up | Create a CRM Lead Source with source name **Facebook** and purpose **Manual Selection** before syncing                   |
-| Cannot create source                     | Facebook token not configured                              | Contact admin to set `facebook_lead_sync_access_token`                                                                   |
-| No pages/forms appear                    | Token invalid or no pages on account                       | Verify Facebook token and page access                                                                                    |
+| Sync fails / leads not created           | CRM Lead Source not selected on source (`source_id`)       | Open the source and select a **CRM Lead Source** before syncing                                                          |
+| Cannot create Facebook source              | Facebook token not configured                              | Contact admin to set `facebook_lead_sync_access_token`                                                                   |
+| OLX Test credentials fails                 | Wrong username/password or OLX API down                    | Re-enter credentials; contact admin if `olx_base_url` is customized                                                      |
+| No pages/forms appear (Facebook)           | Token invalid or no pages on account                       | Verify Facebook token and page access                                                                                    |
 | Leads not syncing                        | Source disabled or workers not running                     | Enable source; confirm background workers are active on `long` and `default` queues; enable scheduler in System Settings |
 | All leads show as Duplicate              | Leads already imported                                     | Expected when re-syncing leads that already have a linked Lead ID                                                        |
 | Force sync button not visible            | User role not in Global Config                             | Ask admin to add your role to `lead_sync_force_sync_roles` in Global Config                                              |
@@ -271,6 +287,8 @@ If a CRM Lead with the same **mobile number** already exists, Facebook sync may 
 | Lead failed after sync ran               | Worker error after fetch                                   | Open Failure logs → **Retry sync**                                                                                       |
 | Date filter shows no results             | Wrong date range or timezone                               | Use **Submitted at** dates from sync entries; click Apply after selecting range                                          |
 | Entry shows Pending                      | Import failed or still queued                              | Check Failure logs; retry if needed                                                                                      |
+| OLX Vendor ID column empty               | Expected for OLX                                           | OLX does not store Vendor ID on sync entries                                                                               |
+| OLX leads missing from yesterday         | OLX only syncs today                                       | Historical OLX backfill is not supported in current sync window                                                            |
 | Tab shows Sync entries without (N)       | Prefetch still loading or source just opened               | Wait a moment; count appears after the first page loads                                                                  |
 
 
@@ -278,14 +296,16 @@ If a CRM Lead with the same **mobile number** already exists, Facebook sync may 
 
 ## Current limitations (Beta)
 
-- **Facebook only** — other platforms (Google Ads, LinkedIn, etc.) are not yet supported.
-- **Server-managed token** — Facebook access token is configured by administrators, not in the UI.
-- **Phone number required** — leads without a mapped and valid mobile number are skipped.
-- **One source per form** — each Facebook Lead Form supports only one active sync source.
-- **24-hour fetch window** — normal sync fetches leads from the last 24 hours only; use **Force sync** for full historical backfill (requires role in Global Config).
-- **High-volume forms** — very large forms (100k+ leads) may need manual review; pagination is planned.
-- **Async import** — sync fetches from Facebook first, creates sync entries, then imports leads via a background queue; large batches finish over time.
-- **Automatic retry for pending entries** — sync entries without a Lead ID are retried on the next sync; use Failure logs for manual retry after fixing mapping issues.
+- **Facebook and OLX** — other platforms (Google Ads, LinkedIn, etc.) are not yet supported.
+- **Facebook token** — configured by administrators in site config, not in the UI.
+- **OLX credentials** — per-source username/password in the UI; optional `olx_base_url` in site config.
+- **Phone number required** — Facebook leads need phone mapped to Mobile No; OLX leads need a valid phone on the payload.
+- **One source per Facebook form** — each Facebook Lead Form supports only one active sync source.
+- **Facebook 24-hour fetch window** — normal sync fetches leads from the last 24 hours only; use **Force sync** for full historical backfill (requires role in Global Config).
+- **OLX today-only sync** — each run fetches and re-imports today's leads; re-running sync deletes today's sync entries for that source first.
+- **High-volume Facebook forms** — very large forms (100k+ leads) may need manual review; pagination is planned.
+- **Async import** — sync fetches from the vendor first, creates sync entries, then imports leads via a background queue; large batches finish over time.
+- **Automatic retry for pending Facebook entries** — sync entries without a Lead ID are retried on the next sync; use Failure logs for manual retry after fixing mapping issues.
 
 ---
 
@@ -306,8 +326,11 @@ A: Yes. Future syncs use the updated mappings for **new** leads. Already-importe
 **Q: Why does the Sync entries tab show a number?**  
 A: That is the **total count** of sync entries for this source. CRM loads it when you open the source so you can see volume before opening the tab.
 
-**Q: Where do I see the original Facebook submission?**  
-A: Open the source → **Sync entries** tab → click the row for form responses, additional info, and raw JSON. The CRM Lead activity timeline also shows the Facebook submission.
+**Q: Where do I see the original Facebook or OLX submission?**  
+A: Open the source → **Sync entries** tab → click the row for form responses (Facebook), additional info, and raw JSON. The CRM Lead activity timeline also shows Facebook and OLX lead intent cards.
+
+**Q: Why is Vendor ID empty for OLX?**  
+A: OLX sync entries intentionally omit Vendor ID. Use **Lead ID**, **Submitted at**, and the raw payload to identify leads.
 
 **Q: Why does a sync entry show Pending?**  
 A: The vendor lead was fetched and recorded, but CRM import has not completed yet (queued, in progress, or failed). Check **Failure logs** if it stays pending.
@@ -333,7 +356,9 @@ A: Your system administrator or @[kapil.rohilla@carrum.co.in](mailto:kapil.rohil
 | ---------------------- | --------------------------------------------------------------------------------------------------------- |
 | **Lead Sync Source**   | A configured connection between an external platform and CRM                                              |
 | **Sync entry**         | Audit record (`Lead Sync Entry`) storing the raw vendor payload before CRM import                         |
-| **Vendor ID**          | Unique external lead identifier (Facebook lead ID for Facebook sync)                                      |
+| **Vendor ID**          | Unique external lead identifier (Facebook lead ID; empty for OLX sync entries)                            |
+| **CRM Lead Source**    | Attribution record selected on each Lead Sync Source (`source_id`)                                        |
+| **OLX Lead Intent**    | Activity card on CRM Lead showing OLX submission details (phone masked in UI)                             |
 | **Facebook Lead Form** | A lead capture form attached to a Facebook Lead Ad                                                        |
 | **Field mapping**      | Pairing of Facebook form questions to CRM Lead fields                                                     |
 | **Failure log**        | Record of a lead that was not imported, with reason                                                       |

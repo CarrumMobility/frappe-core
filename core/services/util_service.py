@@ -593,8 +593,6 @@ class UtilService:
             return False
         if lead_status_doc.is_recovery_initiated == 1:
             return False
-        if lead_status_doc.is_reonboarding == 1:
-            return False
         if lead_status_doc.is_recovery_done == 1:
             return False
         if lead_status_doc.is_maintenance_drop == 1:

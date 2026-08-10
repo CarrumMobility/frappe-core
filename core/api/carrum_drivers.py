@@ -1,23 +1,23 @@
 import base64
 import json
 from datetime import date, datetime
+from typing import Optional
 from uuid import UUID
-from core.constants.enums import EnumValues
+
+import frappe
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import (
 	apply_default_crm_lead_status_to_doc,
 )
+from crm.utils import parse_phone_number
+from frappe import _
+from pydantic import BaseModel, ValidationError, field_validator
+
+from core.constants.enums import EnumValues
+from core.services import logged_requests as re
+from core.services.carrum_client import CarrumHttpClient
 from core.services.crm_lead.lead_service import lead_service
 from core.services.util_service import util_service
-from core.services.carrum_client import CarrumHttpClient
-from crm.utils import parse_phone_number
-from core.services import logged_requests as re
-import frappe
-from frappe import _
-
-from typing import Optional
-
-from pydantic import BaseModel, ValidationError, field_validator
 
 logger = frappe.logger("core.api.carrum_drivers")
 
@@ -374,7 +374,6 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
 		)
 		return True
 	if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-		print("to_onboard")
 		util_service.update_lead_status_to_converted_stages(lead.name, "to_onboard_status")
 		return True
 	if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
@@ -1233,6 +1232,11 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
 		if lead_name:
 			lead = frappe.get_doc("CRM Lead", lead_name)
+			if not util_service.validate_to_update_lead_status_to_payment_stages(lead.status):
+				return {
+					"success": True,
+					"data": resp_body
+				}
 			util_service.update_lead_status_to_converted_stages(lead.name, "payment_received")
 
 	return {"success": True, "data": resp_body}

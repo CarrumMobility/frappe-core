@@ -1,10 +1,9 @@
 from urllib.parse import quote, urlencode
 
-from core.services import logged_requests as requests
-
 import frappe
 from frappe import _
 
+from core.services import logged_requests as requests
 from core.services.carrum_client import CarrumHttpClient
 
 logger = frappe.logger("core::carrum_referral")

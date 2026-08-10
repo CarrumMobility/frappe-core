@@ -1,7 +1,8 @@
-from core.services.util_service import publish_docs as publish_docs_to_website
 import frappe
-
 from pydantic import BaseModel
+
+from core.services.util_service import publish_docs as publish_docs_to_website
+
 
 # Env config validation schema using pydantic
 class EnvConfig(BaseModel):

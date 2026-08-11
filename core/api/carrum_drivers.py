@@ -374,7 +374,6 @@ def apply_portal_driver_status_to_lead(lead, new_status: str) -> bool:
 		)
 		return True
 	if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.TO_ONBOARD:
-		print("to_onboard")
 		util_service.update_lead_status_to_converted_stages(lead.name, "to_onboard_status")
 		return True
 	if status == EnumValues.OLD_SYSTEM_DRIVER_STATUS.ONBOARDING_DROP:
@@ -1233,6 +1232,11 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		lead_name = frappe.db.get_value("CRM Lead", {"custom_account_id": aid}, "name")
 		if lead_name:
 			lead = frappe.get_doc("CRM Lead", lead_name)
+			if not util_service.validate_to_update_lead_status_to_payment_stages(lead.status):
+				return {
+					"success": True,
+					"data": resp_body
+				}
 			util_service.update_lead_status_to_converted_stages(lead.name, "payment_received")
 
 	return {"success": True, "data": resp_body}

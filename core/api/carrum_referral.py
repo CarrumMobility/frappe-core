@@ -16,6 +16,7 @@ def create_lead_referral_on_portal(
 	hubId,
 	agentReferrerId=None,
 	configId=None,
+	createdBy=None,
 	base_url=None,
 	token=None,
 ):
@@ -25,6 +26,7 @@ def create_lead_referral_on_portal(
 	Payload includes ``refereeId``, ``referrerId``, and ``hubId``.
 	``referrerId`` / ``hubId`` may be None (sent as JSON null).
 	``configId`` is sent for vendor referral scheme configuration when provided.
+	``createdBy`` is the logged-in Carrum agent UUID (always sent when provided).
 
 	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
 	``request_url``, etc.).
@@ -42,11 +44,13 @@ def create_lead_referral_on_portal(
 		"referrerId": referrerId,
 		"hubId": hubId,
 	}
-	if(agentReferrerId):
+	if agentReferrerId:
 		payload["agentReferrerId"] = agentReferrerId
 	if configId:
 		payload["configId"] = str(configId).strip()
-	print(payload,'payload')
+	created_by = str(createdBy).strip() if createdBy is not None else ""
+	if created_by:
+		payload["createdBy"] = created_by
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
@@ -61,17 +65,20 @@ def create_referral_on_portal(
 	agentReferrerId,
 	hubId,
 	referrerId=None,
+	businessType=None,
+	referrerType=None,
+	createdBy=None,
+	empId=None,
 	base_url=None,
 	token=None,
 ):
 	"""
 	Create a referral on the Carrum portal (POST ``/api/v1/referral-rewards``).
 
-	Payload: ``refereeId``, ``agentReferrerId``, ``hubId`` (may be JSON null),
-	optional ``referrerId`` when provided.
-
-	Returns the same framed dict as ``CarrumHttpClient.request`` (``success``, ``data`` or ``error``,
-	``request_url``, etc.).
+	Payload: ``refereeId``, ``hubId`` (may be JSON null), optional ``agentReferrerId``
+	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided,
+	optional ``referrerType`` when provided, ``createdBy`` (logged-in agent UUID) when provided,
+	optional ``empId`` when provided.
 	"""
 	referee_key = (refereeId or "").strip() if refereeId is not None else ""
 	if not referee_key:
@@ -81,25 +88,43 @@ def create_referral_on_portal(
 			"request_url": None,
 		}
 
+	payload = {
+		"refereeId": referee_key,
+		"hubId": hubId,
+	}
 	agent_key = (
 		str(agentReferrerId).strip() if agentReferrerId is not None else ""
 	)
-	if not agent_key:
-		return {
-			"success": False,
-			"error": _("Agent referrer id is required"),
-			"request_url": None,
-		}
-
-	payload = {
-		"refereeId": referee_key,
-		"agentReferrerId": agent_key,
-		"hubId": hubId,
-	}
+	if agent_key:
+		payload["agentReferrerId"] = agent_key
 	if referrerId:
 		rid = str(referrerId).strip()
 		if rid:
 			payload["referrerId"] = rid
+	business_type = str(businessType).strip() if businessType is not None else ""
+	if business_type:
+		payload["businessType"] = business_type
+	# Normalize LEAD+EMPLOYEE → LEAD, etc. Pure EMPLOYEE / empty → omit.
+	referrer_type_raw = str(referrerType).strip() if referrerType is not None else ""
+	referrer_type = ""
+	if referrer_type_raw:
+		upper = referrer_type_raw.upper()
+		for base in ("LEAD", "VENDOR", "EXISTING_DP"):
+			if (
+				upper == base
+				or upper.startswith(f"{base}+")
+				or upper.endswith(f"+{base}")
+			):
+				referrer_type = base
+				break
+	if referrer_type:
+		payload["referrerType"] = referrer_type
+	created_by = str(createdBy).strip() if createdBy is not None else ""
+	if created_by:
+		payload["createdBy"] = created_by
+	emp_key = str(empId).strip() if empId is not None else ""
+	if emp_key:
+		payload["empId"] = emp_key
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -254,11 +279,45 @@ def get_lead_referred_by_details_from_portal(lead_id, base_url=None, token=None)
 	)
 
 
-def remove_lead_referrer_from_portal(referee_id=None, base_url=None, token=None):
+def remove_lead_referrer_from_portal(
+	referee_id=None, removed_by=None, base_url=None, token=None
+):
 	"""
 	Remove referred-by mapping for a referee lead on Carrum.
 
 	Calls ``DELETE /api/v1/referral-rewards/referee/{lead_id}``.
+	Optional ``removedBy`` (logged-in Carrum agent UUID) is sent as a query param.
+	"""
+	lead_key = (referee_id or "").strip() if referee_id is not None else ""
+	if not lead_key:
+		return {
+			"success": False,
+			"error": _("Lead id is required"),
+			"request_url": None,
+		}
+
+	params = {}
+	removed = str(removed_by).strip() if removed_by is not None else ""
+	if removed:
+		params["removedBy"] = removed
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	lead_segment = quote(lead_key, safe="")
+	return client.request(
+		method="DELETE",
+		path=f"/api/v1/referral-rewards/referee/{lead_segment}",
+		params=params or None,
+		log_tag="remove-referrer",
+	)
+
+
+def get_referee_referral_history_from_portal(
+	referee_id=None, base_url=None, token=None
+):
+	"""
+	GET referral history for a referee lead.
+
+	``GET /api/v1/referral-rewards/referee/{refereeId}/history``
 	"""
 	lead_key = (referee_id or "").strip() if referee_id is not None else ""
 	if not lead_key:
@@ -271,9 +330,9 @@ def remove_lead_referrer_from_portal(referee_id=None, base_url=None, token=None)
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	lead_segment = quote(lead_key, safe="")
 	return client.request(
-		method="DELETE",
-		path=f"/api/v1/referral-rewards/referee/{lead_segment}",
-		log_tag="remove-referrer",
+		method="GET",
+		path=f"/api/v1/referral-rewards/referee/{lead_segment}/history",
+		log_tag="referee-referral-history",
 	)
 
 
@@ -404,14 +463,26 @@ def get_cumulative_referral_list_from_portal(
 	base_url=None,
 	token=None,
 	referrer_id=None,
+	agent_role=None,
+	search=None,
+	status=None,
+	sort_by=None,
+	sort_order=None,
+	hub_id=None,
+	logged_in_user_id=None,
+	date_from=None,
+	date_to=None,
 ):
 	"""
 	GET cumulative referral list from Carrum.
 
-	``GET {carrum_base_url}/api/v1/referral-rewards/hub-summary`` with query
-	``loggedInUserId``, ``rewardType``, ``page``, and ``limit``.
+	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
+	params from the portal agent-detail API doc (``rewardType``, ``page``,
+	``limit``, optional ``loggedInUserId``, ``hubId``, ``referrerId``, ``search``,
+	``agentRole``, ``status``, ``sortBy``, ``sortOrder``, ``dateFrom``, ``dateTo``).
 
-	Returns the same framed dict as ``CarrumHttpClient.request``.
+	Admin / super_admin callers should pass ``logged_in_user_id`` (and optionally
+	``hub_id`` as a filter). Non-admin callers remain unchanged.
 	"""
 	try:
 		page = int(page)
@@ -432,13 +503,36 @@ def get_cumulative_referral_list_from_portal(
 		}
 
 	params = {
-		# "loggedInUserId": agent_key,
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
 	}
-	if(referrer_id):
-		params["referrerId"] = referrer_id
+	logged_in = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	)
+	if logged_in:
+		params["loggedInUserId"] = logged_in
+	hub_key = str(hub_id).strip() if hub_id is not None else ""
+	if hub_key:
+		params["hubId"] = hub_key
+	if referrer_id:
+		params["referrerId"] = str(referrer_id).strip()
+	if agent_role:
+		params["agentRole"] = str(agent_role).strip()
+	if search:
+		params["search"] = str(search).strip()
+	if status:
+		params["status"] = str(status).strip()
+	if sort_by:
+		params["sortBy"] = str(sort_by).strip()
+	if sort_order:
+		params["sortOrder"] = str(sort_order).strip()
+	date_from_key = str(date_from).strip() if date_from is not None else ""
+	if date_from_key:
+		params["dateFrom"] = date_from_key
+	date_to_key = str(date_to).strip() if date_to is not None else ""
+	if date_to_key:
+		params["dateTo"] = date_to_key
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -456,16 +550,22 @@ def get_carrum_employee_referrals(
 	agent_id=None,
 	base_url=None,
 	token=None,
-	referrer_id=None,
+	agent_role=None,
+	search=None,
+	sort_by=None,
+	sort_order=None,
+	hub_id=None,
+	logged_in_user_id=None,
+	date_from=None,
+	date_to=None,
 ):
 	"""
-	GET Carrum employee / hub-summary referral list (same HTTP behaviour as
-	``get_cumulative_referral_list_from_portal`` — inlined for CRM employee referrals).
+	GET Carrum employee / hub-summary referral list.
 
-	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
-	``rewardType`` (default ``AGENT_REFERRAL``), ``page``, ``limit``, optional ``referrerId``.
-
-	Returns the same framed dict as ``CarrumHttpClient.request``.
+	``GET {carrum_base_url}/api/v1/referral-rewards/hub-summary`` with query
+	params from the portal hub-summary API doc (``loggedInUserId``, ``rewardType``,
+	``page``, ``limit``, optional ``hubId``, ``search``, ``agentRole``, ``sortBy``,
+	``sortOrder``, ``dateFrom``, ``dateTo``).
 	"""
 	try:
 		page = int(page)
@@ -485,14 +585,33 @@ def get_carrum_employee_referrals(
 			"request_url": None,
 		}
 
+	logged_in = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or agent_key
+
 	params = {
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
-		"loggedInUserId":agent_key
+		"loggedInUserId": logged_in,
 	}
-	if referrer_id:
-		params["referrerId"] = referrer_id
+	hub_key = str(hub_id).strip() if hub_id is not None else ""
+	if hub_key:
+		params["hubId"] = hub_key
+	if agent_role:
+		params["agentRole"] = str(agent_role).strip()
+	if search:
+		params["search"] = str(search).strip()
+	if sort_by:
+		params["sortBy"] = str(sort_by).strip()
+	if sort_order:
+		params["sortOrder"] = str(sort_order).strip()
+	date_from_key = str(date_from).strip() if date_from is not None else ""
+	if date_from_key:
+		params["dateFrom"] = date_from_key
+	date_to_key = str(date_to).strip() if date_to is not None else ""
+	if date_to_key:
+		params["dateTo"] = date_to_key
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
@@ -690,6 +809,123 @@ def approve_reward_ledger_on_carrum_portal(
 		params={"loggedInUserId": user_key},
 		json=payload,
 		log_tag="approve-reward-ledger",
+	)
+
+
+def reject_reward_ledger_on_carrum_portal(
+	ledger_id=None,
+	logged_in_user_id=None,
+	amount=None,
+	reason=None,
+	remarks=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Reject an amount on a reward ledger entry on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/reject``
+	with query ``loggedInUserId`` and JSON body ``amount``, optional ``reason``.
+
+	Returns:
+		Same framed dict as ``CarrumHttpClient.request``.
+	"""
+	ledger_key = (str(ledger_id).strip() if ledger_id is not None else "") or ""
+	if not ledger_key:
+		return {
+			"success": False,
+			"error": _("Ledger id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	amount_str = str(amount).strip() if amount is not None else ""
+	if not amount_str:
+		return {
+			"success": False,
+			"error": _("Rejection amount is required"),
+			"request_url": None,
+		}
+
+	try:
+		rejection_amount = float(amount_str)
+	except (TypeError, ValueError):
+		return {
+			"success": False,
+			"error": _("Rejection amount must be a valid number"),
+			"request_url": None,
+		}
+
+	payload = {
+		"amount": int(rejection_amount)
+		if rejection_amount.is_integer()
+		else rejection_amount
+	}
+	reject_input = reason if reason is not None else remarks
+	reason_str = str(reject_input).strip() if reject_input is not None else ""
+	if reason_str:
+		payload["reason"] = reason_str
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/reject",
+		params={"loggedInUserId": user_key},
+		json=payload,
+		log_tag="reject-reward-ledger",
+	)
+
+
+def unflag_reward_ledger_payment_issue_on_carrum_portal(
+	ledger_id=None,
+	logged_in_user_id=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Resolve a finance payment dispute on a reward ledger.
+
+	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/unflag-payment-issue``
+	with query ``loggedInUserId``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	ledger_key = (str(ledger_id).strip() if ledger_id is not None else "") or ""
+	if not ledger_key:
+		return {
+			"success": False,
+			"error": _("Ledger id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=(
+			f"/api/v1/referral-rewards/reward-ledger/"
+			f"{quote(ledger_key, safe='')}/unflag-payment-issue"
+		),
+		params={"loggedInUserId": user_key},
+		log_tag="unflag-reward-ledger-payment-issue",
 	)
 
 
@@ -932,7 +1168,77 @@ def reject_referral_on_carrum_portal(
 	}
 
 
-def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=None, base_url=None, token=None):
+def full_reject_referral_on_carrum_portal(
+	referral_id=None,
+	logged_in_user_id=None,
+	reward_type=None,
+	reason=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Complete rejection on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/{referralId}/full-reject``
+	with query ``loggedInUserId`` and JSON body ``rewardType``, ``reason``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	referral_key = (str(referral_id).strip() if referral_id is not None else "") or ""
+	if not referral_key:
+		return {
+			"success": False,
+			"error": _("Referral id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	reward_type_str = (str(reward_type).strip() if reward_type is not None else "") or ""
+	if not reward_type_str:
+		return {
+			"success": False,
+			"error": _("Reward type is required"),
+			"request_url": None,
+		}
+
+	reason_str = (str(reason).strip() if reason is not None else "") or ""
+	if not reason_str:
+		return {
+			"success": False,
+			"error": _("Reason is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/{quote(referral_key, safe='')}/full-reject",
+		params={"loggedInUserId": user_key},
+		json={
+			"rewardType": reward_type_str,
+			"reason": reason_str,
+		},
+		log_tag="full-reject-referral",
+	)
+
+
+def get_referral_scheme_list_from_portal(
+	role_id=None,
+	hub_id=None,
+	config_id=None,
+	business_type=None,
+	base_url=None,
+	token=None,
+):
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	params = {}
 	if role_id is not None and str(role_id).strip():
@@ -941,6 +1247,8 @@ def get_referral_scheme_list_from_portal(role_id=None, hub_id=None, config_id=No
 		params["hubId"] = str(hub_id).strip()
 	if config_id is not None and str(config_id).strip():
 		params["configId"] = str(config_id).strip()
+	if business_type is not None and str(business_type).strip():
+		params["businessType"] = str(business_type).strip()
 	return client.request(
 		method="GET",
 		path="/api/v1/referral-rewards/configs/active",
@@ -993,4 +1301,108 @@ def create_vendor_referral_config_on_portal(
 		path="/api/v1/referral-rewards/configs/vendor",
 		json=payload,
 		log_tag="vendor-referral-config-create",
+	)
+
+
+def get_referral_details_from_portal(
+	logged_in_user_id,
+	page=1,
+	limit=20,
+	search=None,
+	status=None,
+	agent_role=None,
+	agent_name=None,
+	created_by_name=None,
+	hub_id=None,
+	referee_id=None,
+	referrer_id=None,
+	agent_referrer_id=None,
+	config_id=None,
+	only_mine=None,
+	sort_by=None,
+	sort_order=None,
+	converted_at=None,
+	approval_status=None,
+	payment_status=None,
+	payment_flagged=None,
+	referrer_type=None,
+	referral_category=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	GET referral approval / details list from Carrum.
+
+	``GET {carrum_base_url}/api/v1/referral-rewards/details`` with required
+	``loggedInUserId`` plus optional pagination, filters, and sort params.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	)
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged-in user id is required"),
+			"request_url": None,
+		}
+
+	try:
+		page = int(page)
+		limit = int(limit)
+	except (TypeError, ValueError):
+		page, limit = 1, 20
+	if page < 1:
+		page = 1
+	if limit < 1:
+		limit = 20
+	if limit > 200:
+		limit = 200
+
+	params = {
+		"loggedInUserId": user_key,
+		"page": page,
+		"limit": limit,
+	}
+
+	def _add(key, value):
+		if value is None:
+			return
+		text = str(value).strip()
+		if text:
+			params[key] = text
+
+	_add("search", search)
+	_add("status", status)
+	_add("agentRole", agent_role)
+	_add("agentName", agent_name)
+	_add("createdByName", created_by_name)
+	_add("hubId", hub_id)
+	_add("refereeId", referee_id)
+	_add("referrerId", referrer_id)
+	_add("agentReferrerId", agent_referrer_id)
+	_add("configId", config_id)
+	_add("convertedAt", converted_at)
+	_add("approvalStatus", approval_status)
+	_add("paymentStatus", payment_status)
+	_add("referralCategory", referral_category or referrer_type)
+	_add("sortBy", sort_by)
+	_add("sortOrder", sort_order)
+
+	if only_mine is True or str(only_mine).strip().lower() in ("1", "true", "yes"):
+		params["onlyMine"] = "true"
+	if payment_flagged is True or str(payment_flagged).strip().lower() in (
+		"1",
+		"true",
+		"yes",
+	):
+		params["paymentFlagged"] = "true"
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="GET",
+		path="/api/v1/referral-rewards/details",
+		params=params,
+		log_tag="referral-details",
 	)

@@ -1,9 +1,13 @@
+import re
+
 from core.constants.enums import EnumValues
 from pydantic import BaseModel
 from core.services import logged_requests as requests
 from core.services.carrum_client import CarrumHttpClient
 import frappe
 from frappe import _
+
+REFERRAL_FORM_OTP_SOURCE = "referral_form"
 
 logger = frappe.logger("core::carrum_accounts")
 
@@ -140,10 +144,10 @@ def get_smartflo_credentials_for_frappe_user(frappe_username: str):
     if not frappe_username:
         return None
     data = fetch_carrum_user_data_using_frappe_username(frappe_username)
-    
+
     if not data:
         return None
-    
+
     cred = data.get("smartfloCred") or data.get("smartflowCred")
     return _normalize_smartflo_cred_dict(cred)
 
@@ -228,13 +232,13 @@ def _get_telecaller_by_inbox_id(inbox_id: int):
 
 def get_users_by_inbox_id(inbox_id: int):
     data = _get_telecaller_by_inbox_id(inbox_id)
-    
+
     data2Return = []
     for i in data:
         frappeUsername = i.get("frappeCred", {}).get("username")
         data2Return.append(frappeUsername)
 
-    return data2Return 
+    return data2Return
 
 def get_hub_telecallers(hub_id: str):
     carrum_base_url = frappe.conf.get("carrum_base_url")
@@ -246,7 +250,7 @@ def get_hub_telecallers(hub_id: str):
         "roleName": EnumValues.Roles.TELECALLER.lower(),
         "status": "active"
     }
-    
+
 
     response = requests.get(
         url,
@@ -320,6 +324,34 @@ def _carrum_user_frappe_username(user_row: dict) -> str:
     return (frappe_cred.get("username") or frappe_cred.get("userName") or "").strip()
 
 
+def _carrum_user_belongs_to_hub(user_row: dict, hub_id: str | None) -> bool:
+    """True when the Carrum user row's defaultHub or hubs list includes ``hub_id``."""
+    hub_key = (str(hub_id).strip() if hub_id is not None else "") or ""
+    if not hub_key or not isinstance(user_row, dict):
+        return False
+
+    default_hub = user_row.get("defaultHub") or user_row.get("default_hub") or {}
+    if isinstance(default_hub, dict):
+        default_id = (default_hub.get("id") or "").strip()
+        if default_id and default_id == hub_key:
+            return True
+
+    hubs = user_row.get("hubs") or []
+    if isinstance(hubs, list):
+        for hub in hubs:
+            if not isinstance(hub, dict):
+                continue
+            if (hub.get("id") or "").strip() == hub_key:
+                return True
+
+    # Some list payloads already scoped by hubId omit nested hubs; accept explicit hubId.
+    row_hub = user_row.get("hubId") or user_row.get("hub_id")
+    if row_hub is not None and str(row_hub).strip() == hub_key:
+        return True
+
+    return False
+
+
 def resolve_carrum_user_id_to_frappe_username(
     carrum_user_id: str, hub_id: str | None = None
 ) -> str:
@@ -344,7 +376,7 @@ def resolve_carrum_user_id_to_frappe_username(
 
 
 def fetch_hub_active_users(
-    hub_id: str, role_name: str | None = None, limit: int = 200
+    hub_id: str, role_name: str | None = None, limit: int = 500
 ) -> dict:
     """Fetch active Carrum users for a hub via the portal API (framed response)."""
     hub_id = (hub_id or "").strip()
@@ -393,3 +425,76 @@ def get_dm_of_all_businessTypes(hubId: str):
     response = requests.get(url, headers={"Authorization": old_carrum_token})
     data = response.json()
     return data
+
+
+def _normalize_phone_10(phone_no) -> str:
+    digits = re.sub(r"\D", "", str(phone_no or "").strip())
+    if len(digits) >= 10:
+        return digits[-10:]
+    return digits
+
+
+def send_phone_verification_otp_on_carrum_portal(
+    phone_no=None,
+    source=None,
+    base_url=None,
+    token=None,
+):
+    """
+    Request OTP for phone verification on the Carrum portal.
+
+    ``POST /api/v1/users/login/otp/for-verification``
+    with JSON body ``phoneNo`` and ``source``.
+    """
+    phone = _normalize_phone_10(phone_no)
+    if len(phone) != 10:
+        return {
+            "success": False,
+            "error": _("Phone number must be 10 digits"),
+            "request_url": None,
+        }
+
+    source_str = (str(source).strip() if source else "") or REFERRAL_FORM_OTP_SOURCE
+    client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+    return client.request(
+        method="POST",
+        path="/api/v1/users/login/otp/for-verification",
+        json={"phoneNo": phone, "source": source_str},
+        log_tag="send-phone-verification-otp",
+    )
+
+
+def verify_phone_otp_on_carrum_portal(
+    phone_no=None,
+    otp=None,
+    base_url=None,
+    token=None,
+):
+    """
+    Verify OTP for a phone number on the Carrum portal.
+
+    ``POST /api/v1/users/login/otp/verify-phone``
+    with JSON body ``phoneNo`` and ``otp``.
+    """
+    phone = _normalize_phone_10(phone_no)
+    otp_str = re.sub(r"\D", "", str(otp or "").strip())
+    if len(phone) != 10:
+        return {
+            "success": False,
+            "error": _("Phone number must be 10 digits"),
+            "request_url": None,
+        }
+    if len(otp_str) != 6:
+        return {
+            "success": False,
+            "error": _("OTP must be 6 digits"),
+            "request_url": None,
+        }
+
+    client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+    return client.request(
+        method="POST",
+        path="/api/v1/users/login/otp/verify-phone",
+        json={"phoneNo": phone, "otp": otp_str},
+        log_tag="verify-phone-otp",
+    )

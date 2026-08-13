@@ -582,6 +582,31 @@ class UtilService:
         lead.secondary_status = status_row.lead_status
         lead.save(ignore_permissions=True)
 
+    def validate_to_update_lead_status_to_payment_stages(self, lead_status: str ):
+        lead_status_doc = frappe.get_doc("CRM Lead Status", lead_status)
+
+        if lead_status_doc.is_apply_on_vehicle_assignment == 1:
+            return False
+        if lead_status_doc.is_permanent_drop == 1:
+            return False
+        if lead_status_doc.is_temp_drop == 1:
+            return False
+        if lead_status_doc.is_recovery_initiated == 1:
+            return False
+        if lead_status_doc.is_recovery_done == 1:
+            return False
+        if lead_status_doc.is_maintenance_drop == 1:
+            return False
+        if lead_status_doc.is_driver_returned == 1:
+            return False
+        if lead_status_doc.is_onboarding_drop == 1:
+            return False
+        if lead_status_doc.is_inactive == 1:
+            return False
+        if lead_status_doc.is_apply_on_merged_lead == 1:
+            return False
+
+        return True
 
 def publish_docs() -> dict:
     import os

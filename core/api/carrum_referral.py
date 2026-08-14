@@ -1313,6 +1313,8 @@ def get_referral_details_from_portal(
 	agent_role=None,
 	agent_name=None,
 	created_by_name=None,
+	search_agent=None,
+	search_created_by=None,
 	hub_id=None,
 	referee_id=None,
 	referrer_id=None,
@@ -1378,6 +1380,8 @@ def get_referral_details_from_portal(
 	_add("agentRole", agent_role)
 	_add("agentName", agent_name)
 	_add("createdByName", created_by_name)
+	_add("searchAgent", search_agent)
+	_add("searchCreatedBy", search_created_by)
 	_add("hubId", hub_id)
 	_add("refereeId", referee_id)
 	_add("referrerId", referrer_id)

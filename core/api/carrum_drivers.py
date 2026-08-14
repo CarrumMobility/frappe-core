@@ -836,7 +836,7 @@ def get_digio_agreement(digio_id: str):
 
 
 @frappe.whitelist()
-def send_agreement(leadId: str):
+def send_agreement(leadId: str,signingMethod: str):
 	lid = (leadId or "").strip()
 	if not lid:
 		frappe.throw(_("Lead ID is required"))
@@ -892,7 +892,7 @@ def send_agreement(leadId: str):
 		frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
 
 	url = f"{base}/api/v1/driver/sendAgreementForDriver"
-
+	sign_mode = "esign" if signingMethod == "digital_signature" else "aadhaar"
 	payload = {
 		"accountId": account_id,
 		"driver_phone": phoneNo,
@@ -912,13 +912,15 @@ def send_agreement(leadId: str):
 		"Witness3": "father_name",  # father_name
 		"Witness4": "sarpanch",  # sarpanch
 		"hubId": business_type_id,
+		"sign_mode": sign_mode
 	}
 	headers = {
 		"Authorization": token,
 		"Content-Type": "application/json",
 	}
-
+	body : dict | None = None
 	try:
+		body = payload
 		response = re.post(url=url, headers=headers, json=payload, timeout=60)
 	except re.exceptions.RequestException as e:
 		logger.exception("send_agreement failed: %s", e)
@@ -937,7 +939,14 @@ def send_agreement(leadId: str):
 			or _("Carrum API error ({0})").format(response.status_code)
 		)
 
-	return {"success": True, "data": resp_body}
+	return {
+		"success": True,
+		"data": resp_body,
+		"external_debug_info": {
+			'url': url,
+			'body': body
+		}
+	}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1004,6 +1013,154 @@ def upload_agreement(leadId: str | None = None):
 	if not response.ok:
 		logger.error(
 			"upload_agreement HTTP %s: %s",
+			response.status_code,
+			json.dumps(resp_body, default=str)[:1000],
+		)
+		message = None
+		if isinstance(resp_body, dict):
+			message = resp_body.get("message") or resp_body.get("error")
+			err = resp_body.get("errors")
+			if isinstance(err, list) and err:
+				first = err[0]
+				message = message or (first.get("message") if isinstance(first, dict) else str(first))
+		frappe.throw(message or _("Carrum upload error ({0})").format(response.status_code))
+
+	return {"success": True, "data": resp_body}
+
+
+def _old_carrum_auth_headers(*, json_body: bool = False) -> tuple[str, dict]:
+	base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
+	if not base:
+		frappe.throw(_("Old Carrum base URL is not configured (old_carrum_base_url)"))
+	token = frappe.conf.get("old_carrum_token")
+	if not token:
+		frappe.throw(_("Old Carrum token is not configured (old_carrum_token)"))
+	headers = {"Authorization": token}
+	if json_body:
+		headers["Content-Type"] = "application/json"
+	return base, headers
+
+
+@frappe.whitelist(methods=["POST"])
+def update_agreement_history_status(
+	agreement_id: str,
+	driver_id: str,
+	agreement_status: str | None = None,
+	video_verification_status: str | None = None,
+):
+	"""
+	Update agreement row status via Carrum ``PUT /api/v1/driver/updateAggrementStatus/``.
+	"""
+	aid = (agreement_id or "").strip()
+	did = (driver_id or "").strip()
+	if not aid:
+		frappe.throw(_("Agreement ID is required"))
+	if not did:
+		frappe.throw(_("Driver ID is required"))
+
+	agreement_status_val = (agreement_status or "").strip() or None
+	video_status_val = (video_verification_status or "").strip() or None
+	if agreement_status_val is None and video_status_val is None:
+		frappe.throw(_("At least one status field is required"))
+
+	base, headers = _old_carrum_auth_headers(json_body=True)
+	url = f"{base}/api/v1/driver/updateAggrementStatus/"
+	payload = {
+		"id": aid,
+		"driver_id": did,
+	}
+	if agreement_status_val is not None:
+		payload["agreement_status"] = agreement_status_val
+	if video_status_val is not None:
+		payload["video_verification_status"] = video_status_val
+
+	try:
+		response = re.put(url, headers=headers, json=payload, timeout=60)
+	except re.exceptions.RequestException as e:
+		logger.exception("update_agreement_history_status failed: %s", e)
+		frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
+
+	try:
+		resp_body = response.json()
+	except ValueError:
+		resp_body = {"_raw": (response.text or "")[:500]}
+
+	if not response.ok:
+		logger.error(
+			"update_agreement_history_status HTTP %s: %s",
+			response.status_code,
+			json.dumps(resp_body, default=str)[:1000],
+		)
+		message = None
+		if isinstance(resp_body, dict):
+			message = resp_body.get("message") or resp_body.get("error")
+			err = resp_body.get("errors")
+			if isinstance(err, list) and err:
+				first = err[0]
+				message = message or (first.get("message") if isinstance(first, dict) else str(first))
+		frappe.throw(message or _("Carrum status update error ({0})").format(response.status_code))
+
+	return {"success": True, "data": resp_body}
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_agreement_video(leadId: str | None = None, account_id: str | None = None):
+	"""
+	Forward agreement verification video/image to Carrum.
+
+	Matches ``POST /api/v1/driver/uploadDocsByAccount/{accountId}`` with multipart
+	``docType=agreement_video`` and file field ``image``.
+	"""
+	aid = (account_id or "").strip()
+	if not aid:
+		lid = (leadId or "").strip()
+		if not lid:
+			frappe.throw(_("Account ID is required"))
+		if not frappe.db.exists("CRM Lead", lid):
+			frappe.throw(_("Not a valid CRM Lead"))
+		lead = frappe.get_doc("CRM Lead", lid)
+		aid = (lead.custom_account_id or "").strip()
+	if not aid:
+		frappe.throw(_("Carrum Driver Account ID is required"))
+
+	files_dict = frappe.request.files or {}
+	file_part = files_dict.get("image")
+	if file_part is None or getattr(file_part, "filename", None) in (None, ""):
+		frappe.throw(_("Image or video file is required (form field: image)"))
+
+	base, headers = _old_carrum_auth_headers()
+	url = f"{base}/api/v1/driver/uploadDocsByAccount/{aid}"
+
+	raw = file_part.read()
+	if not raw:
+		frappe.throw(_("Uploaded file is empty"))
+
+	filename = file_part.filename or "agreement-video.bin"
+	content_type = getattr(file_part, "content_type", None) or "application/octet-stream"
+
+	data = {"docType": "agreement_video"}
+	files = {"image": (filename, raw, content_type)}
+
+	try:
+		response = re.post(
+			url,
+			headers=headers,
+			files=files,
+			data=data,
+			timeout=120,
+		)
+	except re.exceptions.RequestException as e:
+		logger.exception("upload_agreement_video failed: %s", e)
+		frappe.throw(_("Could not reach Carrum: {0}").format(str(e)))
+
+	try:
+		resp_body = response.json()
+	except ValueError:
+		resp_body = {"_raw": (response.text or "")[:500]}
+
+	if not response.ok:
+		logger.error(
+			"upload_agreement_video HTTP %s: %s",
 			response.status_code,
 			json.dumps(resp_body, default=str)[:1000],
 		)
@@ -1233,10 +1390,7 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		if lead_name:
 			lead = frappe.get_doc("CRM Lead", lead_name)
 			if not util_service.validate_to_update_lead_status_to_payment_stages(lead.status):
-				return {
-					"success": True,
-					"data": resp_body
-				}
+				return {"success": True, "data": resp_body}
 			util_service.update_lead_status_to_converted_stages(lead.name, "payment_received")
 
 	return {"success": True, "data": resp_body}
@@ -1413,9 +1567,7 @@ def scheme_change_webhook():
 	old_scheme_name = (payload.get("currentSchemeName") or "").strip()
 	new_scheme_name = (payload.get("newSchemeName") or "").strip()
 	new_scheme_id = (payload.get("newSchemeId") or payload.get("schemeId") or "").strip()
-	new_car_type_id = (
-		payload.get("newSchemeCarTypeId") or payload.get("schemeCarTypeId") or ""
-	).strip()
+	new_car_type_id = (payload.get("newSchemeCarTypeId") or payload.get("schemeCarTypeId") or "").strip()
 
 	unassigned = False
 	if _scheme_qualifies_for_assignments(old_scheme_name):

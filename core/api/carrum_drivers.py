@@ -836,7 +836,7 @@ def get_digio_agreement(digio_id: str):
 
 
 @frappe.whitelist()
-def send_agreement(leadId: str,signingMethod: str):
+def send_agreement(leadId: str, signingMethod: str):
 	lid = (leadId or "").strip()
 	if not lid:
 		frappe.throw(_("Lead ID is required"))
@@ -912,13 +912,13 @@ def send_agreement(leadId: str,signingMethod: str):
 		"Witness3": "father_name",  # father_name
 		"Witness4": "sarpanch",  # sarpanch
 		"hubId": business_type_id,
-		"sign_mode": sign_mode
+		"sign_mode": sign_mode,
 	}
 	headers = {
 		"Authorization": token,
 		"Content-Type": "application/json",
 	}
-	body : dict | None = None
+	body: dict | None = None
 	try:
 		body = payload
 		response = re.post(url=url, headers=headers, json=payload, timeout=60)
@@ -939,14 +939,7 @@ def send_agreement(leadId: str,signingMethod: str):
 			or _("Carrum API error ({0})").format(response.status_code)
 		)
 
-	return {
-		"success": True,
-		"data": resp_body,
-		"external_debug_info": {
-			'url': url,
-			'body': body
-		}
-	}
+	return {"success": True, "data": resp_body, "external_debug_info": {"url": url, "body": body}}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1100,7 +1093,17 @@ def update_agreement_history_status(
 				message = message or (first.get("message") if isinstance(first, dict) else str(first))
 		frappe.throw(message or _("Carrum status update error ({0})").format(response.status_code))
 
-	return {"success": True, "data": resp_body}
+	return {
+		"success": True,
+		"data": resp_body,
+		"_debug": {
+			"url": url,
+			"payload": payload,
+			"response": resp_body,
+			"status_code": response.status_code,
+			"response_text": response.text,
+		},
+	}
 
 
 @frappe.whitelist(methods=["POST"])

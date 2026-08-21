@@ -1,23 +1,25 @@
 import base64
 import json
 from datetime import date, datetime
+from typing import Optional
 from uuid import UUID
-from core.constants.enums import EnumValues
+
+import frappe
+from crm.agreement.config import ensure_offline_agreement_enabled, ensure_signing_method_enabled
 from crm.api.api_errors import CrmApiErrors, throw_custom_api_error
 from crm.fcrm.doctype.crm_lead.crm_lead import (
 	apply_default_crm_lead_status_to_doc,
 )
+from crm.utils import parse_phone_number
+from frappe import _
+from pydantic import BaseModel, ValidationError, field_validator
+
+from core.constants.agreement_video import is_agreement_video_file
+from core.constants.enums import EnumValues
+from core.services import logged_requests as re
+from core.services.carrum_client import CarrumHttpClient
 from core.services.crm_lead.lead_service import lead_service
 from core.services.util_service import util_service
-from core.services.carrum_client import CarrumHttpClient
-from crm.utils import parse_phone_number
-from core.services import logged_requests as re
-import frappe
-from frappe import _
-
-from typing import Optional
-
-from pydantic import BaseModel, ValidationError, field_validator
 
 logger = frappe.logger("core.api.carrum_drivers")
 
@@ -849,6 +851,7 @@ def send_agreement(leadId: str, signingMethod: str):
 		frappe.throw(_("Carrum Driver Account ID is required on the lead"))
 
 	_validate_send_agreement_lead_fields(lead)
+	ensure_signing_method_enabled(signingMethod)
 
 	phoneNo = lead.mobile_no
 	driver_name = lead.lead_name
@@ -959,6 +962,8 @@ def upload_agreement(leadId: str | None = None):
 	account_id = (lead.custom_account_id or "").strip()
 	if not account_id:
 		frappe.throw(_("Carrum Driver Account ID is required on the lead"))
+
+	ensure_offline_agreement_enabled()
 
 	files_dict = frappe.request.files or {}
 	file_part = files_dict.get("image")
@@ -1109,7 +1114,7 @@ def update_agreement_history_status(
 @frappe.whitelist(methods=["POST"])
 def upload_agreement_video(leadId: str | None = None, account_id: str | None = None):
 	"""
-	Forward agreement verification video/image to Carrum.
+	Forward agreement verification video to Carrum.
 
 	Matches ``POST /api/v1/driver/uploadDocsByAccount/{accountId}`` with multipart
 	``docType=agreement_video`` and file field ``image``.
@@ -1129,7 +1134,7 @@ def upload_agreement_video(leadId: str | None = None, account_id: str | None = N
 	files_dict = frappe.request.files or {}
 	file_part = files_dict.get("image")
 	if file_part is None or getattr(file_part, "filename", None) in (None, ""):
-		frappe.throw(_("Image or video file is required (form field: image)"))
+		frappe.throw(_("Video file is required (form field: image)"))
 
 	base, headers = _old_carrum_auth_headers()
 	url = f"{base}/api/v1/driver/uploadDocsByAccount/{aid}"
@@ -1140,6 +1145,8 @@ def upload_agreement_video(leadId: str | None = None, account_id: str | None = N
 
 	filename = file_part.filename or "agreement-video.bin"
 	content_type = getattr(file_part, "content_type", None) or "application/octet-stream"
+	if not is_agreement_video_file(filename, content_type):
+		frappe.throw(_("Only video files are allowed for agreement video upload"))
 
 	data = {"docType": "agreement_video"}
 	files = {"image": (filename, raw, content_type)}

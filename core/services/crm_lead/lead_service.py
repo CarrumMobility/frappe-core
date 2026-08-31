@@ -80,6 +80,24 @@ class LeadService:
 			other_info=other_info,
 		)
 
+	def find_lead(self, mobile_no: str):
+		"""Return existing CRM Lead for mobile number, or None if not found."""
+		if not mobile_no:
+			return None
+
+		parsed = parse_phone_number(mobile_no)
+		if not parsed.get("success"):
+			return None
+
+		mobile_no = parsed.get("national_number")
+		lead_name = frappe.db.get_value(
+			EnumValues.ReferenceDocType.CRM_LEAD, {"mobile_no": mobile_no}, "name"
+		)
+		if not lead_name:
+			return None
+
+		return frappe.get_doc(EnumValues.ReferenceDocType.CRM_LEAD, lead_name)
+
 	def find_or_create_facebook_lead(
 		self,
 		mobile_no: str,

@@ -261,6 +261,25 @@ def get_hub_telecallers(hub_id: str):
     data = response.json()
     return data
 
+def get_hub_verification_agents(hub_id: str):
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users"
+    query_params = {
+        "hubId": hub_id,
+        "limit": 100,
+        "roleName": EnumValues.Roles.VERIFICATION_AGENT.lower(),
+        "status": "active"
+    }
+
+    response = requests.get(
+        url,
+        headers={"Authorization": carrum_token},
+        params=query_params,
+        timeout=20,
+    )
+    data = response.json()
+    return data
 
 def _carrum_user_rows(payload):
     if isinstance(payload, dict):
@@ -295,7 +314,13 @@ def get_hub_telecaller_users(hub_id: str) -> list[dict]:
         for row in _carrum_user_rows(get_hub_telecallers(hub_id))
         if isinstance(row, dict)
     ]
-
+def get_hub_verification_agent_users(hub_id: str) -> list[dict]:
+    """Return Carrum hub verification agent user rows (id, frappeCred, etc.)."""
+    return [
+        row
+        for row in _carrum_user_rows(get_hub_verification_agents(hub_id))
+        if isinstance(row, dict)
+    ]
 
 def _carrum_user_role_name(user_row: dict) -> str:
     if not isinstance(user_row, dict):
@@ -426,6 +451,14 @@ def get_dm_of_all_businessTypes(hubId: str):
     data = response.json()
     return data
 
+def get_va_of_all_businessTypes(hubId: str):
+    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+
+    url = f"{old_carrum_base_url}/api/v1/account/verification_agent_for_frappe?hubId={hubId}"
+    response = requests.get(url, headers={"Authorization": old_carrum_token})
+    data = response.json()
+    return data
 
 def _normalize_phone_10(phone_no) -> str:
     digits = re.sub(r"\D", "", str(phone_no or "").strip())

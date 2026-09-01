@@ -21,6 +21,7 @@ class _Roles:
 	ADMINISTRATOR = "Administrator"
 	SENIOR_DRIVER_MANAGER = "Senior Driver Manager"
 	SOURCING = "Sourcing"
+	VERIFICATION_AGENT = "Verification"
 
 class _LeadType:
 	LEAD = "LEAD"

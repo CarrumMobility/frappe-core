@@ -41,6 +41,7 @@ def start_call(calling_method: str = None, leadId: str = None,provider_name: str
             )
             campaign_id = (data.get("campaign_id") or data.get("campaignId") or "").strip() or None
             campaign_name = (data.get("campaign_name") or data.get("campaignName") or "").strip() or None
+            ref_dt, ref_dn = call_service._extract_call_reference_from_payload(data)
             result = call_service.start_dialer_based_manual_dial(
                 calling_method,
                 leadId,
@@ -48,6 +49,8 @@ def start_call(calling_method: str = None, leadId: str = None,provider_name: str
                 manual_dial=manual_dial,
                 campaign_id=campaign_id,
                 campaign_name=campaign_name,
+                reference_doctype=ref_dt,
+                reference_docname=ref_dn,
             )
             return result
         case _:

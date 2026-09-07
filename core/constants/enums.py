@@ -161,6 +161,7 @@ class _CrmEventTypes:
 class _GlobalConfigKeys:
 	DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN= "default_callmatic_outbound_campaign"
 	ROLE_BASED_DEFAULT_CALLING_VENDOR= "role_based_default_calling_vendor"
+	VERIFICATION_AGENT_UPDATE_ACCESS = "verification_agent_update_access"
 	
 class _CallSessionHangupBy:
 	LEAD = "LEAD"

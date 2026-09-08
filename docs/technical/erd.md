@@ -32,7 +32,6 @@ This document lists **38** DocTypes with column-level detail, logical Link forei
 - [`tabApi hit log`](#tabapi-hit-log)
 - [`tabCall Session`](#tabcall-session)
 - [`tabCore Tag`](#tabcore-tag)
-- [`tabCRM Deal Status`](#tabcrm-deal-status)
 - [`tabCRM Fields Layout`](#tabcrm-fields-layout)
 - [`tabCRM Lead`](#tabcrm-lead)
 - [`tabCRM Lead Source`](#tabcrm-lead-source)
@@ -360,25 +359,6 @@ erDiagram
 | `idx` | integer | std Frappe |
 
 ## 2. CRM Lead & meta
-
-### `tabCRM Deal Status`
-
-**DocType:** `CRM Deal Status` · **Module:** `FCRM`
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `name` | varchar | PK; required; unique |
-| `color` | enum(black, gray, blue, green, red, pink, orange, amber, yellow, cyan, teal, violet, …) |  |
-| `deal_status` | varchar | required; unique |
-| `position` | integer |  |
-| `probability` | percent |  |
-| `type` | enum(Open, Ongoing, On Hold, Won, Lost) |  |
-| `creation` | datetime | std Frappe |
-| `modified` | datetime | std Frappe |
-| `modified_by` | varchar | std Frappe |
-| `owner` | varchar | std Frappe |
-| `docstatus` | integer | std Frappe |
-| `idx` | integer | std Frappe |
 
 ### `tabCRM Fields Layout`
 

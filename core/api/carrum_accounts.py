@@ -1,11 +1,12 @@
 import re
 
-from core.constants.enums import EnumValues
-from pydantic import BaseModel
-from core.services import logged_requests as requests
-from core.services.carrum_client import CarrumHttpClient
 import frappe
 from frappe import _
+from pydantic import BaseModel
+
+from core.constants.enums import EnumValues
+from core.services import logged_requests as requests
+from core.services.carrum_client import CarrumHttpClient
 
 REFERRAL_FORM_OTP_SOURCE = "referral_form"
 
@@ -261,13 +262,13 @@ def get_hub_telecallers(hub_id: str):
     data = response.json()
     return data
 
-def get_hub_verification_agents(hub_id: str):
+def _fetch_hub_verification_agents(hub_id: str) -> tuple[dict | list, dict]:
     carrum_base_url = frappe.conf.get("carrum_base_url")
     carrum_token = frappe.conf.get("carrum_token")
     url = f"{carrum_base_url}/api/v1/users"
     query_params = {
         "hubId": hub_id,
-        "limit": 100,
+        "limit": 1000,
         "roleName": EnumValues.Roles.VERIFICATION_AGENT.lower(),
         "status": "active"
     }
@@ -279,6 +280,17 @@ def get_hub_verification_agents(hub_id: str):
         timeout=20,
     )
     data = response.json()
+    debug_info = {
+        "method": "GET",
+        "url": url,
+        "query_params": query_params,
+        "status_code": response.status_code,
+    }
+    return data, debug_info
+
+
+def get_hub_verification_agents(hub_id: str):
+    data, _debug_info = _fetch_hub_verification_agents(hub_id)
     return data
 
 def _carrum_user_rows(payload):
@@ -314,13 +326,11 @@ def get_hub_telecaller_users(hub_id: str) -> list[dict]:
         for row in _carrum_user_rows(get_hub_telecallers(hub_id))
         if isinstance(row, dict)
     ]
-def get_hub_verification_agent_users(hub_id: str) -> list[dict]:
-    """Return Carrum hub verification agent user rows (id, frappeCred, etc.)."""
-    return [
-        row
-        for row in _carrum_user_rows(get_hub_verification_agents(hub_id))
-        if isinstance(row, dict)
-    ]
+def get_hub_verification_agent_users(hub_id: str) -> dict:
+    """Return Carrum verification-agent rows and sanitized downstream request diagnostics."""
+    payload, debug_info = _fetch_hub_verification_agents(hub_id)
+    users = [row for row in _carrum_user_rows(payload) if isinstance(row, dict)]
+    return {"users": users, "debug_info": debug_info}
 
 def _carrum_user_role_name(user_row: dict) -> str:
     if not isinstance(user_row, dict):

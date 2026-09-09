@@ -885,6 +885,85 @@ def reject_reward_ledger_on_carrum_portal(
 	)
 
 
+def unreject_reward_ledger_on_carrum_portal(
+	ledger_id=None,
+	logged_in_user_id=None,
+	amount=None,
+	reason=None,
+	remarks=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Unreject an amount on a reward ledger entry on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/reward-ledger/{ledgerId}/unreject``
+	with query ``loggedInUserId`` and JSON body ``amount``, ``reason``.
+
+	Returns:
+		Same framed dict as ``CarrumHttpClient.request``.
+	"""
+	ledger_key = (str(ledger_id).strip() if ledger_id is not None else "") or ""
+	if not ledger_key:
+		return {
+			"success": False,
+			"error": _("Ledger id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	amount_str = str(amount).strip() if amount is not None else ""
+	if not amount_str:
+		return {
+			"success": False,
+			"error": _("Unrejection amount is required"),
+			"request_url": None,
+		}
+
+	try:
+		unrejection_amount = float(amount_str)
+	except (TypeError, ValueError):
+		return {
+			"success": False,
+			"error": _("Unrejection amount must be a valid number"),
+			"request_url": None,
+		}
+
+	reject_input = reason if reason is not None else remarks
+	reason_str = str(reject_input).strip() if reject_input is not None else ""
+	if not reason_str:
+		return {
+			"success": False,
+			"error": _("Reason is required"),
+			"request_url": None,
+		}
+
+	payload = {
+		"amount": int(unrejection_amount)
+		if unrejection_amount.is_integer()
+		else unrejection_amount,
+		"reason": reason_str,
+	}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/unreject",
+		params={"loggedInUserId": user_key},
+		json=payload,
+		log_tag="unreject-reward-ledger",
+	)
+
+
 def unflag_reward_ledger_payment_issue_on_carrum_portal(
 	ledger_id=None,
 	logged_in_user_id=None,
@@ -1228,6 +1307,69 @@ def full_reject_referral_on_carrum_portal(
 			"reason": reason_str,
 		},
 		log_tag="full-reject-referral",
+	)
+
+
+def full_unreject_referral_on_carrum_portal(
+	referral_id=None,
+	logged_in_user_id=None,
+	reward_type=None,
+	reason=None,
+	base_url=None,
+	token=None,
+):
+	"""
+	Complete unrejection on the Carrum referral portal.
+
+	``POST /api/v1/referral-rewards/{referralId}/full-unreject``
+	with query ``loggedInUserId`` and JSON body ``rewardType``, ``reason``.
+
+	Returns the same framed dict as ``CarrumHttpClient.request``.
+	"""
+	referral_key = (str(referral_id).strip() if referral_id is not None else "") or ""
+	if not referral_key:
+		return {
+			"success": False,
+			"error": _("Referral id is required"),
+			"request_url": None,
+		}
+
+	user_key = (
+		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
+	) or ""
+	if not user_key:
+		return {
+			"success": False,
+			"error": _("Logged in user id is required"),
+			"request_url": None,
+		}
+
+	reward_type_str = (str(reward_type).strip() if reward_type is not None else "") or ""
+	if not reward_type_str:
+		return {
+			"success": False,
+			"error": _("Reward type is required"),
+			"request_url": None,
+		}
+
+	reason_str = (str(reason).strip() if reason is not None else "") or ""
+	if not reason_str:
+		return {
+			"success": False,
+			"error": _("Reason is required"),
+			"request_url": None,
+		}
+
+	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
+	return client.request(
+		method="POST",
+		path=f"/api/v1/referral-rewards/{quote(referral_key, safe='')}/full-unreject",
+		params={"loggedInUserId": user_key},
+		json={
+			"rewardType": reward_type_str,
+			"reason": reason_str,
+		},
+		log_tag="full-unreject-referral",
 	)
 
 

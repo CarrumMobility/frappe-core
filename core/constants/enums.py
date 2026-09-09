@@ -165,6 +165,8 @@ class _GlobalConfigKeys:
 	REFERRAL_CALL_DISPOSITION_CONFIG = "referral_call_disposition_config"
 	REFERRAL_CALL_CHECK_BYPASS_ALLOWED_ROLES = "referral-call-check-bypass-allowed-roles"
 
+	VERIFICATION_AGENT_UPDATE_ACCESS = "verification_agent_update_access"
+	
 class _CallSessionHangupBy:
 	LEAD = "LEAD"
 	AGENT = "AGENT"

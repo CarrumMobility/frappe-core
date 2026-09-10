@@ -684,12 +684,49 @@ old_carrum_token = frappe.conf.get("old_carrum_token")
 
 
 @frappe.whitelist()
-def get_driver_agreements(account_id: str) -> dict:
+def get_driver_agreements(account_id: str | None = None, lead_id: str | None = None, leadId: str | None = None) -> dict:
 	"""
-	Fetch driver agreement history from Carrum (GET /api/v1/drivers/agreements).
+	Fetch driver agreement history from Carrum (GET …/aggrementHistory/bydriverWise).
 
-	:param account_id: Carrum driver account identifier (query param account_id).
+	Backward compatible: existing callers may pass ``account_id`` only.
+
+	Resolution order:
+	1. If ``account_id`` is provided, use it.
+	2. Else if ``lead_id`` / ``leadId`` is provided, load ``custom_account_id`` from CRM Lead.
 	"""
+	body = {}
+	if getattr(frappe, "request", None):
+		try:
+			body = frappe.request.get_json(silent=True) or {}
+		except Exception:
+			body = {}
+
+	account_id = (
+		(account_id or "").strip()
+		or str(body.get("account_id") or frappe.form_dict.get("account_id") or "").strip()
+	)
+	lead_ref = (
+		(lead_id or leadId or "").strip()
+		or str(
+			body.get("lead_id")
+			or body.get("leadId")
+			or frappe.form_dict.get("lead_id")
+			or frappe.form_dict.get("leadId")
+			or ""
+		).strip()
+	)
+
+	if not account_id and lead_ref:
+		account_id = (
+			frappe.db.get_value("CRM Lead", lead_ref, "custom_account_id") or ""
+		).strip()
+		if not account_id:
+			frappe.throw(
+				_("Carrum Driver Account ID is required on the lead ({0})").format(lead_ref)
+			)
+
+	if not account_id:
+		frappe.throw(_("account_id or lead_id is required"))
 
 	base = frappe.conf.get("old_carrum_base_url")
 	if not base:

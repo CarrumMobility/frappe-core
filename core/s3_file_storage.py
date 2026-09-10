@@ -7,14 +7,29 @@ from urllib.parse import unquote
 import boto3
 import frappe
 from botocore.exceptions import ClientError
+from frappe import _
+
+from core.file_storage import FileStorageType, get_file_storage_type
 
 if TYPE_CHECKING:
 	from frappe.core.doctype.file.file import File
 
 
 def s3_enabled() -> bool:
-	c = frappe.conf
-	return bool(c.get("s3_file_storage_enabled")) and bool(c.get("s3_bucket"))
+	if get_file_storage_type() != FileStorageType.S3:
+		return False
+	require_s3_config()
+	return True
+
+
+def require_s3_config() -> None:
+	if get_file_storage_type() != FileStorageType.S3:
+		frappe.throw(_("S3 file storage is not selected"), frappe.ValidationError)
+	if not (frappe.conf.get("s3_bucket") or "").strip():
+		frappe.throw(
+			_("s3_bucket is required when file_storage_type is S3"),
+			frappe.ValidationError,
+		)
 
 
 def s3_bucket_prefix() -> str:
@@ -82,6 +97,7 @@ def is_s3_logical_url(file_doc: File) -> bool:
 
 
 def s3_client():
+	require_s3_config()
 	c = frappe.conf
 	return boto3.client(
 		"s3",

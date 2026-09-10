@@ -6,6 +6,19 @@ from typing import TYPE_CHECKING
 
 import frappe
 
+from core.file_storage import FileStorageType, get_file_storage_type
+from core.gcs_file_storage import (
+	build_object_key as build_gcs_object_key,
+)
+from core.gcs_file_storage import (
+	file_url as gcs_file_url,
+)
+from core.gcs_file_storage import (
+	file_uses_gcs,
+	gcs_delete,
+	gcs_put_bytes,
+	require_gcs_config,
+)
 from core.s3_file_storage import (
 	build_object_key,
 	file_uses_s3,
@@ -36,30 +49,39 @@ def _unique_safe_file_name(file_doc: File) -> str:
 
 
 def write_file(file_doc: File) -> dict:
-	if not s3_enabled():
+	storage_type = get_file_storage_type()
+	if storage_type == FileStorageType.DEFAULT:
 		return file_doc.save_file_on_filesystem()
 
 	safe = _unique_safe_file_name(file_doc)
 	file_doc.file_name = safe
 	site = getattr(frappe.local, "site", "") or "site"
-	object_key = build_object_key(site, bool(file_doc.is_private), safe)
 
 	data = file_doc._content
 	if isinstance(data, str):
 		data = data.encode("utf-8")
 
-	s3_put_bytes(object_key, data, file_doc.file_name)
-	file_doc.file_url = public_file_url(object_key)
+	if storage_type == FileStorageType.S3:
+		object_key = build_object_key(site, bool(file_doc.is_private), safe)
+		s3_put_bytes(object_key, data, file_doc.file_name)
+		file_doc.file_url = public_file_url(object_key)
+	else:
+		require_gcs_config()
+		object_key = build_gcs_object_key(site, bool(file_doc.is_private), safe)
+		gcs_put_bytes(object_key, data, file_doc.file_name)
+		file_doc.file_url = gcs_file_url(object_key, bool(file_doc.is_private))
 	return {"file_name": safe, "file_url": file_doc.file_url}
 
 
 def delete_file_data_content(file_doc: File, only_thumbnail: bool = False) -> None:
-	if not s3_enabled():
+	storage_type = get_file_storage_type()
+	if storage_type == FileStorageType.DEFAULT:
 		file_doc.delete_file_from_filesystem(only_thumbnail=only_thumbnail)
 		return
 	if only_thumbnail:
 		file_doc.delete_file_from_filesystem(only_thumbnail=True)
 		return
-	if file_uses_s3(file_doc):
+	if storage_type == FileStorageType.S3 and s3_enabled() and file_uses_s3(file_doc):
 		s3_delete(file_doc)
-	file_doc.delete_file_from_filesystem(only_thumbnail=False)
+	elif storage_type == FileStorageType.GCS and file_uses_gcs(file_doc):
+		gcs_delete(file_doc)

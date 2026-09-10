@@ -1,6 +1,7 @@
 import frappe
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
+from core.file_storage import FileStorageType
 from core.services.util_service import publish_docs as publish_docs_to_website
 
 
@@ -15,8 +16,8 @@ class EnvConfig(BaseModel):
     db_password: str
     db_type: str
     allow_tests: bool
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     carrum_base_url: str
     carrum_token: str
     chatwoot_account_id: int
@@ -27,12 +28,30 @@ class EnvConfig(BaseModel):
     master_password: str
     old_carrum_base_url: str
     old_carrum_token: str
-    s3_bucket: str
-    s3_bucket_prefix: str
-    s3_file_storage_enabled: bool
-    s3_region: str
+    file_storage_type: FileStorageType = FileStorageType.DEFAULT
+    gcs_bucket: str | None = None
+    gcs_bucket_prefix: str | None = None
+    s3_bucket: str | None = None
+    s3_bucket_prefix: str | None = None
+    s3_region: str | None = None
     smartflo_admin_password: str
     smartflo_admin_username: str
+
+    @model_validator(mode="after")
+    def validate_file_storage_config(self):
+        if self.file_storage_type == FileStorageType.S3:
+            if not (self.s3_bucket or "").strip():
+                raise ValueError("s3_bucket is required when file_storage_type is S3")
+
+            has_access_key = bool((self.aws_access_key_id or "").strip())
+            has_secret_key = bool((self.aws_secret_access_key or "").strip())
+            if has_access_key != has_secret_key:
+                raise ValueError(
+                    "aws_access_key_id and aws_secret_access_key must either both be set or both be omitted"
+                )
+        elif self.file_storage_type == FileStorageType.GCS and not (self.gcs_bucket or "").strip():
+            raise ValueError("gcs_bucket is required when file_storage_type is GCS")
+        return self
 
 def validateConfig():
     return EnvConfig(**frappe.conf)
@@ -44,9 +63,9 @@ def get_env_config():
     except Exception as e:
         return {
             "isValid": False,
-            "error": f"Invalid config: {str(e)}"
+            "error": f"Invalid config: {e!s}"
         }
-    
+
     return {
         "isValid": True,
         "configs": config.model_dump()

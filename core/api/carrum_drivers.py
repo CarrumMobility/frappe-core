@@ -1079,22 +1079,65 @@ def _old_carrum_auth_headers(*, json_body: bool = False) -> tuple[str, dict]:
 @frappe.whitelist(methods=["POST"])
 def update_agreement_history_status(
 	agreement_id: str,
-	driver_id: str,
+	driver_id: str | None = None,
 	agreement_status: str | None = None,
 	video_verification_status: str | None = None,
+	leadId: str | None = None,
 ):
 	"""
 	Update agreement row status via Carrum ``PUT /api/v1/driver/updateAggrementStatus/``.
+
+	Backward compatible: existing callers may pass ``driver_id`` only.
+
+	Resolution order for Carrum ``driver_id``:
+	1. If ``driver_id`` is provided, use it.
+	2. Else if ``leadId`` is provided, load ``custom_account_id`` from CRM Lead.
 	"""
-	aid = (agreement_id or "").strip()
-	did = (driver_id or "").strip()
+	body = {}
+	if getattr(frappe, "request", None):
+		try:
+			body = frappe.request.get_json(silent=True) or {}
+		except Exception:
+			body = {}
+
+	aid = (
+		(agreement_id or "").strip()
+		or str(body.get("agreement_id") or frappe.form_dict.get("agreement_id") or "").strip()
+	)
+	did = (
+		(driver_id or "").strip()
+		or str(body.get("driver_id") or frappe.form_dict.get("driver_id") or "").strip()
+	)
+	lead_ref = (
+		(leadId or "").strip()
+		or str(body.get("leadId") or frappe.form_dict.get("leadId") or "").strip()
+	)
+
 	if not aid:
 		frappe.throw(_("Agreement ID is required"))
-	if not did:
-		frappe.throw(_("Driver ID is required"))
 
-	agreement_status_val = (agreement_status or "").strip() or None
-	video_status_val = (video_verification_status or "").strip() or None
+	if not did and lead_ref:
+		did = (
+			frappe.db.get_value("CRM Lead", lead_ref, "custom_account_id") or ""
+		).strip()
+		if not did:
+			frappe.throw(
+				_("Carrum Driver Account ID is required on the lead ({0})").format(lead_ref)
+			)
+
+	if not did:
+		frappe.throw(_("driver_id or leadId is required"))
+
+	agreement_status_val = (
+		(agreement_status or "").strip()
+		or str(body.get("agreement_status") or "").strip()
+		or None
+	)
+	video_status_val = (
+		(video_verification_status or "").strip()
+		or str(body.get("video_verification_status") or "").strip()
+		or None
+	)
 	if agreement_status_val is None and video_status_val is None:
 		frappe.throw(_("At least one status field is required"))
 

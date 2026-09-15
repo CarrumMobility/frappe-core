@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from core.constants.enums import EnumValues
 from core.services import logged_requests as requests
 from core.services.carrum_client import CarrumHttpClient
+from core.services.util_service import UtilService
 
 REFERRAL_FORM_OTP_SOURCE = "referral_form"
 
@@ -16,7 +17,7 @@ CARRUM_USER_CACHE_PREFIX = "carrum_user_data"
 SMARTFLO_CACHE_PREFIX = "smartflo_user_data"
 CARRUM_API_CACHE_TTL_SECONDS = 2 * 60  # 2 minutes
 
-
+util_service = UtilService()
 class ChatwootConfigValidationSchema(BaseModel):
     token: str
     inboxId: int
@@ -541,3 +542,54 @@ def verify_phone_otp_on_carrum_portal(
         json={"phoneNo": phone, "otp": otp_str},
         log_tag="verify-phone-otp",
     )
+
+
+@frappe.whitelist()
+def get_agent_list(page: int = 1, limit: int = 100, defaultRoleName: str | None = None, hubName: str | None = None, hubId: str | None = None):
+    base_url = frappe.conf.get('carrum_base_url')
+    token = frappe.conf.get("carrum_token")
+    url = f"{base_url}/api/v1/users"
+
+    query_params = {"status": "active"}
+    if page:
+        query_params["page"] = page
+    if limit:
+        query_params["limit"] = limit
+    if hubId:
+        query_params["hubId"]  = hubId
+    if defaultRoleName:
+        query_params["defaultRoleName"] = defaultRoleName
+    if hubName:
+        query_params["hubName"] = hubName
+    if hubId:
+        query_params["hubId"] = hubId
+
+    response = requests.get(
+        url,
+        headers={"Authorization": token},
+        params=query_params,
+        timeout=20,
+    )
+
+    _debug = util_service.get_api_debug_info(response)
+
+    data = response.json()
+    results = data.get("data")
+    users = results.get("users")
+    total = results.get("total")
+    page = results.get("page")
+    limit = results.get("limit")
+    totalPages = results.get("totalPages")
+
+    return {
+        "is_valid": True,
+        "message": "Agent list fetched successfully",
+        "data": {
+            "users": users,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "totalPages": totalPages,
+        },
+        "_debug": _debug
+    }

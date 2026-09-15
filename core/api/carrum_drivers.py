@@ -629,38 +629,65 @@ def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
 
 @frappe.whitelist(methods=["POST"])
 def verify_uber_id(
-	uber_id: str | None = None,
-	phone_number: str | None = None,
+	uber_id: str ,
 	driver_id: str | None = None,
+	lead_id: str | None = None,
+	lsq_id: str | None = None,
 ):
-	"""
-	Verify a driver Uber ID against Carrum portal.
+	if not driver_id:
+		portal_driver_detail = get_portal_driver_detail(lead_id)
+		driver_data = portal_driver_detail.get("data")
+		driver_id = driver_data.get("driverId")
+	if not driver_id:
+		frappe.throw(_("driver_id is required (or provide lead_id so it can be resolved)"))
 
-	Proxies ``POST /driver/checkUberId`` on ``carrum_portal_base_url``.
-	"""
-	uber = str(uber_id or "").strip()
-	if not uber:
-		frappe.throw(_("Uber ID is required"))
-
-	phone = str(phone_number or "").strip()
-	driver = str(driver_id or "").strip()
-	payload = {
-		"driver_uber_id": uber,
-		"phoneNumber": {"countryCode": "+91", "number": phone},
-		"driver_small_id": "FAAC1761",
-	}
 	client = CarrumHttpClient(
 		base_url=frappe.conf.get("old_carrum_base_url"),
 		token=frappe.conf.get("old_carrum_token"),
 		timeout=60,
 	)
 
-	return client.request(
+	response = client.request(
 		method="POST",
 		path="/api/v1/driver/checkUberId",
-		json=payload,
+		json={"driver_id": driver_id, "driver_uber_id": uber_id},
 		log_tag="verify-uber-id",
 	)
+
+	debug_info = util_service.get_api_debug_info(response)
+
+	try:
+		response_data = response.json()
+	except ValueError:
+		response_data = {}
+
+	if not response.ok:
+		message = None
+		if isinstance(response_data, dict):
+			message = response_data.get("message") or response_data.get("error")
+		return {
+			"is_valid": False,
+			"message": message or _("Uber ID verification failed (HTTP {0})").format(response.status_code),
+			"data": response_data,
+			"debug_info": debug_info,
+		}
+
+	portal_status = str((response_data or {}).get("status") or "").strip().lower()
+	if portal_status == "error":
+		message = response_data.get("message") or response_data.get("error") or _("Uber ID verification failed")
+		return {
+			"is_valid": False,
+			"message": message,
+			"data": response_data,
+			"debug_info": debug_info,
+		}
+
+	return {
+		"is_valid": True,
+		"message": response_data.get("message") if isinstance(response_data, dict) else None,
+		"data": response_data,
+		"debug_info": debug_info,
+	}
 
 
 def _raise_update_driver_validation_error(exc: ValidationError) -> None:

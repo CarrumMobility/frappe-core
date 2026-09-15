@@ -6,7 +6,7 @@ from frappe.core.doctype.user.user import update_password as original_update_pas
 from frappe.utils import get_datetime, getdate, now_datetime
 from frappe.utils.data import flt, today
 
-from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
+# from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.constants.enums import EnumValues
 from core.services import logged_requests as requests
 
@@ -129,7 +129,7 @@ class UtilService:
 
         return event_doc.name
 
-    
+
     def create_event_for_visit_date(
         self,
         lead_id,
@@ -381,6 +381,7 @@ class UtilService:
         new_account_id: str | None = None,
         identification_key: str | None = None,
         identification_value: str | None = None,
+        request_by: str | None = None
     ):
         """POST to Carrum re-onboarding API (driver return / reactivation / duplicate identity).
 
@@ -412,7 +413,7 @@ class UtilService:
             if not identification_value:
                 frappe.throw(frappe._("identification_value is required"))
             ik = (identification_key or "").strip()
-            
+
             api_key = crm_to_api.get(ik)
             if not api_key:
                 frappe.throw(
@@ -440,9 +441,6 @@ class UtilService:
                 frappe._("Invalid identification type: {0}").format(identification_type)
             )
 
-        request_by = (
-            fetch_carrum_user_data_using_frappe_username(frappe.session.user).get("id")
-        )
         if not request_by:
             frappe.throw(frappe._("Carrum user id not found for current user"))
         body["request_by"] = request_by
@@ -581,6 +579,14 @@ class UtilService:
         lead.primary_status = status_row.custom_primary_status
         lead.secondary_status = status_row.lead_status
         lead.save(ignore_permissions=True)
+
+
+    def get_api_debug_info(self,response):
+        return {
+            "url": response.url,
+            "status_code": response.status_code,
+            "text": response.text
+        }
 
     def validate_to_update_lead_status_to_payment_stages(self, lead_status: str ):
         lead_status_doc = frappe.get_doc("CRM Lead Status", lead_status)

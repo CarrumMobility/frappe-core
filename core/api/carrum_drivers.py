@@ -20,6 +20,7 @@ from core.services import logged_requests as re
 from core.services.carrum_client import CarrumHttpClient
 from core.services.crm_lead.lead_service import lead_service
 from core.services.util_service import util_service
+import json
 
 logger = frappe.logger("core.api.carrum_drivers")
 
@@ -636,8 +637,9 @@ def verify_uber_id(
 ):
 	if not driver_id:
 		portal_driver_detail = get_portal_driver_detail(lead_id)
-		driver_data = portal_driver_detail.get("data")
-		driver_id = driver_data.get("driverId")
+		portal_driver_detail = portal_driver_detail.get("data", {})
+		driver_data = portal_driver_detail.get("results", {})
+		driver_id = driver_data.get("driver_id")
 	if not driver_id:
 		frappe.throw(_("driver_id is required (or provide lead_id so it can be resolved)"))
 
@@ -654,39 +656,25 @@ def verify_uber_id(
 		log_tag="verify-uber-id",
 	)
 
-	debug_info = util_service.get_api_debug_info(response)
-
-	try:
-		response_data = response.json()
-	except ValueError:
-		response_data = {}
-
-	if not response.ok:
-		message = None
-		if isinstance(response_data, dict):
-			message = response_data.get("message") or response_data.get("error")
-		return {
-			"is_valid": False,
-			"message": message or _("Uber ID verification failed (HTTP {0})").format(response.status_code),
-			"data": response_data,
-			"debug_info": debug_info,
-		}
-
-	portal_status = str((response_data or {}).get("status") or "").strip().lower()
+	response_data = response.get("response", {})
+	if(isinstance(response_data, str)):
+		response_data = json.loads(response_data)
+	portal_status = response_data.get("status")
+	print(portal_status)
 	if portal_status == "error":
 		message = response_data.get("message") or response_data.get("error") or _("Uber ID verification failed")
 		return {
 			"is_valid": False,
 			"message": message,
 			"data": response_data,
-			"debug_info": debug_info,
+			"debug_info": response,
 		}
 
 	return {
 		"is_valid": True,
 		"message": response_data.get("message") if isinstance(response_data, dict) else None,
 		"data": response_data,
-		"debug_info": debug_info,
+		"debug_info": response,
 	}
 
 

@@ -87,6 +87,7 @@ def get_lead(lead_id: str, lsq_id: str | None = None):
 	portal_details = None
 	if lead_type == EnumValues.LeadType.DRIVER:
 		portal_details = carrum_drivers.get_portal_driver_detail(lead.name)
+		portal_details = portal_details.get("data", {}).get("results", {})
 
 	return {
 		"is_valid": True,

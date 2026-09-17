@@ -1,5 +1,6 @@
-from core.services.whatsapp.whatsapp_service import WhatsappService
 import frappe
+
+from core.services.whatsapp.whatsapp_service import WhatsappService
 
 whatsappService = WhatsappService()
 

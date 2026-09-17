@@ -65,6 +65,45 @@ def resolve_call_recording_url(
 default_telephony_vendor = EnumValues.CallingVendorName.Smartflo
 
 
+def _set_call_session_reference(
+	doc,
+	reference_doctype: str | None = None,
+	reference_docname: str | None = None,
+	*,
+	lead_id: str | None = None,
+) -> None:
+	"""Set reference_doctype / reference_docname on a Call Session before insert."""
+	ref_dt = (reference_doctype or "").strip()
+	ref_dn = (reference_docname or "").strip()
+	if ref_dt and ref_dn:
+		doc.reference_doctype = ref_dt
+		doc.reference_docname = ref_dn
+		return
+	lid = (lead_id or "").strip()
+	if lid:
+		doc.reference_doctype = EnumValues.ReferenceDocType.CRM_LEAD
+		doc.reference_docname = lid
+
+
+def _extract_call_reference_from_payload(data: dict | None) -> tuple[str | None, str | None]:
+	"""Read reference fields from API payload (snake_case or camelCase)."""
+	if not isinstance(data, dict):
+		return None, None
+	ref_dt = (
+		data.get("reference_doctype")
+		or data.get("referenceDoctype")
+		or ""
+	).strip() or None
+	ref_dn = (
+		data.get("reference_docname")
+		or data.get("referenceDocname")
+		or data.get("reference_name")
+		or data.get("referenceName")
+		or ""
+	).strip() or None
+	return ref_dt, ref_dn
+
+
 def _get_telephony_integration_type():
     try:
         config = frappe.get_doc(
@@ -577,6 +616,8 @@ class CallService:
         manual_dial: bool = False,
         campaign_id: str | None = None,
         campaign_name: str | None = None,
+        reference_doctype: str | None = None,
+        reference_docname: str | None = None,
     ):
         log.info(f"Starting call with calling_method: {calling_method} and leadId: {leadId} and user: {user} and manual_dial: {manual_dial}")
         if calling_method == EnumValues.CallingMethod.Dialer:
@@ -627,6 +668,12 @@ class CallService:
         log.info(f"call_session_doc: {call_session_doc}")
 
         call_session_doc = frappe.get_doc(call_session_doc)
+        _set_call_session_reference(
+            call_session_doc,
+            reference_doctype,
+            reference_docname,
+            lead_id=lead.name,
+        )
         call_session_doc.insert()
 
         call_initiated_result = self._handle_click2call_start_logic(
@@ -2593,6 +2640,7 @@ class CallService:
             lead_answered_at=vendor_lead_answered_at,
             vendor_lead_answered_at = vendor_lead_answered_at,
         )
+        _set_call_session_reference(new_call_session_doc, lead_id=lead.name)
 
         new_call_session_doc.insert(ignore_permissions=True)
 
@@ -3115,6 +3163,7 @@ class CallService:
         call_duration = payload.get("outbound_sec")
         if call_duration is not None and call_duration != "":
             new_session.duration = call_duration
+        _set_call_session_reference(new_session, lead_id=lead.name)
         log.info(f"dialer_disconnect: inserting new session call_id={call_id} status={call_status} lead={lead.name} agent={agent_user} duration={new_session.duration}")
         new_session.insert(ignore_permissions=True)
         log.info(f"dialer_disconnect: inserted new session={new_session.name} status={call_status}")
@@ -3599,6 +3648,13 @@ class CallService:
         call_session_doc.set("campaign_id",  callmatic_outbound_campaign_id)
         call_session_doc.set("campaign_name", callmatic_outbound_campaign_name)
         call_session_doc.set("lead_source_during_call", lead_source)
+        ref_dt, ref_dn = _extract_call_reference_from_payload(payload)
+        _set_call_session_reference(
+            call_session_doc,
+            ref_dt,
+            ref_dn,
+            lead_id=lead_id,
+        )
         call_session_doc.save(ignore_permissions=True)
 
         callmatic_response_data = callmatic_client.trigger_call(
@@ -3821,6 +3877,8 @@ def start_dialer_based_manual_dial(
     manual_dial: bool = False,
     campaign_id: str | None = None,
     campaign_name: str | None = None,
+    reference_doctype: str | None = None,
+    reference_docname: str | None = None,
 ):
     return _service.start_dialer_based_manual_dial(
         calling_method,
@@ -3829,6 +3887,8 @@ def start_dialer_based_manual_dial(
         manual_dial=bool(manual_dial),
         campaign_id=campaign_id,
         campaign_name=campaign_name,
+        reference_doctype=reference_doctype,
+        reference_docname=reference_docname,
     )
 
 

@@ -21,6 +21,7 @@ class _Roles:
 	ADMINISTRATOR = "Administrator"
 	SENIOR_DRIVER_MANAGER = "Senior Driver Manager"
 	SOURCING = "Sourcing"
+	VERIFICATION_AGENT = "Verification"
 
 class _LeadType:
 	LEAD = "LEAD"
@@ -62,6 +63,7 @@ class _ReferenceDocType:
 	CRM_TAB_PERMISSION = "CRM tab permission"
 	CRM_LEAD_SOURCE="CRM Lead Source"
 	LEAD_SYNC_ENTRY = "Lead Sync Entry"
+	MAINTENANCE_TICKET = "Maintenance Ticket"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'
@@ -160,6 +162,10 @@ class _CrmEventTypes:
 class _GlobalConfigKeys:
 	DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN= "default_callmatic_outbound_campaign"
 	ROLE_BASED_DEFAULT_CALLING_VENDOR= "role_based_default_calling_vendor"
+	REFERRAL_CALL_DISPOSITION_CONFIG = "referral_call_disposition_config"
+	REFERRAL_CALL_CHECK_BYPASS_ALLOWED_ROLES = "referral-call-check-bypass-allowed-roles"
+
+	VERIFICATION_AGENT_UPDATE_ACCESS = "verification_agent_update_access"
 	
 class _CallSessionHangupBy:
 	LEAD = "LEAD"
@@ -193,5 +199,5 @@ class _EnumValues:
 	CrmEventTypes = _CrmEventTypes
 	GlobalConfigKeys = _GlobalConfigKeys
 	CallSessionHangupBy = _CallSessionHangupBy
-	
+
 EnumValues = _EnumValues()

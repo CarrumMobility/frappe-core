@@ -6,6 +6,7 @@ from urllib.parse import unquote
 
 import boto3
 import frappe
+from botocore.client import Config
 from botocore.exceptions import ClientError
 from frappe import _
 
@@ -99,13 +100,20 @@ def is_s3_logical_url(file_doc: File) -> bool:
 def s3_client():
 	require_s3_config()
 	c = frappe.conf
-	return boto3.client(
-		"s3",
-		region_name=c.get("s3_region") or "us-east-1",
-		aws_access_key_id=c.get("aws_access_key_id") or c.get("s3_key"),
-		aws_secret_access_key=c.get("aws_secret_access_key") or c.get("s3_secret"),
-		endpoint_url=c.get("s3_endpoint_url") or None,
-	)
+	endpoint = c.get("s3_endpoint_url") or None
+	client_kwargs = {
+		"region_name": c.get("s3_region") or "us-east-1",
+		"aws_access_key_id": c.get("aws_access_key_id") or c.get("s3_key"),
+		"aws_secret_access_key": c.get("aws_secret_access_key") or c.get("s3_secret"),
+		"endpoint_url": endpoint,
+	}
+	# botocore>=1.36 defaults flexible checksums; GCS S3 XML API rejects them (SignatureDoesNotMatch).
+	if endpoint:
+		client_kwargs["config"] = Config(
+			request_checksum_calculation="when_required",
+			response_checksum_validation="when_required",
+		)
+	return boto3.client("s3", **client_kwargs)
 
 
 def s3_put_bytes(object_key: str, content: bytes, file_name: str | None) -> None:

@@ -23,14 +23,13 @@ chatwoot_account_id: int
 chatwoot_base_url: str
 carrum_base_url: str
 carrum_token: str
-file_storage_type: DEFAULT|S3|GCS
+file_storage_type: DEFAULT|S3
 aws_access_key_id: str
 aws_secret_access_key: str
 s3_bucket: str
 s3_bucket_prefix: str
-s3_region: str,
-gcs_bucket: str
-gcs_bucket_prefix: str
+s3_region: str
+s3_endpoint_url: str
 login_url: str
 desk_url: str
 ```
@@ -40,14 +39,13 @@ desk_url: str
 `file_storage_type` selects exactly one backend:
 
 - `DEFAULT` (or an omitted key) uses Frappe's local filesystem.
-- `S3` uses `s3_bucket` and the existing optional S3 region, URL prefix, and AWS credentials.
-- `GCS` uses one `gcs_bucket` and an optional `gcs_bucket_prefix`.
+- `S3` uses `s3_bucket` and optional `s3_region`, `s3_bucket_prefix`, `s3_endpoint_url`, and AWS-named credentials.
 
-GCS authentication uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials) from the runtime environment. Do not put service-account JSON in `site_config.json`. GCS does not require a region key; bucket location is configured when the bucket is created.
+To use Google Cloud Storage, keep `file_storage_type: "S3"`, set `s3_endpoint_url` to `https://storage.googleapis.com`, put GCS HMAC keys in `aws_access_key_id` / `aws_secret_access_key`, and set `s3_bucket` to the GCS bucket name. Dedicated `gcs_*` keys and `file_storage_type: "GCS"` are not supported.
 
-Changing `file_storage_type` does not migrate existing objects. Update the selector only after the target backend contains the files the site needs to access.
+Changing endpoint, bucket, or credentials does not migrate existing objects. Update config only after the target backend contains the files the site needs to access.
 
 ### Documentation
 
 - Product / cutover outcomes: [docs/product/file_storage.md](docs/product/file_storage.md)
-- Technical architecture and GCS migration runbook: [docs/technical/file_storage.md](docs/technical/file_storage.md)
+- Technical architecture and AWS→GCS endpoint cutover: [docs/technical/file_storage.md](docs/technical/file_storage.md)

@@ -29,11 +29,10 @@ class EnvConfig(BaseModel):
     old_carrum_base_url: str
     old_carrum_token: str
     file_storage_type: FileStorageType = FileStorageType.DEFAULT
-    gcs_bucket: str | None = None
-    gcs_bucket_prefix: str | None = None
     s3_bucket: str | None = None
     s3_bucket_prefix: str | None = None
     s3_region: str | None = None
+    s3_endpoint_url: str | None = None
     smartflo_admin_password: str
     smartflo_admin_username: str
 
@@ -49,8 +48,6 @@ class EnvConfig(BaseModel):
                 raise ValueError(
                     "aws_access_key_id and aws_secret_access_key must either both be set or both be omitted"
                 )
-        elif self.file_storage_type == FileStorageType.GCS and not (self.gcs_bucket or "").strip():
-            raise ValueError("gcs_bucket is required when file_storage_type is GCS")
         return self
 
 def validateConfig():

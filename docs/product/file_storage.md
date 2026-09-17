@@ -1,116 +1,76 @@
-# File Storage — Product Guide
+# File storage (product)
 
-**Feature:** File storage backends  
-**Status:** Available  
-**Supported backends:** Local filesystem (`DEFAULT`), Amazon S3 (`S3`), Google Cloud Storage (`GCS`)  
-**Technical docs:** [../technical/file_storage.md](../technical/file_storage.md)
+**Supported backends:** Local filesystem (`DEFAULT`), object storage via S3 API (`S3`)  
+**Owner:** Core platform  
+**Audience:** Admins and operators configuring sites
 
----
+`S3` covers Amazon S3 and S3-compatible providers. Google Cloud Storage cutover uses the same `S3` selector with a GCS endpoint and HMAC credentials — not a separate `GCS` storage type.
 
-## What changed?
+## What this controls
 
-Sites used to enable cloud file storage with a boolean flag:
-
-```json
-"s3_file_storage_enabled": 1
-```
-
-That flag could only mean “S3 on” or “S3 off”. It could not select Google Cloud Storage, and an omitted or incomplete setup quietly fell back to local disk.
-
-Sites now choose exactly one backend with:
+Where new File uploads are stored and where Core reads/deletes them from for that site.
 
 ```json
-"file_storage_type": "DEFAULT" | "S3" | "GCS"
+"file_storage_type": "DEFAULT" | "S3"
 ```
 
-| Value | Where new files go |
+| Value | Meaning |
 |---|---|
-| `DEFAULT` (or key omitted) | Local Frappe filesystem |
-| `S3` | Existing Core S3 bucket layout |
-| `GCS` | One Google Cloud Storage bucket |
+| `DEFAULT` (or omit the key) | Files on the site's local disk |
+| `S3` | One object bucket via boto3 (Amazon S3, or GCS with `s3_endpoint_url`) |
 
----
+## Who should care
 
-## Who is this for?
+- **Admins** planning a cutover from Amazon S3 to GCS, or from local disk to cloud
+- **Operators** validating upload / open / delete after a config change
 
-- **Operators / platform engineers** configuring each site’s storage backend
-- **Admins** planning a cutover from S3 to GCS or from local disk to cloud
-- **Product / support** explaining why attachments live in a given backend after a site change
+## Important product rules
 
-End users uploading attachments do not choose the backend. The site configuration decides where every new File write, read, existence check, and delete goes.
+Changing `file_storage_type` or flipping endpoint/bucket/credentials does **not** move existing objects. Old files remain where they were stored. Align config with where those files live, or run a separate object migration first.
 
----
+## Cutover recipes
 
-## What users experience
+### Enable Amazon S3
 
-1. A user uploads or attaches a file in CRM/Desk.
-2. Core stores that file on the **currently selected** backend only.
-3. Private files keep Frappe-style URLs such as `/private/files/...`.
-4. Public cloud files use either a configured public URL prefix or the provider’s public object URL.
-5. Deleting a File removes the object from the selected cloud backend (when cloud is active).
+1. Provision the bucket and credentials.
+2. Set `s3_bucket`, optional `s3_bucket_prefix` / `s3_region`, and AWS keys.
+3. Set `"file_storage_type": "S3"`.
+4. Restart and smoke-test upload, open, delete.
 
-Changing `file_storage_type` does **not** move existing objects. Old files remain where they were stored. The site must keep the selector aligned with where those files live, or run a separate object migration first.
+### Move Amazon S3 → Google Cloud Storage (minimal)
 
----
+Stay on `"file_storage_type": "S3"`. Do **not** introduce `gcs_*` keys or `file_storage_type: "GCS"`.
 
-## Migration outcomes (product view)
-
-### Keep S3 (config-only cutover)
-
-Existing S3 sites must replace the legacy flag before deploying the new code:
-
-| Before | After |
-|---|---|
-| `"s3_file_storage_enabled": 1` | `"file_storage_type": "S3"` |
-
-Keep existing `s3_bucket`, `s3_bucket_prefix`, `s3_region`, and AWS keys unchanged. No file copy is required for this step.
-
-### Move to GCS
-
-GCS is a **new** backend for new uploads after cutover. Object data is not copied automatically.
-
-Before flipping the selector:
-
-1. Provision the GCS bucket and IAM for Application Default Credentials.
-2. Configure `gcs_bucket` (required) and optional `gcs_bucket_prefix`.
-3. Copy or recreate any files the site still needs to read (separate migration).
-4. Set `"file_storage_type": "GCS"`.
-5. Smoke-test upload, open/download, and delete.
+1. Provision the GCS bucket, service account, and **HMAC keys**.
+2. Copy objects with the same key layout if historical Files must keep working.
+3. Update site config:
+   - `s3_endpoint_url`: `https://storage.googleapis.com`
+   - `s3_bucket`: GCS bucket name
+   - `aws_access_key_id` / `aws_secret_access_key`: HMAC values
+   - optional `s3_bucket_prefix` for public/CDN URLs
+4. Restart and smoke-test upload, open, delete.
 
 ### Stay on local disk
 
 Omit `file_storage_type` or set `"file_storage_type": "DEFAULT"`.
 
----
+## Validation expectations
 
-## Breaking behavior to communicate
+- Values are strict uppercase: `DEFAULT`, `S3`. Lowercase or typos fail validation.
+- `GCS` as a selector fails with a migration message pointing to `S3` + `s3_endpoint_url`.
+- Incomplete cloud config (for example `S3` without `s3_bucket`) fails the operation. Files are not written locally as a fallback.
 
-- `s3_file_storage_enabled` no longer enables S3. Leaving only that flag active treats the site as `DEFAULT` (local disk).
-- Values are strict uppercase: `DEFAULT`, `S3`, `GCS`. Lowercase or typos fail validation; they do not silently fall back.
-- Incomplete cloud config (for example GCS selected without `gcs_bucket`) fails the operation. Files are not written locally as a fallback.
-- A site cannot read the same File from both S3 and GCS after changing the selector unless the objects were migrated separately.
+## GCS product constraints (via S3 mode)
 
----
+- No separate GCS selector or `gcs_*` site keys.
+- No dedicated GCS region key in site config; bucket location is set in Google Cloud when the bucket is created.
+- Authentication uses **HMAC keys** in the existing `aws_*` fields against `https://storage.googleapis.com`.
+- Optional `s3_bucket_prefix` is only for public URL presentation. Private files continue to use Frappe-style paths when no prefix applies.
 
-## GCS product constraints
+## Smoke-test checklist (GCS endpoint)
 
-- One bucket per site for both private and public files; privacy is expressed by object key path (`.../private/files/...` vs `.../files/...`).
-- No `gcs_region` site key. Bucket location is set when the bucket is created in Google Cloud.
-- No service-account JSON in `site_config.json`. Authentication uses Application Default Credentials in the runtime environment.
-- Optional `gcs_bucket_prefix` is only for public URL presentation (CDN or custom host). Private files continue to use Frappe-style paths.
+With `file_storage_type: "S3"` and `s3_endpoint_url: "https://storage.googleapis.com"`:
 
----
-
-## Success criteria after cutover
-
-- New uploads appear only in the selected backend.
-- Existing files needed by the business remain openable after cutover.
-- Delete removes the cloud object when cloud storage is selected.
-- Inactive backends receive no new writes for that site.
-
----
-
-## Related docs
-
-- Technical architecture, config keys, and operator cutover: [../technical/file_storage.md](../technical/file_storage.md)
-- Core app overview / env keys: [../../README.md](../../README.md)
+- [ ] Upload a File
+- [ ] Open / download it
+- [ ] Delete it and confirm the object is gone from the bucket

@@ -7,18 +7,6 @@ from typing import TYPE_CHECKING
 import frappe
 
 from core.file_storage import FileStorageType, get_file_storage_type
-from core.gcs_file_storage import (
-	build_object_key as build_gcs_object_key,
-)
-from core.gcs_file_storage import (
-	file_url as gcs_file_url,
-)
-from core.gcs_file_storage import (
-	file_uses_gcs,
-	gcs_delete,
-	gcs_put_bytes,
-	require_gcs_config,
-)
 from core.s3_file_storage import (
 	build_object_key,
 	file_uses_s3,
@@ -61,15 +49,9 @@ def write_file(file_doc: File) -> dict:
 	if isinstance(data, str):
 		data = data.encode("utf-8")
 
-	if storage_type == FileStorageType.S3:
-		object_key = build_object_key(site, bool(file_doc.is_private), safe)
-		s3_put_bytes(object_key, data, file_doc.file_name)
-		file_doc.file_url = public_file_url(object_key)
-	else:
-		require_gcs_config()
-		object_key = build_gcs_object_key(site, bool(file_doc.is_private), safe)
-		gcs_put_bytes(object_key, data, file_doc.file_name)
-		file_doc.file_url = gcs_file_url(object_key, bool(file_doc.is_private))
+	object_key = build_object_key(site, bool(file_doc.is_private), safe)
+	s3_put_bytes(object_key, data, file_doc.file_name)
+	file_doc.file_url = public_file_url(object_key)
 	return {"file_name": safe, "file_url": file_doc.file_url}
 
 
@@ -83,5 +65,3 @@ def delete_file_data_content(file_doc: File, only_thumbnail: bool = False) -> No
 		return
 	if storage_type == FileStorageType.S3 and s3_enabled() and file_uses_s3(file_doc):
 		s3_delete(file_doc)
-	elif storage_type == FileStorageType.GCS and file_uses_gcs(file_doc):
-		gcs_delete(file_doc)

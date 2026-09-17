@@ -69,6 +69,7 @@ def create_referral_on_portal(
 	referrerType=None,
 	createdBy=None,
 	empId=None,
+	configId=None,
 	base_url=None,
 	token=None,
 ):
@@ -78,7 +79,7 @@ def create_referral_on_portal(
 	Payload: ``refereeId``, ``hubId`` (may be JSON null), optional ``agentReferrerId``
 	and ``referrerId`` when provided, optional ``businessType`` (name string) when provided,
 	optional ``referrerType`` when provided, ``createdBy`` (logged-in agent UUID) when provided,
-	optional ``empId`` when provided.
+	optional ``empId`` when provided, optional ``configId`` (vendor referral scheme) when provided.
 	"""
 	referee_key = (refereeId or "").strip() if refereeId is not None else ""
 	if not referee_key:
@@ -125,6 +126,9 @@ def create_referral_on_portal(
 	emp_key = str(empId).strip() if empId is not None else ""
 	if emp_key:
 		payload["empId"] = emp_key
+	config_key = str(configId).strip() if configId is not None else ""
+	if config_key:
+		payload["configId"] = config_key
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(

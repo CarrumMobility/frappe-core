@@ -164,33 +164,75 @@ curl --location '<<baseUrl>>/api/method/core.api.lead.find_or_create_lead' \
 **Path:** `/api/method/core.api.lead.update_lead`
 **Content-Type:** `application/json`
 
-Updates fields on a CRM Lead. ERP fields are written to the database; portal fields are forwarded to the Carrum portal via `update_driver`. Both updates happen in the same call.
+Partial update for a CRM Lead in a single call. Only the keys present in `updates` are touched
+(`exclude_unset` — omitted keys are left alone); sending `""` for any field clears it (stored as
+`null`). Each key in `updates` is routed to one or both of two destinations:
+
+- **CRM Lead fields** — written directly to the CRM Lead document (`lead.set()` then
+  `lead.save()`).
+- **Carrum portal fields** — collected and forwarded in a single call to
+  `core.api.carrum_drivers.update_driver`. Requires `custom_account_id` to already be set on the
+  lead; if it isn't, the portal fields are **silently skipped** (logged as a warning) — the call
+  still succeeds and only the CRM Lead fields are applied.
+
+`updates` rejects unknown keys (`extra: "forbid"`) — there is no longer a free-form allow-list;
+sending a field name outside the tables below fails validation with a `417`.
 
 ### Body parameters
 
+| Name      | Type     | Required | Description                                          |
+| --------- | -------- | -------- | ----------------------------------------------------- |
+| `lead_id` | `string` | Yes      | CRM Lead name (e.g. `"AAAA0001"`)                      |
+| `updates` | `object` | Yes      | Partial update payload — see field tables below       |
+| `lsq_id`  | `string` | No       | External LSQ reference (logging only, not persisted)  |
 
-| Name             | Type     | Required | Description                                                                                  |
-| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------- |
-| `lead_id`        | `string` | Yes      | CRM Lead name (e.g. `"AAAA0001"`)                                                            |
-| `lead_updates`   | `object` | Yes      | Flat map of `fieldName → value` for ERP fields to write on the lead                          |
-| `portal_updates` | `object` | No       | Flat map of Carrum portal fields to forward to `update_driver` (e.g. `scheme_id`, `uber_id`) |
-| `lsq_id`         | `string` | No       | External LSQ reference (logging only)                                                        |
+### `updates` — CRM Lead fields
 
+| Field(s) | Type | Notes |
+| --- | --- | --- |
+| `lead_name`, `mobile_no`, `email`, `gender`, `alternate_phone`, `preferred_lang` | `string` | Contact info |
+| `lead_type` | `string` | One of `DRIVER`, `LEAD`, `VENDOR` |
+| `primary_status`, `secondary_status`, `status` | `string` | Lead status. Moving `primary_status` out of a closed bucket (`Drop`/`Converted`) can be silently reverted by CRM Lead's own transition lock |
+| `hub_visit_status` | `string` | One of `NOT_IN_HUB`, `IN_HUB`, `HUB_VISITED` |
+| `uber_id_status`, `driving_license_status` | `string` | Status enums |
+| `hub_id`, `custom_hub_name`, `telecaller`, `driver_manager`, `primary_lead`, `source`, `source_id`, `user_tags` | `string` | Assignment / source |
+| `aadhar_no`, `pancard_number`, `driving_license_number`, `uber_rating` | `string` | KYC |
+| `driving_license_issue_date`, `driving_license_expiry_date` | `string` (`YYYY-MM-DD`) | KYC dates |
+| `address`, `current_address_line1`, `current_address_line2`, `current_city`, `current_state`, `current_country`, `current_pincode`, `current_landmark`, `current_address_number`, `current_address_proof_type`, `location_link` | `string` | Address |
+| `bank_account_number`, `bank_ifsc` | `string` | Bank |
+| `aadhaar_card_front`, `aadhaar_card_back`, `driving_license_front`, `driving_license_back`, `driver_partner_selfie`, `pancard_pic`, `bank_passbook_pic`, `current_address_proof`, `image` | `string` (file URL) | Attachments — upload via **Document upload** first |
+| `business_type_id`, `business_type_name`, `car_type_id`, `scheme_name`, `referral_scheme_id`, `preferred_business_type_1`, `preferred_scheme_1`, `preferred_business_type_2`, `preferred_scheme_2` | `string` | Business / scheme |
+| `gate_ticket_no`, `hubvisit_category`, `hubvisit_subcategory` | `string` | Hub visit |
+| `scheme_id` | `string` \| `number` | **Dual-written** — also forwarded to Carrum, see below |
 
-> Any valid CRM Lead field name can be used in `lead_updates`. There is no fixed allow-list — the field is set directly on the doc.
+### `updates` — Carrum portal fields (forwarded to `update_driver`)
 
+| Field | Type | Notes |
+| --- | --- | --- |
+| `scheme_id` | `string` \| `number` | Dual-written — also set directly on the CRM Lead doc |
+| `scheme_type` | `string` | Forwarded as `scheme_type` |
+| `old_scheme_name` | `string` | **Not** forwarded to Carrum; used only to detect leaving a *vendor*/*double driver* scheme (unassigns its secondary leads) |
+| `tenure` | `int` (`> 0`) | Must be sent **together with** `emi_id` — sending only one of the pair fails validation |
+| `emi_id` | `string` | Must be sent together with `tenure` |
+| `remove_emi` | `boolean` | Forwarded as-is, including `false` |
+| `uber_id` | `string` (UUID) | Portal-only — there is no `uber_id` field on the CRM Lead doctype |
 
+A scheme/business-type change (any of `scheme_id`, `scheme_type`, `tenure`, `emi_id`,
+`remove_emi` present) is rejected (`417`) when the lead is in `Drop` status or has already had a
+vehicle assigned.
 
 ### Success response (`message`)
 
+| Key | Type | Description |
+| --- | --- | --- |
+| `is_valid` | `bool` | `true` |
+| `data.lead` | `object` | Updated CRM Lead document (dict) after save |
+| `data.lead_updates` | `object` | The CRM-Lead-routed fields that were actually applied |
+| `data.portal_updates` | `object` \| `null` | The Carrum-routed fields that were actually forwarded (`null` if none were requested) |
+| `data.portal_result` | `object` \| `null` | Raw return value of `carrum_drivers.update_driver` (`null` when no portal call was made — either no portal fields were sent, or the lead has no `custom_account_id`) |
+| `data._debug` | `object` \| `null` | `data.portal_result._debug` — `{url, request_body, response_status, response_body}` describing exactly what was sent to / received from Carrum. `null` when no portal call was made |
 
-| Key                   | Type     | Description                                                  |
-| --------------------- | -------- | ------------------------------------------------------------ |
-| `is_valid`            | `bool`   | `true`                                                       |
-| `data.lead`           | `object` | Updated CRM Lead document (dict) after save                  |
-| `data.lead_updates`   | `object` | Echo of the `lead_updates` that were requested               |
-| `data.portal_updates` | `object` | Echo of the `portal_updates` that were requested (or `null`) |
-
+### Example — CRM-only fields
 
 ```bash
 curl --location '<<baseUrl>>/api/method/core.api.lead.update_lead' \
@@ -198,15 +240,33 @@ curl --location '<<baseUrl>>/api/method/core.api.lead.update_lead' \
   --header 'Content-Type: application/json' \
   --data '{
     "lead_id": "AAAA0001",
-    "lead_updates": {
+    "updates": {
       "mobile_no": "9876543210",
       "primary_status": "Active"
-    },
-    "portal_updates": {
-      "scheme_id": 42
     }
   }'
 ```
+
+### Example — mixed CRM + Carrum portal fields
+
+```bash
+curl --location '<<baseUrl>>/api/method/core.api.lead.update_lead' \
+  --header 'Authorization: <<token>>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "lead_id": "AAAA0001",
+    "updates": {
+      "scheme_id": 42,
+      "scheme_type": "rental",
+      "tenure": 12,
+      "emi_id": "emi-uuid",
+      "uber_id": "b3f1c2d4-1234-4a5b-8c9d-0e1f2a3b4c5d"
+    }
+  }'
+```
+
+Requires `custom_account_id` to already be set on the lead — otherwise the Carrum-routed fields
+are skipped silently (logged, not an error) and only the CRM Lead fields above are applied.
 
 ---
 

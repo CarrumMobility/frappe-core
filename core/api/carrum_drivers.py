@@ -12,7 +12,7 @@ from crm.fcrm.doctype.crm_lead.crm_lead import (
 )
 from crm.utils import parse_phone_number
 from frappe import _
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from core.constants.agreement_video import is_agreement_video_file
 from core.constants.enums import EnumValues
@@ -67,6 +67,14 @@ class UpdateDriverDtoSchema(BaseModel):
 			return UUID(s)
 		except ValueError:
 			raise ValueError(_("Uber ID must be a valid UUID"))
+
+	@model_validator(mode="after")
+	def _validate_tenure_emi_pair(self):
+		if ("tenure" in self.model_fields_set or "emi_id" in self.model_fields_set) and (
+			self.tenure is None
+		) != (self.emi_id is None):
+			raise ValueError(_("tenure and emi_id must be provided together"))
+		return self
 
 
 def _date_to_json_value(val):
@@ -1384,10 +1392,6 @@ def _parse_update_driver_payload(data) -> UpdateDriverDtoSchema:
 
 @frappe.whitelist()
 def update_driver(account_id: str, data: dict | str | None = None):
-	"""
-	:param account_id: Carrum driver account id (CRM Lead Hub ID when aligned).
-	:param data: JSON object (or legacy JSON string) with ``scheme_id`` and optional ``scheme_type`` (forwarded to Carrum PUT).
-	"""
 	aid = (account_id or "").strip()
 	if not aid:
 		frappe.throw(_("Account ID is required"))
@@ -1450,10 +1454,13 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		else:
 			frappe.throw(_("Lead not found with account ID: {0}").format(aid))
 
-	if not body:
-		return {"success": True}
-
 	url = f"{base}/api/v1/driver/update/{aid}?idType=account"
+	if not body:
+		return {
+			"success": True,
+			"_debug": {"url": url, "request_body": None, "response_status": None, "response_body": None},
+		}
+
 	headers = {"Authorization": token, "Content-Type": "application/json"}
 
 	try:
@@ -1466,6 +1473,13 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		resp_body = response.json()
 	except ValueError:
 		resp_body = None
+
+	debug_info = {
+		"url": url,
+		"request_body": body,
+		"response_status": response.status_code,
+		"response_body": resp_body,
+	}
 
 	if not response.ok:
 		logger.error(
@@ -1495,10 +1509,10 @@ def update_driver(account_id: str, data: dict | str | None = None):
 		if lead_name:
 			lead = frappe.get_doc("CRM Lead", lead_name)
 			if not util_service.validate_to_update_lead_status_to_payment_stages(lead.status):
-				return {"success": True, "data": resp_body}
+				return {"success": True, "data": resp_body, "_debug": debug_info}
 			util_service.update_lead_status_to_converted_stages(lead.name, "payment_received")
 
-	return {"success": True, "data": resp_body}
+	return {"success": True, "data": resp_body, "_debug": debug_info}
 
 
 @frappe.whitelist(methods=["POST"])

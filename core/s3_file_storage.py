@@ -108,11 +108,15 @@ def s3_client():
 		"endpoint_url": endpoint,
 	}
 	# botocore>=1.36 defaults flexible checksums; GCS S3 XML API rejects them (SignatureDoesNotMatch).
+	# Guarded so an older botocore (missing these Config options) degrades instead of crashing.
 	if endpoint:
-		client_kwargs["config"] = Config(
-			request_checksum_calculation="when_required",
-			response_checksum_validation="when_required",
-		)
+		try:
+			client_kwargs["config"] = Config(
+				request_checksum_calculation="when_required",
+				response_checksum_validation="when_required",
+			)
+		except TypeError:
+			pass
 	return boto3.client("s3", **client_kwargs)
 
 

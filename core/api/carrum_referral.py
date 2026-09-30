@@ -64,6 +64,7 @@ def create_referral_on_portal(
 	refereeId,
 	agentReferrerId,
 	hubId,
+ 	source: str | None = None,
 	referrerId=None,
 	businessType=None,
 	referrerType=None,
@@ -125,6 +126,8 @@ def create_referral_on_portal(
 	emp_key = str(empId).strip() if empId is not None else ""
 	if emp_key:
 		payload["empId"] = emp_key
+	if source:
+		payload["source"] = source
 
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(

@@ -55,6 +55,8 @@ class CallSession(Document):
 		ring_duration: DF.Duration | None
 		is_auto_disposed: DF.Check | None
 		did_number: DF.Data | None
+		reference_doctype: DF.Data | None
+		reference_docname: DF.Data | None
 	# end: auto-generated types
 
 	def validate(self) -> None:

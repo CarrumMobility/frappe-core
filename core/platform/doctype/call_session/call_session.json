@@ -52,7 +52,9 @@
         "redial_time",
         "vendor_disposition_code",
         "is_auto_disposed",
-        "did_number"
+        "did_number",
+        "reference_doctype",
+        "reference_docname"
     ],
     "fields": [
         {
@@ -326,6 +328,17 @@
             "fieldtype": "Data",
             "label": "DID Number",
             "search_index": 1
+        },
+        {
+            "fieldname": "reference_doctype",
+            "fieldtype": "Data",
+            "label": "Reference doctype",
+            "search_index": 1
+        },
+        {
+            "fieldname": "reference_docname",
+            "fieldtype": "Data",
+            "label": "reference_docname"
         }
     ],
     "grid_page_length": 50,

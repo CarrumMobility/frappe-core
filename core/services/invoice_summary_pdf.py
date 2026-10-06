@@ -182,7 +182,7 @@ def build_context(doc) -> dict:
 	total_tds = labour_tds
 	net_payable = flt(doc.net_amount) or (total_invoice - total_tds)
 
-	approver_user = doc.finance_approved_by 
+	approver_user = doc.finance_action_by
 	approver = frappe.db.get_value("User", approver_user, "full_name") or approver_user
 	company_gstin, company_address = _get_hub_company_details(doc.hub_name)
 

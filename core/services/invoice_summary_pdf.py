@@ -206,7 +206,7 @@ def build_context(doc) -> dict:
 		"tds_heads": tds_heads,
 		"narration": doc.narration or "",
 		"approved_by": approver,
-		"approved_on": format_datetime(doc.finance_approved_date , "dd-MM-yyyy HH:mm") + " IST",
+		"approved_on": format_datetime(doc.finance_action_at , "dd-MM-yyyy HH:mm") + " IST",
 	}
 
 

@@ -245,6 +245,14 @@ def find_or_create_lead(
 	hub_id: str | None = None,
 	hub_name: str | None = None,
 ):
+	logger.info(
+		"find_or_create_lead: mobile_no=%s source=%s source_id=%s upload_source=%s hub_id=%s",
+		mobile_no,
+		source,
+		source_id,
+		upload_source,
+		hub_id,
+	)
 	lead = lead_service.find_or_create_lead(
 		mobile_no=mobile_no,
 		source=source,
@@ -258,7 +266,10 @@ def find_or_create_lead(
 		},
 	)
 	if lead is None:
+		logger.error("find_or_create_lead: unable to find or create lead for mobile_no=%s", mobile_no)
 		frappe.throw(_("Unable to find or create lead"), frappe.ValidationError)
+
+	logger.info("find_or_create_lead done: lead=%s", lead.name)
 
 	return {
 		"lead": lead.as_dict(),
@@ -267,6 +278,7 @@ def find_or_create_lead(
 
 @frappe.whitelist()
 def update_lead(lead_id: str, updates: dict, lsq_id: str | None = None):
+	logger.info("update_lead: lead=%s fields=%s lsq_id=%s", lead_id, list(updates or {}), lsq_id)
 	payload = _parse_update_lead_payload(updates)
 	lead_updates, portal_updates = payload.split_destinations()
 

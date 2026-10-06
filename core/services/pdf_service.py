@@ -2,8 +2,14 @@
 Generic HTML -> PDF service.
 
 Renders HTML (or a Jinja template) to PDF bytes with Frappe's wkhtmltopdf
-wrapper and optionally stores the result as a File (which routes through S3
-automatically when S3 storage is enabled, see core.s3_file_hooks.write_file).
+wrapper and optionally stores the result as a File.
+
+Uniqueness guarantee: every save_pdf / html_to_pdf_file / html_to_pdf_url call
+creates a new File whose stored object and file_url are unique, even when the
+HTML and PDF bytes are identical to an earlier call. The caller's file_name is
+kept as the display name; the stored name gets a random suffix. With S3 enabled
+the bytes are uploaded here (bypassing Frappe's content-hash dedupe); without
+S3 (local dev) a local File is created with duplicate reuse disabled.
 
 Requires the wkhtmltopdf binary, 0.12.6 with patched Qt, on the server
 (docs/technical/wkhtmltopdf_setup.md). QtWebKit does not support CSS flexbox
@@ -14,6 +20,10 @@ only knows about HTML, PDF bytes and Files.
 """
 
 from __future__ import annotations
+
+import functools
+import os
+import re
 
 import frappe
 from frappe.utils import get_url
@@ -52,18 +62,34 @@ def save_pdf(
 	attached_to_name: str | None = None,
 	attached_to_field: str | None = None,
 ):
-	"""Store PDF bytes as a File and return the File document."""
-	return frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": file_name,
-			"content": pdf_bytes,
-			"is_private": 1 if is_private else 0,
-			"attached_to_doctype": attached_to_doctype,
-			"attached_to_name": attached_to_name,
-			"attached_to_field": attached_to_field,
-		}
-	).insert(ignore_permissions=True)
+	"""Store PDF bytes as a File with a unique stored name/URL and return the File document."""
+	from core.s3_file_storage import build_object_key, public_file_url, s3_enabled, s3_put_bytes
+
+	stem, ext = os.path.splitext(re.sub(r"[/\\%?#]", "_", file_name or "document.pdf"))
+	unique_name = f"{stem or 'document'}_{frappe.generate_hash(length=16)}{ext}"
+	values = {
+		"doctype": "File",
+		"is_private": 1 if is_private else 0,
+		"attached_to_doctype": attached_to_doctype,
+		"attached_to_name": attached_to_name,
+		"attached_to_field": attached_to_field,
+	}
+
+	if s3_enabled():
+		site = getattr(frappe.local, "site", "") or "site"
+		key = build_object_key(site, is_private, unique_name)
+		s3_put_bytes(key, pdf_bytes, unique_name)
+		values.update({"file_name": file_name, "file_url": public_file_url(key), "file_size": len(pdf_bytes)})
+		return frappe.get_doc(values).insert(ignore_permissions=True)
+
+	values.update({"file_name": unique_name, "content": pdf_bytes})
+	file_doc = frappe.get_doc(values)
+	file_doc.flags.ignore_duplicate_entry_error = True
+	# File.save_file reuses an existing File with the same content hash; skip that lookup.
+	file_doc.save_file = functools.partial(
+		type(file_doc).save_file, file_doc, ignore_existing_file_check=True
+	)
+	return file_doc.insert(ignore_permissions=True)
 
 
 def read_file_bytes(file_doc) -> bytes:

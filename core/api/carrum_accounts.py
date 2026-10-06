@@ -446,6 +446,37 @@ def fetch_hub_active_users(
     return {**result, "data": rows}
 
 
+def fetch_all_active_users(limit: int = 500, max_pages: int = 50) -> dict:
+    """Fetch active Carrum users across all hubs (no ``hubId`` filter), all pages."""
+    client = CarrumHttpClient(timeout=20)
+    rows: list[dict] = []
+    request_url = None
+    page = 1
+    while page <= max_pages:
+        result = client.request(
+            method="GET",
+            path="/api/v1/users",
+            params={"status": "active", "limit": limit, "page": page},
+            log_tag="all-active-users",
+        )
+        if not result.get("success"):
+            return result if page == 1 else {**result, "success": True, "data": rows}
+        request_url = request_url or result.get("request_url")
+        page_rows = [
+            row for row in _carrum_user_rows(result.get("data")) if isinstance(row, dict)
+        ]
+        rows.extend(page_rows)
+        body = result.get("data") if isinstance(result.get("data"), dict) else {}
+        inner = body.get("data") if isinstance(body.get("data"), dict) else body
+        total_pages = inner.get("totalPages") if isinstance(inner, dict) else None
+        if not page_rows or (total_pages and page >= int(total_pages)) or (
+            not total_pages and len(page_rows) < limit
+        ):
+            break
+        page += 1
+    return {"success": True, "data": rows, "request_url": request_url}
+
+
 def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int = 200) -> list[dict]:
     """Return active Carrum users for a hub, optionally filtered by role."""
     result = fetch_hub_active_users(hub_id, role_name=role_name, limit=limit)

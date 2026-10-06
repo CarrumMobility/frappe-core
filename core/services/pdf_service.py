@@ -63,6 +63,8 @@ def save_pdf(
 	attached_to_field: str | None = None,
 ):
 	"""Store PDF bytes as a File with a unique stored name/URL and return the File document."""
+	from frappe.core.doctype.file.utils import get_content_hash
+
 	from core.s3_file_storage import build_object_key, public_file_url, s3_enabled, s3_put_bytes
 
 	stem, ext = os.path.splitext(re.sub(r"[/\\%?#]", "_", file_name or "document.pdf"))
@@ -80,7 +82,12 @@ def save_pdf(
 		key = build_object_key(site, is_private, unique_name)
 		s3_put_bytes(key, pdf_bytes, unique_name)
 		values.update({"file_name": file_name, "file_url": public_file_url(key), "file_size": len(pdf_bytes)})
-		return frappe.get_doc(values).insert(ignore_permissions=True)
+		values["content_hash"] = get_content_hash(pdf_bytes)
+		file_doc = frappe.get_doc(values)
+		# Already uploaded: skip duplicate reuse (content_hash lookup) and Frappe's re-read/re-write of the content.
+		file_doc.flags.ignore_duplicate_entry_error = True
+		file_doc.save_file = lambda *args, **kwargs: None
+		return file_doc.insert(ignore_permissions=True)
 
 	values.update({"file_name": unique_name, "content": pdf_bytes})
 	file_doc = frappe.get_doc(values)

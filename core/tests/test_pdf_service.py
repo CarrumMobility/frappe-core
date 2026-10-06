@@ -33,7 +33,13 @@ class TestPdfServiceUniqueUrls(FrappeTestCase):
 		frappe.db.commit()
 
 	def _save(self, **kw):
-		doc = pdf_service.save_pdf(PDF, "Invoice_Summary_X.pdf", **kw)
+		doc = pdf_service.save_pdf(
+			PDF,
+			"Invoice_Summary_X.pdf",
+			attached_to_doctype="User",
+			attached_to_name="Administrator",
+			**kw,
+		)
 		self._names.append(doc.name)
 		return doc
 
@@ -43,6 +49,9 @@ class TestPdfServiceUniqueUrls(FrappeTestCase):
 			patch("core.s3_file_storage.s3_enabled", return_value=True),
 			patch("core.s3_file_storage.s3_bucket_prefix", return_value=PREFIX),
 			patch("core.s3_file_storage.s3_put_bytes") as put,
+			# the File override imports these by name; an earlier object "exists" like in production
+			patch("core.override.file.s3_enabled", return_value=True),
+			patch("core.override.file.s3_head_exists", return_value=True),
 		):
 			a = self._save(is_private=True)
 			b = self._save(is_private=True)
@@ -59,7 +68,7 @@ class TestPdfServiceUniqueUrls(FrappeTestCase):
 		self.assertEqual(a.file_url, f"{PREFIX}/{keys[0]}")
 
 	def test_s3_disabled_urls_unique(self):
-		with patch("core.s3_file_storage.s3_enabled", return_value=False):
+		with patch.dict(frappe.conf, {"s3_file_storage_enabled": 0}):
 			a = self._save(is_private=False)
 			b = self._save(is_private=False)
 		self.assertNotEqual(a.file_url, b.file_url)
@@ -68,7 +77,7 @@ class TestPdfServiceUniqueUrls(FrappeTestCase):
 	def test_html_to_pdf_url_unique(self):
 		with (
 			patch.object(pdf_service, "html_to_pdf", return_value=PDF),
-			patch("core.s3_file_storage.s3_enabled", return_value=False),
+			patch.dict(frappe.conf, {"s3_file_storage_enabled": 0}),
 		):
 			u1 = pdf_service.html_to_pdf_url("<p>same</p>", file_name="x.pdf")
 			u2 = pdf_service.html_to_pdf_url("<p>same</p>", file_name="x.pdf")

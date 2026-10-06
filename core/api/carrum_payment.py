@@ -170,6 +170,10 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None, por
     if tag_norm not in ("security_deposit", "settlement"):
         frappe.throw(_("Payment type must be security_deposit or settlement"))
     tag_type = tag_norm
+    logger.info(
+        "send_payment_link: lead=%s amount=%s tag_type=%s portal_user_id=%s user=%s",
+        lead_id, amount, tag_type, portal_user_id, frappe.session.user,
+    )
 
     base = frappe.conf.get("old_carrum_base_url")
     if not base:
@@ -214,15 +218,15 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None, por
         payload["accountId"] = account_id
 
     headers = {"Authorization": token, "Content-Type": "application/json"}
-    print(url)
-    print(headers)
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=60)
     except requests.RequestException as e:
+        logger.exception("send_payment_link: request failed for lead=%s: %s", lead_id, e)
         frappe.throw(_("Could not reach payment service: {0}").format(str(e)))
 
     if response.status_code >= 400:
         body = (response.text or "")[:500]
+        logger.error("send_payment_link failed: lead=%s status=%s body=%s", lead_id, response.status_code, body)
 
         frappe.throw(
             _("Payment Service Unavailable ({0}): {1}").format(response.status_code, body or response.reason)
@@ -231,10 +235,12 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None, por
     try:
         data = response.json()
     except ValueError:
+        logger.error("send_payment_link: invalid JSON for lead=%s body=%s", lead_id, (response.text or "")[:500])
         frappe.throw(_("Invalid JSON from payment service"))
 
     if data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Payment link generation failed")
+        logger.error("send_payment_link: payment service returned failure for lead=%s response=%s", lead_id, data)
         frappe.throw(str(msg))
 
     results = data.get("results") or {}
@@ -242,7 +248,10 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None, por
     payment_qr = results.get("payment_qr_code_link")
 
     if not payment_link:
+        logger.error("send_payment_link: no payment link returned for lead=%s response=%s", lead_id, data)
         frappe.throw(_("Payment service did not return a payment link"))
+
+    logger.info("send_payment_link succeeded: lead=%s", lead_id)
 
     return {
         "paymentLink": payment_link,
@@ -326,8 +335,13 @@ def add_other_payment(
     elif "settlement" in payment_type_str:
         payment_type = "settlement"
     else:
+        logger.warning("add_other_payment: invalid payment_type=%r for lead=%s", payment_type, lead_id)
         frappe.throw(_("Invalid payment type"))
 
+    logger.info(
+        "add_other_payment: lead=%s amount=%s utr=%s payment_type=%s portal_user_id=%s user=%s",
+        lead_id, amount, utr, payment_type, portal_user_id, frappe.session.user,
+    )
     carrum_user_id = _resolve_account_creator_id(portal_user_id, body)
     lead = frappe.get_doc("CRM Lead", lead_id)
     hub_id = lead.hub_id
@@ -341,6 +355,7 @@ def add_other_payment(
     _validate_lead_scheme_id(lead)
 
     if not str(amount or "").strip() and not str(utr or "").strip():
+        logger.warning("add_other_payment: neither amount nor utr provided for lead=%s", lead_id)
         frappe.throw(_("Enter amount or UTR"))
 
     payload = {
@@ -365,11 +380,14 @@ def add_other_payment(
     url = f"{old_carrum_base_url}/api/v1/payment/otherForCRM"
 
     response = requests.post(url,headers=headers, json=payload, timeout=60)
-    print(response)
 
     try:
         data = response.json()
     except ValueError:
+        logger.error(
+            "add_other_payment: invalid JSON for lead=%s status=%s body=%s",
+            lead_id, response.status_code, (response.text or "")[:500],
+        )
         return {
             "is_valid": False,
             "reason": _("Invalid JSON from payment service")
@@ -377,17 +395,23 @@ def add_other_payment(
 
     if data.get('status') != "success":
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
+        logger.error("add_other_payment failed: lead=%s status=%s response=%s", lead_id, response.status_code, data)
         return {
             "is_valid": False,
             "reason": message
         }
 
     if response.ok != True:
+        logger.error(
+            "add_other_payment: non-OK status=%s for lead=%s body=%s",
+            response.status_code, lead_id, (response.text or "")[:500],
+        )
         return {
             "is_valid": False,
             "reason": response.text
         }
 
+    logger.info("add_other_payment succeeded: lead=%s", lead_id)
     return {
         "is_valid": True,
         "reason": None,
@@ -432,6 +456,10 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
 
     hub_id = lead.hub_id
     carrum_user_id = _resolve_account_creator_id(portal_user_id, body)
+    logger.info(
+        "add_cash: lead=%s amount=%s tag_type=%s images=%s portal_user_id=%s user=%s",
+        lead_id, amount_val, tag_type, len(s3_links), portal_user_id, frappe.session.user,
+    )
     source = lead.source or "crm_cash_payment"
     out = {
         "phoneNumber": phone_number,
@@ -459,6 +487,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     try:
         response = requests.post(url, json=out, headers=headers, timeout=60)
     except requests.RequestException:
+        logger.exception("add_cash: request failed for lead=%s url=%s", lead_id, url)
         frappe.log_error(
             frappe.get_traceback(),
             f"add_cash: HTTP request failed (lead_id={lead_id}, url={url})",
@@ -469,6 +498,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
 
     if not response.ok:
         snippet = (response.text or "")[:8000]
+        logger.error("add_cash: non-OK status=%s for lead=%s body=%s", response.status_code, lead_id, snippet[:500])
         frappe.log_error(
             f"lead_id={lead_id}\nHTTP {response.status_code}\n{snippet}",
             "add_cash: payment service non-OK response",
@@ -478,6 +508,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         data = response.json()
     except ValueError:
         snippet = (response.text or "")[:8000]
+        logger.error("add_cash: invalid JSON for lead=%s body=%s", lead_id, snippet[:500])
         frappe.log_error(
             f"lead_id={lead_id}\n{snippet}",
             "add_cash: invalid JSON from payment service",
@@ -490,6 +521,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
             payload_log = json.dumps(data, default=str)[:8000]
         except Exception:
             payload_log = str(data)
+        logger.error("add_cash: payment API returned failure for lead=%s response=%s", lead_id, payload_log[:500])
         frappe.log_error(
             f"lead_id={lead_id}\n{payload_log}",
             "add_cash: payment API returned failure",
@@ -499,6 +531,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
             "reason": msg,
         }
 
+    logger.info("add_cash succeeded: lead=%s", lead_id)
     return {"message": "success"}
 
 

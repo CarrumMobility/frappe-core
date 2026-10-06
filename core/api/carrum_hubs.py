@@ -48,12 +48,13 @@ def get_satellite_hubs(hub_id: str | None = None, lsq_id: str | None = None):
     """``hub_id`` is optional; when provided it filters to that hub's satellites."""
     base_url = frappe.conf.get("old_carrum_base_url")
     token = frappe.conf.get("old_carrum_token")
-    if lsq_id:
-        logger.info(f"get_satellite_hubs: lsq_id: {lsq_id}")
+    logger.info("get_satellite_hubs: hub_id=%s lsq_id=%s", hub_id, lsq_id)
 
     if not base_url:
+        logger.error("get_satellite_hubs: old_carrum_base_url not configured")
         frappe.throw(_("Carrum base URL is not configured (old_carrum_base_url)"))
     if not token:
+        logger.error("get_satellite_hubs: old_carrum_token not configured")
         frappe.throw(_("Carrum token is not configured (old_carrum_token)"))
 
     url = f"{base_url}/api/v1/hub/satellite"
@@ -73,6 +74,10 @@ def get_satellite_hubs(hub_id: str | None = None, lsq_id: str | None = None):
         body = {}
 
     if not response.ok:
+        logger.error(
+            "get_satellite_hubs failed: hub_id=%s status=%s body=%s",
+            hub_id, response.status_code, response.text[:500],
+        )
         message = None
         if isinstance(body, dict):
             message = body.get("message") or body.get("error")
@@ -85,6 +90,7 @@ def get_satellite_hubs(hub_id: str | None = None, lsq_id: str | None = None):
     debug_info = util_service.get_api_debug_info(response)
 
     results = body.get('results')
+    logger.info("get_satellite_hubs succeeded: hub_id=%s", hub_id)
     return {
         "is_valid": True,
         "message": _("Satellite hubs fetched successfully"),

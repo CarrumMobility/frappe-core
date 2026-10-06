@@ -4,15 +4,20 @@ from frappe import _
 from core.services.logged_requests import logged_requests
 from core.services.util_service import util_service
 
+logger = frappe.logger("core.api.carrum_vehicles")
+
 
 @frappe.whitelist()
 def get_car_types():
+	logger.info("get_car_types: user=%s", frappe.session.user)
 	base_url = frappe.conf.get('old_carrum_base_url')
 	token = frappe.conf.get("old_carrum_token")
 
 	if not base_url:
+		logger.error("get_car_types: old_carrum_base_url not configured")
 		frappe.throw(_("Carrum base URL is not configured (old_carrum_base_url)"))
 	if not token:
+		logger.error("get_car_types: old_carrum_token not configured")
 		frappe.throw(_("Carrum token is not configured (old_carrum_token)"))
 
 	url = f"{base_url}/api/v1/fleet/car_types/all"
@@ -26,6 +31,7 @@ def get_car_types():
 		body = {}
 
 	if not response.ok:
+		logger.error("get_car_types failed: status=%s body=%s", response.status_code, response.text[:500])
 		message = None
 		if isinstance(body, dict):
 			message = body.get("message") or body.get("error")
@@ -44,6 +50,7 @@ def get_car_types():
 	else:
 		car_types = []
 
+	logger.info("get_car_types succeeded: count=%s", len(car_types) if hasattr(car_types, "__len__") else "n/a")
 	return {
 		"is_valid": True,
 		"message": _("Car types fetched successfully"),

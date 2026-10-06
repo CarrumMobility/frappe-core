@@ -602,13 +602,22 @@ def _validate_send_agreement_lead_fields(lead) -> None:
 def get_send_agreement_requirements(leadId: str):
 	"""Return missing field labels for the Agreement tab UI."""
 	lid = (leadId or "").strip()
+	logger.info("get_send_agreement_requirements: lead=%s user=%s", lid, frappe.session.user)
 	if not lid:
+		logger.warning("get_send_agreement_requirements: leadId missing")
 		frappe.throw(_("Lead ID is required"))
 	if not frappe.db.exists("CRM Lead", lid):
+		logger.warning("get_send_agreement_requirements: lead %s does not exist", lid)
 		frappe.throw(_("Not a valid CRM Lead"))
 
 	lead = frappe.get_doc("CRM Lead", lid)
-	return _get_send_agreement_requirements_payload(lead)
+	payload = _get_send_agreement_requirements_payload(lead)
+	if isinstance(payload, dict):
+		logger.info(
+			"get_send_agreement_requirements: lead=%s can_send=%s missing=%s",
+			lid, payload.get("can_send"), payload.get("missing"),
+		)
+	return payload
 
 
 def _format_update_driver_validation_errors(exc: ValidationError) -> list[dict]:
@@ -643,12 +652,17 @@ def verify_uber_id(
 	lead_id: str | None = None,
 	lsq_id: str | None = None,
 ):
+	logger.info(
+		"verify_uber_id: uber_id=%s driver_id=%s lead_id=%s lsq_id=%s user=%s",
+		uber_id, driver_id, lead_id, lsq_id, frappe.session.user,
+	)
 	if not driver_id:
 		portal_driver_detail = get_portal_driver_detail(lead_id)
 		portal_driver_detail = portal_driver_detail.get("data", {})
 		driver_data = portal_driver_detail.get("results", {})
 		driver_id = driver_data.get("driver_id")
 	if not driver_id:
+		logger.warning("verify_uber_id: could not resolve driver_id for lead_id=%s", lead_id)
 		frappe.throw(_("driver_id is required (or provide lead_id so it can be resolved)"))
 
 	client = CarrumHttpClient(
@@ -668,9 +682,9 @@ def verify_uber_id(
 	if(isinstance(response_data, str)):
 		response_data = json.loads(response_data)
 	portal_status = response_data.get("status")
-	print(portal_status)
 	if portal_status == "error":
 		message = response_data.get("message") or response_data.get("error") or _("Uber ID verification failed")
+		logger.error("verify_uber_id failed: driver_id=%s uber_id=%s response=%s", driver_id, uber_id, response_data)
 		return {
 			"is_valid": False,
 			"message": message,
@@ -678,6 +692,7 @@ def verify_uber_id(
 			"debug_info": response,
 		}
 
+	logger.info("verify_uber_id succeeded: driver_id=%s uber_id=%s", driver_id, uber_id)
 	return {
 		"is_valid": True,
 		"message": response_data.get("message") if isinstance(response_data, dict) else None,
@@ -744,12 +759,15 @@ def get_driver_agreements(account_id: str | None = None, lead_id: str | None = N
 			frappe.db.get_value("CRM Lead", lead_ref, "custom_account_id") or ""
 		).strip()
 		if not account_id:
+			logger.warning("get_driver_agreements: lead %s has no custom_account_id", lead_ref)
 			frappe.throw(
 				_("Carrum Driver Account ID is required on the lead ({0})").format(lead_ref)
 			)
 
 	if not account_id:
+		logger.warning("get_driver_agreements: neither account_id nor lead_id provided")
 		frappe.throw(_("account_id or lead_id is required"))
+	logger.info("get_driver_agreements: account_id=%s lead=%s user=%s", account_id, lead_ref, frappe.session.user)
 
 	base = frappe.conf.get("old_carrum_base_url")
 	if not base:
@@ -759,7 +777,6 @@ def get_driver_agreements(account_id: str | None = None, lead_id: str | None = N
 	if not token:
 		frappe.throw(_("Old carrum token is not configured (carrum_token)"))
 	url = f"{base}/api/v1/driver/aggrementHistory/bydriverWise"
-	print(url)
 	params = {"accountId": account_id}
 	headers = {"Authorization": token}
 
@@ -771,7 +788,6 @@ def get_driver_agreements(account_id: str | None = None, lead_id: str | None = N
 
 	try:
 		body = response.json()
-		print(body)
 	except ValueError:
 		logger.error(
 			"Carrum agreements non-JSON response (HTTP %s): %s",
@@ -780,10 +796,6 @@ def get_driver_agreements(account_id: str | None = None, lead_id: str | None = N
 		)
 		frappe.throw(_("Invalid response from Carrum"))
 
-	print("====================body============================")
-	print(body)
-	print(response.status_code)
-	print("================================================")
 	if not response.ok:
 		logger.error(
 			"Carrum agreements HTTP %s: %s",
@@ -798,6 +810,7 @@ def get_driver_agreements(account_id: str | None = None, lead_id: str | None = N
 				message = message or err[0].get("message") if isinstance(err[0], dict) else str(err[0])
 		frappe.throw(message or _("Carrum API error ({0})").format(response.status_code))
 
+	logger.info("get_driver_agreements succeeded: account_id=%s", account_id)
 	return body
 
 
@@ -900,14 +913,18 @@ def get_digio_agreement(digio_id: str):
 @frappe.whitelist()
 def send_agreement(leadId: str, signingMethod: str):
 	lid = (leadId or "").strip()
+	logger.info("send_agreement: lead=%s signing_method=%s user=%s", lid, signingMethod, frappe.session.user)
 	if not lid:
+		logger.warning("send_agreement: leadId missing")
 		frappe.throw(_("Lead ID is required"))
 	if not frappe.db.exists("CRM Lead", lid):
+		logger.warning("send_agreement: lead %s does not exist", lid)
 		frappe.throw(_("Not a valid CRM Lead"))
 
 	lead = frappe.get_doc("CRM Lead", lid)
 	account_id = (lead.custom_account_id or "").strip()
 	if not account_id:
+		logger.warning("send_agreement: lead %s has no custom_account_id", lid)
 		frappe.throw(_("Carrum Driver Account ID is required on the lead"))
 
 	_validate_send_agreement_lead_fields(lead)
@@ -992,16 +1009,21 @@ def send_agreement(leadId: str, signingMethod: str):
 	try:
 		resp_body = response.json()
 	except ValueError:
+		logger.error(
+			"send_agreement: non-JSON response for lead=%s (HTTP %s): %s",
+			lid, response.status_code, (response.text or "")[:500],
+		)
 		frappe.throw(_("Invalid response from Carrum"))
 
 	if not response.ok:
-		logger.error("send_agreement error: %s", resp_body)
+		logger.error("send_agreement error: lead=%s status=%s body=%s", lid, response.status_code, resp_body)
 		frappe.throw(
 			resp_body.get("message")
 			or resp_body.get("error")
 			or _("Carrum API error ({0})").format(response.status_code)
 		)
 
+	logger.info("send_agreement succeeded: lead=%s account_id=%s sign_mode=%s", lid, account_id, sign_mode)
 	return {"success": True, "data": resp_body, "external_debug_info": {"url": url, "body": body}}
 
 
@@ -1013,14 +1035,18 @@ def upload_agreement(leadId: str | None = None):
 	Expects ``multipart/form-data`` with file field ``image`` and lead id ``leadId``.
 	"""
 	lid = (leadId or "").strip()
+	logger.info("upload_agreement: lead=%s user=%s", lid, frappe.session.user)
 	if not lid:
+		logger.warning("upload_agreement: leadId missing")
 		frappe.throw(_("Lead ID is required"))
 	if not frappe.db.exists("CRM Lead", lid):
+		logger.warning("upload_agreement: lead %s does not exist", lid)
 		frappe.throw(_("Not a valid CRM Lead"))
 
 	lead = frappe.get_doc("CRM Lead", lid)
 	account_id = (lead.custom_account_id or "").strip()
 	if not account_id:
+		logger.warning("upload_agreement: lead %s has no custom_account_id", lid)
 		frappe.throw(_("Carrum Driver Account ID is required on the lead"))
 
 	ensure_offline_agreement_enabled()
@@ -1028,6 +1054,7 @@ def upload_agreement(leadId: str | None = None):
 	files_dict = frappe.request.files or {}
 	file_part = files_dict.get("image")
 	if file_part is None or getattr(file_part, "filename", None) in (None, ""):
+		logger.warning("upload_agreement: no image file for lead=%s", lid)
 		frappe.throw(_("Image file is required (form field: image)"))
 
 	base = str(frappe.conf.get("old_carrum_base_url") or "").rstrip("/")
@@ -1043,10 +1070,15 @@ def upload_agreement(leadId: str | None = None):
 
 	raw = file_part.read()
 	if not raw:
+		logger.warning("upload_agreement: empty file for lead=%s", lid)
 		frappe.throw(_("Uploaded file is empty"))
 
 	filename = file_part.filename or "agreement-upload.bin"
 	content_type = getattr(file_part, "content_type", None) or "application/octet-stream"
+	logger.info(
+		"upload_agreement: forwarding lead=%s account_id=%s filename=%s size=%s content_type=%s",
+		lid, account_id, filename, len(raw), content_type,
+	)
 
 	data = {"docType": "offline_aggrement_pic"}
 	files = {"image": (filename, raw, content_type)}
@@ -1083,6 +1115,7 @@ def upload_agreement(leadId: str | None = None):
 				message = message or (first.get("message") if isinstance(first, dict) else str(first))
 		frappe.throw(message or _("Carrum upload error ({0})").format(response.status_code))
 
+	logger.info("upload_agreement succeeded: lead=%s account_id=%s", lid, account_id)
 	return {"success": True, "data": resp_body}
 
 
@@ -1136,7 +1169,12 @@ def update_agreement_history_status(
 		or str(body.get("leadId") or frappe.form_dict.get("leadId") or "").strip()
 	)
 
+	logger.info(
+		"update_agreement_history_status: agreement_id=%s driver_id=%s lead=%s user=%s",
+		aid, did, lead_ref, frappe.session.user,
+	)
 	if not aid:
+		logger.warning("update_agreement_history_status: agreement_id missing")
 		frappe.throw(_("Agreement ID is required"))
 
 	if not did and lead_ref:
@@ -1144,11 +1182,13 @@ def update_agreement_history_status(
 			frappe.db.get_value("CRM Lead", lead_ref, "custom_account_id") or ""
 		).strip()
 		if not did:
+			logger.warning("update_agreement_history_status: lead %s has no custom_account_id", lead_ref)
 			frappe.throw(
 				_("Carrum Driver Account ID is required on the lead ({0})").format(lead_ref)
 			)
 
 	if not did:
+		logger.warning("update_agreement_history_status: neither driver_id nor leadId provided")
 		frappe.throw(_("driver_id or leadId is required"))
 
 	agreement_status_val = (
@@ -1162,6 +1202,7 @@ def update_agreement_history_status(
 		or None
 	)
 	if agreement_status_val is None and video_status_val is None:
+		logger.warning("update_agreement_history_status: no status provided for agreement_id=%s", aid)
 		frappe.throw(_("At least one status field is required"))
 
 	base, headers = _old_carrum_auth_headers(json_body=True)
@@ -1201,6 +1242,7 @@ def update_agreement_history_status(
 				message = message or (first.get("message") if isinstance(first, dict) else str(first))
 		frappe.throw(message or _("Carrum status update error ({0})").format(response.status_code))
 
+	logger.info("update_agreement_history_status succeeded: agreement_id=%s driver_id=%s", aid, did)
 	return {
 		"success": True,
 		"data": resp_body,

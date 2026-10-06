@@ -66,6 +66,24 @@ class TestPdfServiceUniqueUrls(FrappeTestCase):
 		for key in keys:
 			self.assertTrue(key.startswith(f"{site}/private/files/"))
 		self.assertEqual(a.file_url, f"{PREFIX}/{keys[0]}")
+		for doc in (a, b):
+			self.assertTrue(doc.is_private)
+			self.assertEqual(frappe.db.get_value("File", doc.name, "is_private"), 1)
+
+	def test_s3_enabled_public_file_not_private(self):
+		site = frappe.local.site
+		with (
+			patch("core.s3_file_storage.s3_enabled", return_value=True),
+			patch("core.s3_file_storage.s3_bucket_prefix", return_value=PREFIX),
+			patch("core.s3_file_storage.s3_put_bytes") as put,
+			patch("core.override.file.s3_enabled", return_value=True),
+			patch("core.override.file.s3_head_exists", return_value=True),
+		):
+			doc = self._save(is_private=False)
+
+		self.assertTrue(put.call_args.args[0].startswith(f"{site}/files/"))
+		self.assertFalse(doc.is_private)
+		self.assertEqual(frappe.db.get_value("File", doc.name, "is_private"), 0)
 
 	def test_s3_disabled_urls_unique(self):
 		with patch.dict(frappe.conf, {"s3_file_storage_enabled": 0}):

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<!-- Older Frappe (v12/v13) reads PDF options from these meta tags; v14+ reads the .print-format rule below.
+     The Python code also passes them explicitly, so any version works. -->
+<meta name="pdfkit-page-size" content="A4">
+<meta name="pdfkit-margin-top" content="0mm">
+<meta name="pdfkit-margin-bottom" content="0mm">
+<meta name="pdfkit-margin-left" content="0mm">
+<meta name="pdfkit-margin-right" content="0mm">
+<title>Tax Invoice Summary - {{ d.portal_bill_id }}</title>
+<style>
+  /* Built for Frappe's wkhtmltopdf (patched Qt) with margins 0 and --disable-smart-shrinking.
+     Units are whole px (1px = 0.75pt) so wkhtmltopdf never has to round. Page = 794 x 1123px (A4). */
+  .print-format { margin-top: 0mm; margin-bottom: 0mm; margin-left: 0mm; margin-right: 0mm; }
+  * { margin: 0; padding: 0; -webkit-box-sizing: border-box; box-sizing: border-box; }
+  html, body { background: #ffffff; }
+  body { font-family: Helvetica, Arial, "Liberation Sans", sans-serif; color: #111111; line-height: 1; }
+  .page { position: relative; width: 794px; height: 1120px; overflow: hidden; padding-top: 53px; }
+  .abs { position: absolute; white-space: nowrap; }
+  .b { font-weight: bold; }
+  .lbl { font-size: 6.8pt; color: #6B7280; }
+  .blk { background: #111111; color: #ffffff; }
+  .grey { background: #F3F4F6; }
+  .bdr { border: 0.8px solid #9CA3AF; }
+  .blockx { position: relative; margin-left: 53px; width: 688px; }
+
+  .hdr { height: 64px; }
+  .parties { margin-top: 19px; height: 91px; }
+  .pbox { position: absolute; top: 0; width: 336px; height: 91px; }
+  .details { margin-top: 15px; height: 56px; background: #fff; }
+  .details .sep { position: absolute; top: 9px; width: 0; height: 38px; border-left: 0.8px solid #E5E7EB; }
+
+  .thead { margin-top: 19px; height: 31px; font-size: 7.6pt; font-weight: bold; }
+  .row { height: 32px; font-size: 9.5pt; border-bottom: 0.7px solid #E5E7EB; }
+  .row.last { border-bottom: 1px solid #9CA3AF; }
+  .c { position: absolute; white-space: nowrap; }
+  /* column right edges (px from left of content): 316, 406, 502, 584, 688; cell padding 11px */
+  .c1 { left: 11px; } .c2 { right: 383px; } .c3 { right: 293px; } .c4 { right: 197px; }
+  .c5 { right: 115px; } .c6 { right: 11px; }
+  .thead .c, .row .c { top: 12px; }
+
+  .t1 { height: 27px; font-size: 10pt; font-weight: bold; }
+  .t2 { height: 31px; font-size: 8.8pt; }
+  .t3 { margin-left: 369px; width: 372px; height: 32px; font-size: 10pt; font-weight: bold; }
+  .tl { right: 119px; top: 12px; } .ta { right: 11px; top: 12px; }
+
+  .heads { margin-top: 23px; height: 111px; }
+  .hbox { position: absolute; top: 0; width: 336px; height: 111px; background: #fff; }
+  .hh { position: relative; height: 26px; font-size: 7.4pt; font-weight: bold; }
+  .hh .c, .hr .c { top: 10px; }
+  .hr { position: relative; height: 24px; font-size: 9pt; }
+  .hr .c { top: 7px; }
+  .hr.total { border-top: 0.8px solid #E5E7EB; margin: 0 11px; font-weight: bold; }
+  .hr.total .c1 { left: 0; } .hr.total .c6 { right: 0; }
+
+  .wl { margin-top: 12px; height: 16px; font-size: 7pt; color: #6B7280; }
+  .wv { height: 36px; font-size: 9pt; font-weight: bold; }
+  .narr { height: 57px; }
+
+  .foot { position: absolute; left: 53px; width: 688px; top: 1024px; height: 60px;
+          border-top: 0.8px solid #E5E7EB; font-size: 7.5pt; color: #6B7280; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="blockx hdr blk">
+    <div class="abs b" style="left:23px; top:14px; font-size:15pt;">TAX INVOICE SUMMARY</div>
+    <div class="abs" style="left:23px; top:41px; font-size:8pt;">Standard payment &amp; expense record - generated on bill approval</div>
+    <div class="abs b" style="right:23px; top:22px; font-size:8pt;">FORMAT: {{ d.format_code }}</div>
+    <div class="abs" style="right:23px; top:41px; font-size:7.5pt;">Portal Bill ID: {{ d.portal_bill_id }}</div>
+  </div>
+
+  <div class="blockx parties">
+    <div class="pbox grey bdr" style="left:0;">
+      <div class="abs lbl b" style="left:14px; top:11px;">WORKSHOP</div>
+      <div class="abs lbl" style="left:14px; top:32px;">WORKSHOP NAME</div>
+      <div class="abs b" style="left:14px; top:44px; font-size:9.5pt;">{{ d.workshop_display_name }}</div>
+      <div class="abs lbl" style="left:14px; top:64px;">WORKSHOP GSTIN</div>
+      <div class="abs b" style="left:14px; top:74px; font-size:10pt;">{{ d.workshop_gst_no }}</div>
+    </div>
+    <div class="pbox grey bdr" style="left:351px; width:337px;">
+      <div class="abs lbl b" style="left:14px; top:11px;">BILL TO (BUYER)</div>
+      <div class="abs lbl" style="left:14px; top:32px;">COMPANY NAME</div>
+      <div class="abs b" style="left:14px; top:44px; font-size:9.5pt;">{{ d.company_name }}</div>
+      <div class="abs lbl" style="left:14px; top:64px;">OUR GSTIN</div>
+      <div class="abs b" style="left:14px; top:74px; font-size:10pt;">{{ d.company_gstin }}</div>
+      <div class="abs" style="right:14px; top:77px; font-size:7.2pt; color:#6B7280;">{{ d.company_address }}</div>
+    </div>
+  </div>
+
+  <div class="blockx details bdr">
+    <div class="sep" style="left:171px;"></div><div class="sep" style="left:343px;"></div><div class="sep" style="left:515px;"></div>
+    <div class="abs lbl" style="left:14px; top:15px;">INVOICE NO</div>
+    <div class="abs b" style="left:14px; top:30px; font-size:10.5pt;">{{ d.invoice_no }}</div>
+    <div class="abs lbl" style="left:186px; top:15px;">INVOICE DATE</div>
+    <div class="abs b" style="left:186px; top:30px; font-size:10.5pt;">{{ d.invoice_date }}</div>
+    <div class="abs lbl" style="left:358px; top:15px;">VEHICLE NO</div>
+    <div class="abs b" style="left:358px; top:30px; font-size:10.5pt;">{{ d.vehicle_no }}</div>
+    <div class="abs lbl" style="left:530px; top:15px;">COST CENTER</div>
+    <div class="abs b" style="left:530px; top:30px; font-size:10.5pt;">{{ d.cost_center }}</div>
+  </div>
+
+  <div class="blockx thead blk">
+    <span class="c c1">PARTICULARS</span><span class="c c2">TAXABLE AMOUNT</span><span class="c c3">DISCOUNT</span>
+    <span class="c c4">GST AMOUNT</span><span class="c c5">TDS</span><span class="c c6">TOTAL (INR)</span>
+  </div>
+  {% for row in d.line_items %}
+  <div class="blockx row {{ 'grey' if loop.index is even else '' }} {{ 'last' if loop.last else '' }}">
+    <span class="c c1 b">{{ row.particulars }}</span>
+    <span class="c c2">{{ fmt(row.taxable) }}</span>
+    <span class="c c3">{{ fmt(row.discount) }}</span>
+    <span class="c c4">{{ fmt(row.gst) }}</span>
+    <span class="c c5">{{ fmt(row.tds) if row.tds else '-' }}</span>
+    <span class="c c6 b">{{ fmt(row.total) }}</span>
+  </div>
+  {% endfor %}
+
+  <div class="blockx t1">
+    <span class="c tl">TOTAL INVOICE AMOUNT</span><span class="c ta">{{ fmt(d.total_invoice_amount) }}</span>
+  </div>
+  <div class="blockx t2">
+    <span class="c tl">Less: TDS</span><span class="c ta">-{{ fmt(d.total_tds) }}</span>
+  </div>
+  <div class="blockx t3 blk" style="margin-left:369px; width:372px;">
+    <span class="c tl">NET PAYABLE TO WORKSHOP</span><span class="c ta">{{ fmt(d.net_payable) }}</span>
+  </div>
+
+  <div class="blockx heads">
+    <div class="hbox bdr" style="left:0;">
+      <div class="hh blk"><span class="c c1">GST HEADS</span><span class="c c6">AMOUNT (INR)</span></div>
+      {% for g in d.gst_heads %}
+      <div class="hr"><span class="c c1">{{ g.head }}</span><span class="c c6">{{ fmt(g.amount) }}</span></div>
+      {% endfor %}
+      <div class="hr total"><span class="c c1">Total GST</span><span class="c c6">{{ fmt(d.total_gst) }}</span></div>
+    </div>
+    <div class="hbox bdr" style="left:351px; width:337px;">
+      <div class="hh blk"><span class="c c1">TDS HEADS</span><span class="c c6">AMOUNT (INR)</span></div>
+      {% for t in d.tds_heads %}
+      <div class="hr"><span class="c c1">{{ t.head }}</span><span class="c c6">{{ fmt(t.amount) }}</span></div>
+      {% endfor %}
+      <div class="hr"><span class="c c1 lbl">Head names as configured in Pazy.</span></div>
+    </div>
+  </div>
+
+  <div class="blockx wl">TOTAL INVOICE AMOUNT IN WORDS</div>
+  <div class="blockx wv">{{ d.amount_in_words }}</div>
+
+  <div class="blockx narr grey bdr">
+    <div class="abs lbl" style="left:14px; top:11px;">NARRATION</div>
+    <div class="abs" style="left:14px; top:27px; font-size:9.5pt;">{{ d.narration }}</div>
+  </div>
+
+  <div class="foot">
+    <div class="abs" style="left:0; top:11px;">Approved on Carrum portal by {{ d.approved_by }} on {{ d.approved_on }}</div>
+    <div class="abs" style="right:0; top:11px;">Page 1 of 1</div>
+    <div class="abs" style="left:0; top:26px;">System-generated summary. Original vendor invoice retained on the Carrum portal against the Portal Bill ID above.</div>
+  </div>
+
+</div>
+</body>
+</html>

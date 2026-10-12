@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe import _
 from frappe.core.doctype.file.file import File as FrappeFile
+from frappe.utils import cint
 
 from core.s3_file_storage import (
 	file_uses_s3,
 	s3_enabled,
 	s3_get_bytes,
 	s3_head_exists,
+	s3_object_key,
 )
 
 if TYPE_CHECKING:
@@ -18,6 +20,14 @@ if TYPE_CHECKING:
 
 
 class File(FrappeFile):
+	def set_is_private(self):
+		# Frappe derives privacy from a /private file_url; S3 prefix URLs never start with that,
+		# so read it from the object key ({site}/private/files/... vs {site}/files/...).
+		if file_uses_s3(self):
+			self.is_private = cint("/private/files/" in (s3_object_key(self) or ""))
+			return
+		super().set_is_private()
+
 	def validate_file_path(self):
 		if s3_enabled() and file_uses_s3(self):
 			return

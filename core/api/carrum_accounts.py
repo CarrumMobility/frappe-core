@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from core.constants.enums import EnumValues
 from core.services import logged_requests as requests
 from core.services.carrum_client import CarrumHttpClient
+from core.services.util_service import UtilService
 
 REFERRAL_FORM_OTP_SOURCE = "referral_form"
 
@@ -16,7 +17,7 @@ CARRUM_USER_CACHE_PREFIX = "carrum_user_data"
 SMARTFLO_CACHE_PREFIX = "smartflo_user_data"
 CARRUM_API_CACHE_TTL_SECONDS = 2 * 60  # 2 minutes
 
-
+util_service = UtilService()
 class ChatwootConfigValidationSchema(BaseModel):
     token: str
     inboxId: int
@@ -446,6 +447,37 @@ def fetch_hub_active_users(
     return {**result, "data": rows}
 
 
+def fetch_all_active_users(limit: int = 500, max_pages: int = 50) -> dict:
+    """Fetch active Carrum users across all hubs (no ``hubId`` filter), all pages."""
+    client = CarrumHttpClient(timeout=20)
+    rows: list[dict] = []
+    request_url = None
+    page = 1
+    while page <= max_pages:
+        result = client.request(
+            method="GET",
+            path="/api/v1/users",
+            params={"status": "active", "limit": limit, "page": page},
+            log_tag="all-active-users",
+        )
+        if not result.get("success"):
+            return result if page == 1 else {**result, "success": True, "data": rows}
+        request_url = request_url or result.get("request_url")
+        page_rows = [
+            row for row in _carrum_user_rows(result.get("data")) if isinstance(row, dict)
+        ]
+        rows.extend(page_rows)
+        body = result.get("data") if isinstance(result.get("data"), dict) else {}
+        inner = body.get("data") if isinstance(body.get("data"), dict) else body
+        total_pages = inner.get("totalPages") if isinstance(inner, dict) else None
+        if not page_rows or (total_pages and page >= int(total_pages)) or (
+            not total_pages and len(page_rows) < limit
+        ):
+            break
+        page += 1
+    return {"success": True, "data": rows, "request_url": request_url}
+
+
 def get_hub_active_users(hub_id: str, role_name: str | None = None, limit: int = 200) -> list[dict]:
     """Return active Carrum users for a hub, optionally filtered by role."""
     result = fetch_hub_active_users(hub_id, role_name=role_name, limit=limit)
@@ -541,3 +573,54 @@ def verify_phone_otp_on_carrum_portal(
         json={"phoneNo": phone, "otp": otp_str},
         log_tag="verify-phone-otp",
     )
+
+
+@frappe.whitelist()
+def get_agent_list(page: int = 1, limit: int = 100, defaultRoleName: str | None = None, hubName: str | None = None, hubId: str | None = None):
+    base_url = frappe.conf.get('carrum_base_url')
+    token = frappe.conf.get("carrum_token")
+    url = f"{base_url}/api/v1/users"
+
+    query_params = {"status": "active"}
+    if page:
+        query_params["page"] = page
+    if limit:
+        query_params["limit"] = limit
+    if hubId:
+        query_params["hubId"]  = hubId
+    if defaultRoleName:
+        query_params["defaultRoleName"] = defaultRoleName
+    if hubName:
+        query_params["hubName"] = hubName
+    if hubId:
+        query_params["hubId"] = hubId
+
+    response = requests.get(
+        url,
+        headers={"Authorization": token},
+        params=query_params,
+        timeout=20,
+    )
+
+    _debug = util_service.get_api_debug_info(response)
+
+    data = response.json()
+    results = data.get("data")
+    users = results.get("users")
+    total = results.get("total")
+    page = results.get("page")
+    limit = results.get("limit")
+    totalPages = results.get("totalPages")
+
+    return {
+        "is_valid": True,
+        "message": "Agent list fetched successfully",
+        "data": {
+            "users": users,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "totalPages": totalPages,
+        },
+        "_debug": _debug
+    }

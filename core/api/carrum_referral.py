@@ -1,10 +1,9 @@
 from urllib.parse import quote, urlencode
 
-from core.services import logged_requests as requests
-
 import frappe
 from frappe import _
 
+from core.services import logged_requests as requests
 from core.services.carrum_client import CarrumHttpClient
 
 logger = frappe.logger("core::carrum_referral")
@@ -64,6 +63,7 @@ def create_referral_on_portal(
 	refereeId,
 	agentReferrerId,
 	hubId,
+ 	source: str | None = None,
 	referrerId=None,
 	businessType=None,
 	referrerType=None,
@@ -126,6 +126,8 @@ def create_referral_on_portal(
 	emp_key = str(empId).strip() if empId is not None else ""
 	if emp_key:
 		payload["empId"] = emp_key
+	if source:
+		payload["source"] = source
 	config_key = str(configId).strip() if configId is not None else ""
 	if config_key:
 		payload["configId"] = config_key

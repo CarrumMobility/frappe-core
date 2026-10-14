@@ -1,10 +1,14 @@
-from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 import frappe
+
+# from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.services import logged_requests as re
+from core.services.util_service import UtilService
 
 carrum_base_url = frappe.conf.get("old_carrum_base_url")
 carrum_token = frappe.conf.get('old_carrum_token')
 
+util_service = UtilService()
+logger = frappe.logger("core.api.carrum_scheme")
 
 def _extract_alias_results(data):
 	if not data or not isinstance(data, dict):
@@ -90,22 +94,32 @@ def scheme_requires_car_type_for_hub(hub_id, scheme_id):
 
 
 @frappe.whitelist()
-def get_scheme_list():
-	payload = frappe.request.get_json() or {}
-	business_type_id = str(
-		payload.get("businessTypeId") or payload.get("business_type_id") or ""
-	).strip()
+def get_scheme_list(business_type_id: str | None = None, businessTypeId: str | None = None):
+	business_type_id = business_type_id or businessTypeId
+	logger.info("get_scheme_list: business_type_id=%s user=%s", business_type_id, frappe.session.user)
 
 	if not business_type_id:
+		logger.warning("get_scheme_list: business_type_id missing")
 		return {
-			"success": False,
+			"is_valid": False,
+			"reason": "Business Type Id is required"
 		}
 
 	url = f"{carrum_base_url}/api/v1/scheme/alias?hub_id={business_type_id}"
 
 	response = re.get(url, headers={"Authorization": carrum_token})
+
+	debug_info = util_service.get_api_debug_info(response)
+	if not response.ok:
+		logger.error(
+			"get_scheme_list: portal returned status=%s for business_type_id=%s body=%s",
+			response.status_code, business_type_id, response.text[:500],
+		)
+	else:
+		logger.info("get_scheme_list succeeded: business_type_id=%s", business_type_id)
+
 	return {
-		"success": True,
+		"is_valid": True,
 		"data": response.json(),
-		"url": url
+		"_debug": debug_info
 	}

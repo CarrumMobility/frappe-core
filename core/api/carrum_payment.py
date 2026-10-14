@@ -138,16 +138,20 @@ def _wallet_data_for_lead_account(account_id, *, wallet_data=None):
     return wd if isinstance(wd, dict) else None
 
 @frappe.whitelist()
-def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
+def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None, portal_user_id=None):
     """
     Generate Carrum/Razorpay payment link for a CRM Lead.
     Accepts lead_id or leadId, amount, tag_type or type (from JSON body).
+    When portal_user_id is passed, it is sent as accountCreatorId.
     """
-    lead_id = lead_id or leadId or frappe.form_dict.get("lead_id") or frappe.form_dict.get("leadId")
+    body = _merge_request_body()
+    lead_id = lead_id or leadId or body.get("lead_id") or body.get("leadId") or frappe.form_dict.get("lead_id") or frappe.form_dict.get("leadId")
     if not lead_id:
         frappe.throw(_("Lead is required"))
 
-    raw_amount = amount if amount is not None else frappe.form_dict.get("amount")
+    raw_amount = amount if amount is not None else body.get("amount")
+    if raw_amount is None:
+        raw_amount = frappe.form_dict.get("amount")
     if raw_amount is None or (isinstance(raw_amount, str) and not str(raw_amount).strip()):
         frappe.throw(_("Amount is required"))
     amount = flt(raw_amount)
@@ -156,6 +160,8 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
 
     tag_type = (
         tag_type
+        or body.get("tag_type")
+        or body.get("type")
         or frappe.form_dict.get("tag_type")
         or frappe.form_dict.get("type")
     )
@@ -165,6 +171,10 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     if tag_norm not in ("security_deposit", "settlement"):
         frappe.throw(_("Payment type must be security_deposit or settlement"))
     tag_type = tag_norm
+    logger.info(
+        "send_payment_link: lead=%s amount=%s tag_type=%s portal_user_id=%s user=%s",
+        lead_id, amount, tag_type, portal_user_id, frappe.session.user,
+    )
 
     base = frappe.conf.get("old_carrum_base_url")
     if not base:
@@ -184,12 +194,11 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     lead_name = lead.lead_name
     # hub_fee = lead.hub_fee
     source = lead.source
+    hub_id = lead.hub_id
     if not lead_name or not str(lead_name).strip():
         frappe.throw(_("Lead name is required before sending a payment link"))
 
-    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    hub_id = lead.hub_id
-    carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
+    carrum_user_id = _resolve_account_creator_id(portal_user_id, body)
 
     account_id = frappe.conf.get("carrum_account_id")
     source = source or "crm_payment_link"
@@ -203,22 +212,22 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
         "hubId": hub_id,
         "amount": amount,
         "tag_type": tag_type,
-        "source": source,
+        "source": source or None,
         "accountCreatorId": carrum_user_id,
     }
     if account_id is not None:
         payload["accountId"] = account_id
 
     headers = {"Authorization": token, "Content-Type": "application/json"}
-    print(url)
-    print(headers)
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=60)
     except requests.RequestException as e:
+        logger.exception("send_payment_link: request failed for lead=%s: %s", lead_id, e)
         frappe.throw(_("Could not reach payment service: {0}").format(str(e)))
 
     if response.status_code >= 400:
         body = (response.text or "")[:500]
+        logger.error("send_payment_link failed: lead=%s status=%s body=%s", lead_id, response.status_code, body)
 
         frappe.throw(
             _("Payment Service Unavailable ({0}): {1}").format(response.status_code, body or response.reason)
@@ -227,10 +236,12 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     try:
         data = response.json()
     except ValueError:
+        logger.error("send_payment_link: invalid JSON for lead=%s body=%s", lead_id, (response.text or "")[:500])
         frappe.throw(_("Invalid JSON from payment service"))
 
     if data.get("status") != "success":
         msg = data.get("message") or data.get("errors") or _("Payment link generation failed")
+        logger.error("send_payment_link: payment service returned failure for lead=%s response=%s", lead_id, data)
         frappe.throw(str(msg))
 
     results = data.get("results") or {}
@@ -238,7 +249,10 @@ def send_payment_link(lead_id=None, amount=None, tag_type=None, leadId=None):
     payment_qr = results.get("payment_qr_code_link")
 
     if not payment_link:
+        logger.error("send_payment_link: no payment link returned for lead=%s response=%s", lead_id, data)
         frappe.throw(_("Payment service did not return a payment link"))
+
+    logger.info("send_payment_link succeeded: lead=%s", lead_id)
 
     return {
         "paymentLink": payment_link,
@@ -276,6 +290,18 @@ def _merge_request_body():
     return body
 
 
+def _resolve_account_creator_id(portal_user_id=None, body=None):
+    """Prefer explicit portal_user_id as Carrum accountCreatorId; else map session user."""
+    body = body if isinstance(body, dict) else {}
+    if portal_user_id is None:
+        portal_user_id = body.get("portal_user_id") or frappe.form_dict.get("portal_user_id")
+    if portal_user_id is not None and str(portal_user_id).strip():
+        return str(portal_user_id).strip()
+
+    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
+    return carrum_user.get("id") if carrum_user is not None else None
+
+
 @frappe.whitelist()
 def add_other_payment(
     amount=None,
@@ -286,6 +312,7 @@ def add_other_payment(
     lead_id=None,
     doctype=None,
     name=None,
+    portal_user_id=None,
 ):
     """Record non-online payment (bank transfer / UTR, optional receipt images)."""
 
@@ -298,18 +325,25 @@ def add_other_payment(
         amount = body.get("amount")
     if utr is None:
         utr = body.get("utr")
+    if lead_id is None:
+        lead_id = body.get("lead_id") or body.get("leadId")
 
-    payment_type = body.get("payment_type")
-    payment_type_str = str(payment_type).strip().lower()
+    if payment_type is None:
+        payment_type = body.get("payment_type")
+    payment_type_str = str(payment_type or "").strip().lower()
     if "security" in payment_type_str and "deposit" in payment_type_str:
         payment_type = "security_deposit"
     elif "settlement" in payment_type_str:
         payment_type = "settlement"
     else:
+        logger.warning("add_other_payment: invalid payment_type=%r for lead=%s", payment_type, lead_id)
         frappe.throw(_("Invalid payment type"))
 
-    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
+    logger.info(
+        "add_other_payment: lead=%s amount=%s utr=%s payment_type=%s portal_user_id=%s user=%s",
+        lead_id, amount, utr, payment_type, portal_user_id, frappe.session.user,
+    )
+    carrum_user_id = _resolve_account_creator_id(portal_user_id, body)
     lead = frappe.get_doc("CRM Lead", lead_id)
     hub_id = lead.hub_id
 
@@ -322,6 +356,7 @@ def add_other_payment(
     _validate_lead_scheme_id(lead)
 
     if not str(amount or "").strip() and not str(utr or "").strip():
+        logger.warning("add_other_payment: neither amount nor utr provided for lead=%s", lead_id)
         frappe.throw(_("Enter amount or UTR"))
 
     payload = {
@@ -346,11 +381,14 @@ def add_other_payment(
     url = f"{old_carrum_base_url}/api/v1/payment/otherForCRM"
 
     response = requests.post(url,headers=headers, json=payload, timeout=60)
-    print(response)
 
     try:
         data = response.json()
     except ValueError:
+        logger.error(
+            "add_other_payment: invalid JSON for lead=%s status=%s body=%s",
+            lead_id, response.status_code, (response.text or "")[:500],
+        )
         return {
             "is_valid": False,
             "reason": _("Invalid JSON from payment service")
@@ -358,17 +396,23 @@ def add_other_payment(
 
     if data.get('status') != "success":
         message = data.get("message") or data.get("error") or _("Failed to add other payment")
+        logger.error("add_other_payment failed: lead=%s status=%s response=%s", lead_id, response.status_code, data)
         return {
             "is_valid": False,
             "reason": message
         }
 
     if response.ok != True:
+        logger.error(
+            "add_other_payment: non-OK status=%s for lead=%s body=%s",
+            response.status_code, lead_id, (response.text or "")[:500],
+        )
         return {
             "is_valid": False,
             "reason": response.text
         }
 
+    logger.info("add_other_payment succeeded: lead=%s", lead_id)
     return {
         "is_valid": True,
         "reason": None,
@@ -376,7 +420,7 @@ def add_other_payment(
     }
 
 
-def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None):
+def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None, portal_user_id=None):
     body = _merge_request_body()
     lead_id = leadId or body.get("leadId") or body.get("lead_id")
     if not lead_id:
@@ -411,9 +455,12 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
 
     _validate_lead_scheme_id(lead)
 
-    carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
     hub_id = lead.hub_id
-    carrum_user_id = carrum_user.get("id") if carrum_user is not None else None
+    carrum_user_id = _resolve_account_creator_id(portal_user_id, body)
+    logger.info(
+        "add_cash: lead=%s amount=%s tag_type=%s images=%s portal_user_id=%s user=%s",
+        lead_id, amount_val, tag_type, len(s3_links), portal_user_id, frappe.session.user,
+    )
     source = lead.source or "crm_cash_payment"
     out = {
         "phoneNumber": phone_number,
@@ -441,6 +488,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
     try:
         response = requests.post(url, json=out, headers=headers, timeout=60)
     except requests.RequestException:
+        logger.exception("add_cash: request failed for lead=%s url=%s", lead_id, url)
         frappe.log_error(
             frappe.get_traceback(),
             f"add_cash: HTTP request failed (lead_id={lead_id}, url={url})",
@@ -451,6 +499,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
 
     if not response.ok:
         snippet = (response.text or "")[:8000]
+        logger.error("add_cash: non-OK status=%s for lead=%s body=%s", response.status_code, lead_id, snippet[:500])
         frappe.log_error(
             f"lead_id={lead_id}\nHTTP {response.status_code}\n{snippet}",
             "add_cash: payment service non-OK response",
@@ -460,6 +509,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
         data = response.json()
     except ValueError:
         snippet = (response.text or "")[:8000]
+        logger.error("add_cash: invalid JSON for lead=%s body=%s", lead_id, snippet[:500])
         frappe.log_error(
             f"lead_id={lead_id}\n{snippet}",
             "add_cash: invalid JSON from payment service",
@@ -472,6 +522,7 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
             payload_log = json.dumps(data, default=str)[:8000]
         except Exception:
             payload_log = str(data)
+        logger.error("add_cash: payment API returned failure for lead=%s response=%s", lead_id, payload_log[:500])
         frappe.log_error(
             f"lead_id={lead_id}\n{payload_log}",
             "add_cash: payment API returned failure",
@@ -481,13 +532,14 @@ def _add_cash_execute(leadId=None, amount=None, paymentType=None, imageUrls=None
             "reason": msg,
         }
 
+    logger.info("add_cash succeeded: lead=%s", lead_id)
     return {"message": "success"}
 
 
 @frappe.whitelist()
-def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None):
+def add_cash(leadId=None, amount=None, paymentType=None, imageUrls=None, portal_user_id=None):
     try:
-        return _add_cash_execute(leadId, amount, paymentType, imageUrls)
+        return _add_cash_execute(leadId, amount, paymentType, imageUrls, portal_user_id)
     except frappe.ValidationError:
         raise
     except Exception:

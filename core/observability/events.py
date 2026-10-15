@@ -1,10 +1,8 @@
-"""Business events (for example CrmLeadViewed) for the active APM backend.
+"""Business events (for example CrmLeadViewed).
 
-- ``OBSERVABILITY=otel``: one OpenTelemetry log record per event, exported to
-  Loki with ``event.name`` and the attributes as structured metadata, linked
-  to the current trace. Query in Grafana with
-  ``{service_name="erpnext"} | event_name="CrmLeadViewed"``.
-- otherwise: a New Relic custom event, exactly as before.
+One OpenTelemetry log record per event, exported to Loki with ``event.name``
+and the attributes as structured metadata, linked to the current trace.
+Query in Grafana with ``{service_name="erpnext"} | event_name="CrmLeadViewed"``.
 
 The record is emitted through the OpenTelemetry Logs API directly rather than
 a Python logger, so FRAPPE_LOG_LEVEL (WARNING in deployed environments)
@@ -23,10 +21,7 @@ _LOG = logging.getLogger(__name__)
 
 
 def record_event(event_type: str, attributes: dict | None = None) -> None:
-	if os.environ.get("OBSERVABILITY", "").lower() != "otel":
-		from core.observability.newrelic import record_custom_event
-
-		record_custom_event(event_type, attributes)
+	if os.environ.get("OBSERVABILITY", "otel").lower() == "off":
 		return
 
 	try:

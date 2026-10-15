@@ -1,10 +1,10 @@
-"""Emit full exception details to Python logs for New Relic log forwarding.
+"""Emit full exception details to Python logs, which are exported to Loki.
 
 Frappe's default ``log_error_snapshot`` only logs the fixed string
 ``"New Exception collected in error log"``; the traceback is stored in the
 Error Log doctype but never reaches application logs. This module patches
-Frappe's error helpers so NR Logs receive the complete exception message and
-stack trace (linked to the same APM trace via log correlation).
+Frappe's error helpers so exported logs carry the complete exception message and
+stack trace (linked to the same trace via trace_id).
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def _patched_log_error_snapshot(exception: Exception) -> None:
 		logger.error("Could not take error snapshot: %s", e, exc_info=True)
 
 
-def install_error_logging_for_newrelic() -> None:
+def install_error_logging() -> None:
 	"""Patch Frappe error helpers once per process (idempotent)."""
 	global _installed, _original_log_error
 	global _EXCLUDE_EXCEPTIONS, _is_ldap_exception

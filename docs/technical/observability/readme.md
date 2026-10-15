@@ -2,23 +2,23 @@
 
 **Module:** `core.observability`  
 **App:** `core`  
-**Status:** Live
+**Status:** Live  
+**Backend:** OpenTelemetry → Grafana stack (Alloy, Tempo, Loki, Prometheus, Grafana) in GCP project `carrum-mgmt`
 
 ---
 
 ## Overview
 
-The observability stack enriches Frappe/Frappe-bench processes with telemetry suitable for **New Relic APM, Logs, and Custom Events**. It lives in the `core` app and is loaded for all processes via `core/hooks.py`.
+The `core` app sends traces, logs and business events from Frappe processes with OpenTelemetry (OTLP over HTTP), and browser telemetry from the Desk with Grafana Faro.
 
 Design goals:
 
-1. **Zero per-request log spam** — request metadata goes on the APM transaction, not duplicate log lines.
-2. **Complete error visibility** — Frappe errors emit full tracebacks to Python logs for NR log forwarding.
-3. **NR log compatibility** — dict- and `%`-formatted log messages are materialized before NR's logging hook reads them.
-4. **Background coverage** — queue workers and schedulers get Non-Web transactions.
-5. **Safe defaults** — secret redaction and payload truncation in shared helpers.
-
-New Relic–specific wiring is documented in [newrelic.md](newrelic.md).
+1. **Request and job context on traces, not log spam** — site, user and command go on the span.
+2. **Complete error visibility** — Frappe errors emit full tracebacks to logs, linked to the trace by `trace_id`.
+3. **Readable log export** — dict- and `%`-formatted messages are materialized before export.
+4. **Background coverage** — every queue and scheduled job is a trace.
+5. **Low cardinality** — routes are templated; bare client spans never start a trace.
+6. **Safe defaults** — SQL values never recorded; request bodies off unless enabled, then redacted and truncated.
 
 ---
 
@@ -26,46 +26,34 @@ New Relic–specific wiring is documented in [newrelic.md](newrelic.md).
 
 ```mermaid
 flowchart TB
-    subgraph Process startup
-        HOOKS[core/hooks.py]
-        LOGC[install_newrelic_log_compat]
-        ERR[install_error_logging_for_newrelic]
-        HOOKS --> LOGC
-        HOOKS --> ERR
+    subgraph Web process - gunicorn --preload
+        WSGI[core.wsgi_otel:application]
+        GC[otel_gunicorn.post_fork]
+        MW[WSGI middleware - server span]
+        AR[after_request: otel.enrich_span]
+        WSGI --> MW --> AR
+        GC -. providers per worker .-> MW
     end
 
-    subgraph Web process
-        WSGI[core.wsgi_nr:application]
-        NRWRAP[WSGIApplicationWrapper]
-        AR[after_request hook]
-        ENR[enrich_newrelic_transaction]
-        WSGI --> NRWRAP
-        NRWRAP --> AR
-        AR --> ENR
+    subgraph Worker process - RQ, fork per job
+        BJ[before_job: otel_jobs.before_job]
+        AJ[after_job: otel_jobs.after_job + flush]
     end
 
-    subgraph Worker / scheduler process
-        BJ[before_job hook]
-        AJ[after_job hook]
-        BG[background_tasks]
-        BJ --> BG
-        AJ --> BG
+    subgraph Libraries
+        LIB[PyMySQL, redis, requests, botocore, logging]
     end
 
-    subgraph Shared helpers
-        RB[request_logging.format_request_body]
-        NR[record_custom_event]
+    subgraph Desk
+        FARO[faro_init.js] -->|boot info| BOOT[faro.boot_session]
     end
 
-    ENR --> RB
-    NR --> NRAgent[New Relic agent]
-
-    subgraph External API
-        API[core.api.observability.track_lead_views]
-        FE[crm frontend trackLeadViews.js]
-        FE --> API
-        API --> NR
-    end
+    MW --> LIB
+    BJ --> LIB
+    MW -->|OTLP| ALLOY[Alloy otel.obs.internal:4318]
+    AJ -->|OTLP| ALLOY
+    FARO -->|HTTPS| FAROEP[faro.carrum.co.in/collect]
+    EV[events.record_event] -->|OTLP log| ALLOY
 ```
 
 ---
@@ -74,223 +62,137 @@ flowchart TB
 
 | Path | Purpose |
 |---|---|
-| `core/observability/newrelic.py` | APM transaction enrichment; `record_custom_event()` |
-| `core/observability/request_logging.py` | Request body serialization, redaction, truncation; optional API request log helper |
-| `core/observability/logging.py` | Log record factory for NR log forwarding compatibility |
-| `core/observability/error_logging.py` | Patches `frappe.log_error` / `log_error_snapshot` for full traceback logging |
-| `core/observability/background_tasks.py` | `before_job` / `after_job` Non-Web transaction wrappers |
-| `core/wsgi_nr.py` | Gunicorn WSGI entry point with NR agent init and app wrapper |
-| `core/api/observability/observability.py` | Whitelisted API for frontend custom events |
-| `core/hooks.py` | Registers hooks and installs log/error patches at import time |
-| `core/constants/enums.py` | `EnumValues.CrmEventTypes` — custom event type constants |
-| `crm/frontend/src/utils/trackLeadViews.js` | Frontend helper calling the observability API |
+| `core/wsgi_otel.py` | Gunicorn WSGI entry point: installs log helpers, instruments libraries, wraps `frappe.app.application` |
+| `core/observability/otel.py` | Providers, sampler, route templating, exception recording, `enrich_span`, log handler wiring, `flush()` |
+| `core/observability/otel_gunicorn.py` | `post_fork` / `worker_exit` hooks (`--config python:core.observability.otel_gunicorn`) |
+| `core/observability/otel_jobs.py` | `before_job` / `after_job` hooks: one CONSUMER span per job |
+| `core/observability/events.py` | `record_event()` — business events as OTLP log records |
+| `core/observability/faro.py` | `boot_session` — passes Faro settings to the Desk |
+| `core/public/js/faro_init.js` | Loads Faro 2.12.1 (jsDelivr, SRI) when boot info has `faro` |
+| `core/observability/logging.py` | Log record factory that materializes messages |
+| `core/observability/error_logging.py` | Patches `frappe.log_error` / `log_error_snapshot` for full tracebacks |
+| `core/observability/request_logging.py` | Request body serialization, redaction, truncation |
+| `core/api/observability/observability.py` | Whitelisted `track_lead_views` API for the CRM frontend |
 
-Dependency: `newrelic>=10.0,<11` in `core/pyproject.toml`.
+Dependencies (`pyproject.toml`): `opentelemetry-sdk` 1.45.1, `opentelemetry-exporter-otlp-proto-http` 1.45.1 and instrumentations 0.66b1 (wsgi, pymysql, redis, requests, botocore, logging). SDK and contrib versions move together.
 
 ---
 
-## Hook registration
-
-From `core/hooks.py`:
+## Hook registration (`core/hooks.py`)
 
 ```python
-# Module import time (all processes: web, worker, scheduler, console)
-install_newrelic_log_compat()
-install_error_logging_for_newrelic()
+# Module import time, in the process that builds the hooks cache
+install_log_compat()
+install_error_logging()
 
-before_job = ["core.observability.background_tasks.before_job"]
-after_job = ["core.observability.background_tasks.after_job"]
+app_include_js = ["/assets/core/js/faro_init.js"]
+boot_session = "core.observability.faro.boot_session"
 
-after_request = [
-    "core.observability.newrelic.enrich_newrelic_transaction"
-    # "core.observability.request_logging.log_api_request_body",  # disabled
-]
+before_job = ["core.observability.otel_jobs.before_job"]
+after_job = ["core.observability.otel_jobs.after_job"]
+
+after_request = ["core.observability.otel.enrich_span"]
 ```
 
-`log_api_request_body` remains available but is **commented out** — request context is intended for APM attributes instead of structured log lines.
+Frappe caches hooks in Redis, so the module-level installs do not run in every process. `wsgi_otel.py` and `otel_jobs.before_job` call both installs themselves; they are idempotent.
 
 ---
 
-## Module reference
+## Web process
 
-### `logging.py` — NR log record factory
+Started by erpnext-config:
 
-New Relic's logging instrumentation reads `record.msg` directly. Frappe often logs dict payloads (e.g. from `log_request`) or defers `%` formatting via `record.args`, which produces empty or unreadable messages in NR Logs.
+```bash
+gunicorn ... --preload --config python:core.observability.otel_gunicorn core.wsgi_otel:application
+```
 
-`install_newrelic_log_compat()` replaces the global `logging.LogRecordFactory` to:
+- **`--preload`**: the app is imported in the master and forked. Library instrumentation is applied in the master (it resolves the tracer provider lazily); tracer and logger providers, with their export threads, are created in each worker in `post_fork`.
+- **Span names and routes**: `/api/method/<method>` as is; `/api/resource/<DocType>/{name}`, `/api/v2/document/<DocType>/{name}`, `/app/<doctype>/{name}`, `/files/{file}`; other ID-like segments become `{id}`. Old-style `POST /` with `cmd` is renamed to `/api/method/<cmd>` in `enrich_span`.
+- **Attributes**: `frappe.site`, `enduser.id`, `frappe.cmd`, plus HTTP semantic conventions from the middleware. `OTEL_CAPTURE_REQUEST_BODY=true` adds a redacted, truncated `http.request.body` (off by default).
+- **Exceptions**: `frappe.app.handle_exception` is wrapped to record the exception on the server span.
+- **Excluded paths**: `OTEL_EXCLUDED_PATHS` (default `/api/method/ping`) skip the server span.
 
-- Serialize dict messages (request-shaped dicts → `METHOD path → status user=...`)
-- Call `getMessage()` early and clear `args`
+## Background jobs
 
-Idempotent; safe to call from both `hooks.py` and `wsgi_nr.py`.
+`frappe.utils.background_jobs.execute_job` calls `before_job` before and `after_job` in its `finally` for every job.
 
-### `error_logging.py` — full exception logging
+- RQ's default worker forks a process per job and ends it with `os._exit`, which skips background export. Each job process initializes OpenTelemetry on first use and `after_job` calls `otel.flush()` (5 s timeout) when running under RQ.
+- Span: `job <method>` or, for scheduled jobs (`run_scheduled_job`), `scheduled <job_type>`; kind CONSUMER; service `<OTEL_SERVICE_NAME>` (erpnext-config sets `erpnext-worker`).
+- Attributes: `frappe.job.method`, `frappe.site`, `enduser.id`, `messaging.system=rq`, `messaging.message.id`, `messaging.destination.name` (queue), `frappe.job.wait_ms`, `frappe.job.scheduled`, `frappe.job.type`.
+- Failures: `after_job` runs in `finally`, so `sys.exc_info()` still holds the job's exception; it is recorded and the span status set to ERROR.
+- Deadlock retries call `execute_job` recursively; spans are kept on a module-level stack because `frappe.destroy()` clears `frappe.local` between attempts.
 
-Frappe's default `log_error_snapshot` persists to the Error Log doctype but only logs `"New Exception collected in error log"` to Python logs.
+## Sampling
 
-`install_error_logging_for_newrelic()` monkey-patches:
+`ParentBased(TraceIdRatioBased(OTEL_TRACES_SAMPLER_ARG))`, with one rule for roots: a CLIENT, PRODUCER or INTERNAL span with no parent is dropped. Without it, SQL/Redis calls outside a request or job (health checks, worker start-up, the scheduler loop) each become a one-span trace.
 
-- `frappe.utils.error.log_error`
-- `frappe.utils.error.log_error_snapshot`
-- `frappe.app.log_error_snapshot` (module-level binding)
-- `frappe.log_error` (public API)
+## Logs
 
-Each patch preserves original Frappe behavior and additionally emits:
+A `LoggingHandler` is attached to the root logger and to every Frappe logger (they set `propagate = False`; `frappe.utils.logger.get_logger` is wrapped to cover loggers created later). Handler level follows `FRAPPE_LOG_LEVEL`. Each record carries the active `trace_id` / `span_id`.
+
+`error_logging.py` makes `frappe.log_error` and `log_error_snapshot` also log:
 
 ```
 Frappe log_error_snapshot [ValidationError]: Title | site=... | user=... | cmd=... | trace_id=...
 <full traceback>
 ```
 
-LDAP and excluded exception types follow Frappe's original skip rules.
+## Business events
 
-### `request_logging.py` — body formatting
+`core.observability.events.record_event(event_type, attributes)` emits one OTLP log record through the Logs API (not a Python logger, so `FRAPPE_LOG_LEVEL` cannot drop it): body = event type, attributes = `event.name`, `frappe.site` and the given attributes (dicts/lists JSON-encoded). Query:
 
-`format_request_body(request, *, max_length=None)`:
-
-- Skips binary / multipart content types
-- Parses JSON and form bodies
-- Redacts keys matching `_SECRET_KEYWORDS` (`password`, `token`, `secret`, `key`, …)
-- Truncates to `api_request_body_log_max_length` from site config (default **10 000** chars) or explicit `max_length`
-
-Used by `enrich_newrelic_transaction` with `max_length=4000` for NR custom attributes.
-
-### `background_tasks.py` — Non-Web transactions
-
-| Entry | Detection | NR group | Transaction name |
-|---|---|---|---|
-| Scheduler | `method` contains `run_scheduled_job` | `Scheduler` | `Scheduler {Readable Job Name}` |
-| Queue worker | all other `before_job` calls | `Task` | Python `method` string |
-
-Uses `newrelic.agent.BackgroundTask` context manager stored on `frappe.local.newrelic_background_task`. Calls `newrelic.agent.initialize()` if needed (worker processes may not use `wsgi_nr`).
-
-### `newrelic.py`
-
-See [newrelic.md](newrelic.md) for attribute lists and `record_custom_event` contract.
-
----
-
-## Web entry point
-
-Production web processes should use `core.wsgi_nr:application` instead of `frappe.app.application` directly.
-
-`core/wsgi_nr.py`:
-
-1. Installs log compat + error logging patches
-2. Calls `newrelic.agent.initialize()`
-3. Imports Frappe **after** NR init
-4. Sets `frappe.log_level` from `FRAPPE_LOG_LEVEL` (default `DEBUG`) so NR log forwarding receives sub-ERROR levels in production
-5. Wraps the app with `newrelic.agent.WSGIApplicationWrapper`
-
-Recommended gunicorn invocation:
-
-```bash
-newrelic-admin run-program gunicorn ... core.wsgi_nr:application
+```logql
+{service_name="erpnext"} | event_name="CrmLeadViewed"
 ```
 
-Why both `newrelic-admin` and `WSGIApplicationWrapper`?
+Adding an event:
 
-- `newrelic-admin` — hooks Python's `logging` module for log forwarding
-- `WSGIApplicationWrapper` — creates web transactions (required for gunicorn ≥ 22 where automatic gunicorn instrumentation is unreliable)
+1. Add a constant to `EnumValues.CrmEventTypes` in `core/constants/enums.py`.
+2. Call `record_event(event_type, attributes)`, or expose a whitelisted API under `core/api/observability/`.
+3. Keep attributes flat; avoid PII beyond what product requires; never pass secrets.
 
----
+## Desk browser monitoring
 
-## Frontend integration
-
-**File:** `crm/frontend/src/utils/trackLeadViews.js`
-
-```javascript
-await call('core.api.observability.observability.track_lead_views', {
-  lead_ids: ids,
-  view_type: viewType,   // 'list' | 'detail'
-  route_name: routeName,
-})
-```
-
-Called from:
-
-- `crm/frontend/src/pages/Leads.vue` — list load (batch)
-- `crm/frontend/src/pages/Lead.vue` — detail view
-
-Errors are swallowed so telemetry never breaks the UI.
+`boot_session` copies `faro_collect_url`, `faro_app_name` (default `erpnext`) and `faro_environment` from site config into `frappe.boot.faro`. `faro_init.js` then loads the Faro SDK and tracing bundles from jsDelivr with SRI and initializes web instrumentations (no console capture, no replay), ignoring `/socket.io/` and the collector URL. The tracing instrumentation adds `traceparent` to same-origin requests, so backend spans join the browser trace. Without `faro_collect_url` nothing loads.
 
 ---
 
 ## Configuration
 
-### New Relic agent
-
-Configuration follows the [standard Python agent](https://docs.newrelic.com/docs/apm/agents/python-agent/configuration/python-agent-configuration/) — typically via environment variables or a `newrelic.ini` file on the site path (e.g. `sites/{site}/newrelic.ini`).
-
-Common settings:
-
-| Setting | Env var | Notes |
+| Variable | Set by | Notes |
 |---|---|---|
-| License key | `NEW_RELIC_LICENSE_KEY` | Required |
-| App name | `NEW_RELIC_APP_NAME` | One name per environment |
-| Monitor mode | `NEW_RELIC_MONITOR_MODE` | `true` in monitored envs |
-| Distributed tracing | `NEW_RELIC_DISTRIBUTED_TRACING_ENABLED` | Default on |
-| Log forwarding | `NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED` | Requires `newrelic-admin` or equivalent |
-| Log level (Frappe) | `FRAPPE_LOG_LEVEL` | Set in `wsgi_nr.py`; default `DEBUG` |
+| `OBSERVABILITY` | erpnext-config | `otel` (default) or `off` to disable job spans and events |
+| `OTEL_SERVICE_NAME` | erpnext-config | `erpnext` (web), `erpnext-worker` (workers) |
+| `OTEL_RESOURCE_ATTRIBUTES` | erpnext-config | `deployment.environment=<dev\|qa\|prod>` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | erpnext-config | `http://otel.obs.internal:4318` |
+| `OTEL_TRACES_SAMPLER_ARG` | erpnext-config | Ratio of traces kept (default `1.0`) |
+| `OTEL_EXCLUDED_PATHS` | erpnext-config | Comma-separated paths without a server span |
+| `OTEL_CAPTURE_REQUEST_BODY` | optional | `true` to attach redacted request bodies |
+| `FRAPPE_LOG_LEVEL` | erpnext-config | Log export level |
 
-EU accounts: collector host derived from license key prefix (`eu01` → `collector.eu01.nr-data.net`).
-
-`site_config.json` may contain legacy `newrelic_*` keys for documentation or tooling; the active `core.observability` code reads configuration through the **Python agent** (env / ini), not `frappe.conf`.
-
-### Frappe site config
-
-| Key | Default | Purpose |
-|---|---|---|
-| `api_request_body_log_max_length` | `10000` | Max serialized body length in `format_request_body` |
-
----
-
-## Adding a new custom event
-
-1. Add a constant to `EnumValues.CrmEventTypes` in `core/constants/enums.py`.
-2. Call `record_custom_event(event_type, attributes)` from server-side code, or expose a whitelisted API under `core/api/observability/`.
-3. Keep attributes flat (strings/numbers); dicts/lists are JSON-serialized automatically.
-4. Avoid PII beyond what product requires; never pass secrets.
-5. Document the event in product and technical New Relic docs.
-
-`record_custom_event` always adds `frappe.site` when available. Failures are logged to `core.observability` logger and do not raise.
+| Site config key | Purpose |
+|---|---|
+| `faro_collect_url` | Turns on Desk browser monitoring |
+| `faro_environment`, `faro_app_name` | Faro labels |
+| `api_request_body_log_max_length` | Max serialized body length in `format_request_body` (default 10 000) |
 
 ---
 
 ## Graceful degradation
 
-All NR integrations use lazy `import newrelic.agent` inside try/except:
-
-- Agent not installed → no-op
-- No active transaction → enrichment skipped
-- `record_custom_event` failure → logged, request continues
-
-Local dev without the agent or without `wsgi_nr` works unchanged.
+- No recording span → `enrich_span` does nothing.
+- `OBSERVABILITY=off` → job hooks and `record_event` return at once.
+- Exporter unreachable → spans and logs are dropped after retries; requests and jobs are not affected.
+- `record_event` failures are logged and never raise.
 
 ---
 
 ## Testing locally
 
-1. Install dependencies: `bench pip install -e apps/core` (pulls `newrelic`).
-2. Add `sites/{site}/newrelic.ini` or export `NEW_RELIC_*` env vars.
-3. Start web with NR wrapper:
-   ```bash
-   NEW_RELIC_APP_NAME=FRAPPE_LOCAL bench --site dev serve
-   # or gunicorn with newrelic-admin + core.wsgi_nr:application
-   ```
-4. Generate traffic; verify transactions in NR APM within 1–2 minutes.
-5. Trigger `frappe.log_error("test")` and confirm full traceback in NR Logs.
-
----
-
-## Migration note
-
-An earlier standalone app `frappe_newrelic_integration` was archived under `archived/apps/frappe_newrelic_integration-2026-07-22/`. Observability logic now lives natively in `core.observability` with a simpler surface: no separate bootstrap app, ini generation from site config, or duplicate web transaction wrapping in `before_request`.
+Run the Grafana stack locally (`scripts/smoke-local.sh` with `KEEP=1` in CarrumMobility/observability-config), then start gunicorn with the command above and `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`, and a worker with `bench worker`. Traces appear in Grafana at `http://localhost:3000` (Tempo), logs and events in Loki.
 
 ---
 
 ## Related documentation
 
-- [New Relic integration — technical documentation](newrelic.md)
 - [Observability — product overview](../../product/observability/readme.md)
-- [New Relic integration — product guide](../../product/observability/newrelic.md)

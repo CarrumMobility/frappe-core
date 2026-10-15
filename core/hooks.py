@@ -227,8 +227,16 @@ override_whitelisted_methods = {
 
 # Job Events
 # ----------
-before_job = ["core.observability.background_tasks.before_job"]
-after_job = ["core.observability.background_tasks.after_job"]
+# New Relic background tasks, and OpenTelemetry job spans (inert unless
+# OBSERVABILITY=otel). Both run; each does nothing when its backend is off.
+before_job = [
+	"core.observability.background_tasks.before_job",
+	"core.observability.otel_jobs.before_job",
+]
+after_job = [
+	"core.observability.background_tasks.after_job",
+	"core.observability.otel_jobs.after_job",
+]
 
 # User Data Protection
 # --------------------

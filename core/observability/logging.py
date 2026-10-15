@@ -1,11 +1,10 @@
-"""Make Python log records compatible with New Relic log forwarding.
+"""Make Python log records safe for log export.
 
-NR's logging hook reads ``record.msg`` when forwarding. That leaves the Logs UI
-message empty when:
+Log exporters read ``record.msg``. That leaves the exported message empty or
+unreadable when:
 
 - Frappe passes a dict as the log message (e.g. ``log_request()``).
-- The message uses %-formatting and args are still on the record (NR does not
-  always call ``getMessage()`` before forwarding).
+- The message uses %-formatting and args are still on the record.
 
 This module materializes the final string on ``record.msg`` at record creation.
 """
@@ -44,7 +43,7 @@ def _format_dict_message(d: dict) -> str:
 	return json.dumps(d, default=str)
 
 
-def _nr_record_factory(*args, **kwargs):
+def _record_factory(*args, **kwargs):
 	record = _original_record_factory(*args, **kwargs)
 
 	if isinstance(record.msg, dict):
@@ -60,11 +59,11 @@ def _nr_record_factory(*args, **kwargs):
 	return record
 
 
-def install_newrelic_log_compat() -> None:
-	"""Install the NR log record factory once per process (idempotent)."""
+def install_log_compat() -> None:
+	"""Install the log record factory once per process (idempotent)."""
 	global _installed, _original_record_factory
 	if _installed:
 		return
 	_original_record_factory = logging.getLogRecordFactory()
-	logging.setLogRecordFactory(_nr_record_factory)
+	logging.setLogRecordFactory(_record_factory)
 	_installed = True

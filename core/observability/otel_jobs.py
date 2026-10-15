@@ -2,8 +2,8 @@
 
 Wired through Frappe's ``before_job`` / ``after_job`` hooks, which
 ``frappe.utils.background_jobs.execute_job`` calls around every job (the same
-hooks Frappe's own monitor uses). Active only when the container runs with
-``OBSERVABILITY=otel``; otherwise both hooks return at once.
+hooks Frappe's own monitor uses). On by default; ``OBSERVABILITY=off`` makes both hooks
+return at once.
 
 RQ's default worker forks a fresh process per job and ends it with
 ``os._exit``, which skips the exporters' background flush. So each job
@@ -33,7 +33,7 @@ _open_spans: list = []  # (span, context token), innermost last
 
 
 def _enabled() -> bool:
-	return os.environ.get("OBSERVABILITY", "").lower() == "otel"
+	return os.environ.get("OBSERVABILITY", "otel").lower() != "off"
 
 
 def before_job(method=None, kwargs=None, transaction_type=None) -> None:
@@ -41,18 +41,18 @@ def before_job(method=None, kwargs=None, transaction_type=None) -> None:
 		return
 	try:
 		from core.observability import otel
-		from core.observability.error_logging import install_error_logging_for_newrelic
-		from core.observability.logging import install_newrelic_log_compat
+		from core.observability.error_logging import install_error_logging
+		from core.observability.logging import install_log_compat
 
 		# hooks.py runs these only in the process that builds the hooks cache,
 		# so a job process usually has not. Both are idempotent.
-		install_newrelic_log_compat()
-		install_error_logging_for_newrelic()
+		install_log_compat()
+		install_error_logging()
 		otel.instrument_libraries()
 		otel.init_providers()
 
 		# Scheduled jobs all run through one generic method; name them after
-		# the real job (same rule as background_tasks.py and frappe.monitor).
+		# the real job (same rule as frappe.monitor).
 		scheduled_type = None
 		if method and _SCHEDULED_JOB_METHOD in method:
 			scheduled_type = (kwargs or {}).get("job_type") or method

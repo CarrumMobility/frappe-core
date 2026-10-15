@@ -28,6 +28,10 @@ app_license = "mit"
 # app_include_css = "/assets/core/css/core.css"
 # app_include_js = "/assets/core/js/core.js"
 
+# Browser monitoring (Grafana Faro). Inert unless the site config sets
+# faro_collect_url; see core.observability.faro.
+app_include_js = ["/assets/core/js/faro_init.js"]
+
 # include js, css files in header of web template
 # web_include_css = "/assets/core/css/core.css"
 # web_include_js = "/assets/core/js/core.js"
@@ -257,7 +261,8 @@ after_job = ["core.observability.background_tasks.after_job"]
 # 	"core.auth.validate"
 # ]
 
-# NR log forwarding reads record.msg before formatters; normalize for all processes.
+# Log forwarding (New Relic or OpenTelemetry) reads record.msg before formatters;
+# normalize for all processes.
 from core.observability.error_logging import install_error_logging_for_newrelic
 from core.observability.logging import install_newrelic_log_compat
 
@@ -292,8 +297,12 @@ before_request = [
 ]
 
 after_request = [
-	"core.observability.newrelic.enrich_newrelic_transaction"
+	"core.observability.newrelic.enrich_newrelic_transaction",
+	"core.observability.otel.enrich_span",
 	# "core.observability.request_logging.log_api_request_body",
 ]
+
+# Passes Faro (browser monitoring) settings from site config to the Desk.
+boot_session = "core.observability.faro.boot_session"
 
 after_migrate=["core.services.role_perm_service.enqueue_role_n_role_permission_creation_on_migration",]

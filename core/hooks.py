@@ -227,16 +227,9 @@ override_whitelisted_methods = {
 
 # Job Events
 # ----------
-# New Relic background tasks, and OpenTelemetry job spans (inert unless
-# OBSERVABILITY=otel). Both run; each does nothing when its backend is off.
-before_job = [
-	"core.observability.background_tasks.before_job",
-	"core.observability.otel_jobs.before_job",
-]
-after_job = [
-	"core.observability.background_tasks.after_job",
-	"core.observability.otel_jobs.after_job",
-]
+# OpenTelemetry span per background job (off with OBSERVABILITY=off).
+before_job = ["core.observability.otel_jobs.before_job"]
+after_job = ["core.observability.otel_jobs.after_job"]
 
 # User Data Protection
 # --------------------
@@ -269,13 +262,12 @@ after_job = [
 # 	"core.auth.validate"
 # ]
 
-# Log forwarding (New Relic or OpenTelemetry) reads record.msg before formatters;
-# normalize for all processes.
-from core.observability.error_logging import install_error_logging_for_newrelic
-from core.observability.logging import install_newrelic_log_compat
+# Log export reads record.msg before formatters; normalize for all processes.
+from core.observability.error_logging import install_error_logging
+from core.observability.logging import install_log_compat
 
-install_newrelic_log_compat()
-install_error_logging_for_newrelic()
+install_log_compat()
+install_error_logging()
 
 # Patch LoginManager so master password and other auth overrides apply
 import frappe.auth
@@ -305,7 +297,6 @@ before_request = [
 ]
 
 after_request = [
-	"core.observability.newrelic.enrich_newrelic_transaction",
 	"core.observability.otel.enrich_span",
 	# "core.observability.request_logging.log_api_request_body",
 ]

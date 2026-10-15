@@ -1,10 +1,8 @@
 """OpenTelemetry traces and logs for Frappe (web process and background jobs).
 
-Used instead of New Relic when the web container runs with
-``OBSERVABILITY=otel`` (see erpnext-config's docker-compose-web.yml). Nothing
-in this module does anything until ``core.wsgi_otel`` imports it, so the
-New Relic path is unaffected. Background jobs use the same setup through
-core.observability.otel_jobs.
+The web process loads it through ``core.wsgi_otel`` and background jobs
+through core.observability.otel_jobs. Nothing in this module does anything
+until one of those imports it.
 
 Gunicorn runs with ``--preload``: the app is imported once in the master and
 then forked. Export threads do not survive a fork, so setup is split in two:
@@ -304,8 +302,7 @@ def route_template(path: str) -> str:
 def enrich_span(response, request) -> None:
 	"""after_request hook: attach Frappe context to the current server span.
 
-	Mirrors core.observability.newrelic.enrich_newrelic_transaction. Does
-	nothing when OpenTelemetry is not active (no recording span).
+	Does nothing when OpenTelemetry is not active (no recording span).
 	"""
 	span = trace.get_current_span()
 	if not span.is_recording():

@@ -1,9 +1,10 @@
-"""OpenTelemetry traces and logs for the Frappe web process.
+"""OpenTelemetry traces and logs for Frappe (web process and background jobs).
 
 Used instead of New Relic when the web container runs with
 ``OBSERVABILITY=otel`` (see erpnext-config's docker-compose-web.yml). Nothing
 in this module does anything until ``core.wsgi_otel`` imports it, so the
-New Relic path and the queue workers are unaffected.
+New Relic path is unaffected. Background jobs use the same setup through
+core.observability.otel_jobs.
 
 Gunicorn runs with ``--preload``: the app is imported once in the master and
 then forked. Export threads do not survive a fork, so setup is split in two:
@@ -16,7 +17,8 @@ then forked. Export threads do not survive a fork, so setup is split in two:
   logger providers with their own export threads.
 
 Everything is configured through the standard ``OTEL_*`` environment
-variables (service name, resource attributes, endpoint, sampler).
+variables (service name, resource attributes, endpoint, sampling ratio in
+OTEL_TRACES_SAMPLER_ARG). See _sampler() for how traces are started.
 """
 
 from __future__ import annotations
@@ -92,8 +94,7 @@ def init_providers() -> None:
 	# Resource.create() merges OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES.
 	resource = Resource.create({"service.namespace": "carrum"})
 
-	# Sampler comes from OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG.
-	tracer_provider = TracerProvider(resource=resource)
+	tracer_provider = TracerProvider(resource=resource, sampler=_sampler())
 	tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
 	trace.set_tracer_provider(tracer_provider)
 
@@ -108,6 +109,60 @@ def init_providers() -> None:
 	_attach_log_handler()
 
 	_providers_initialized = True
+
+
+def flush(timeout_millis: int = 5000) -> None:
+	"""Export buffered spans and logs now (end of a forked RQ job)."""
+	if not _providers_initialized:
+		return
+	try:
+		from opentelemetry._logs import get_logger_provider
+
+		trace.get_tracer_provider().force_flush(timeout_millis)
+		get_logger_provider().force_flush(timeout_millis)
+	except Exception:
+		_LOG.debug("OpenTelemetry flush failed", exc_info=True)
+
+
+def _sampler():
+	"""ParentBased(trace-id ratio), but never start a trace from a bare client span.
+
+	SQL, Redis and HTTP calls made outside a request or job (health checks,
+	which skip the WSGI span on purpose, worker start-up, the scheduler loop)
+	would otherwise each become a one-span trace. Spans with a parent follow
+	the parent's decision as usual. The ratio comes from OTEL_TRACES_SAMPLER_ARG.
+	"""
+	from opentelemetry.sdk.trace.sampling import (
+		Decision,
+		ParentBased,
+		Sampler,
+		SamplingResult,
+		TraceIdRatioBased,
+	)
+	from opentelemetry.trace import SpanKind
+
+	try:
+		ratio = float(os.environ.get("OTEL_TRACES_SAMPLER_ARG", "1.0"))
+	except ValueError:
+		ratio = 1.0
+
+	class _RootFilter(Sampler):
+		def __init__(self, delegate):
+			self._delegate = delegate
+
+		def should_sample(
+			self, parent_context, trace_id, name, kind=None, attributes=None, links=None, trace_state=None
+		):
+			if kind in (SpanKind.CLIENT, SpanKind.PRODUCER, SpanKind.INTERNAL):
+				return SamplingResult(Decision.DROP)
+			return self._delegate.should_sample(
+				parent_context, trace_id, name, kind, attributes, links, trace_state
+			)
+
+		def get_description(self):
+			return f"RootFilter({self._delegate.get_description()})"
+
+	return ParentBased(root=_RootFilter(TraceIdRatioBased(ratio)))
 
 
 def shutdown() -> None:

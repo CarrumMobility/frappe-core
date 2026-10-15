@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import frappe
 
 SCHEDULED_JOB_METHOD = "frappe.core.doctype.scheduled_job_type.scheduled_job_type.run_scheduled_job"
@@ -24,6 +26,11 @@ def scheduler_task_name(job_type: str) -> str:
 
 
 def _get_agent():
+	# Environments switched to OpenTelemetry (core.observability.otel_jobs)
+	# must not start the New Relic agent inside every job process.
+	if os.environ.get("OBSERVABILITY", "").lower() == "otel":
+		return None
+
 	try:
 		import newrelic.agent
 	except ImportError:

@@ -637,7 +637,7 @@ def publish_docs() -> dict:
 
     created = updated = 0
     published = []
-    frappe.flags.in_test = True
+    _set_test_mode(True)
     try:
         for root, _, files in os.walk(docs_folder):
             for file in files:
@@ -702,7 +702,7 @@ def publish_docs() -> dict:
 
         frappe.db.commit()
     finally:
-        frappe.flags.in_test = False
+        _set_test_mode(False)
 
     return {"created": created, "updated": updated, "published": published}
 
@@ -715,4 +715,15 @@ def blockPasswordChange(*args, **kwargs):
     util_service = UtilService()
     return util_service.block_password_change(*args, **kwargs)
 
+def _set_test_mode(enabled):
+    """Turn Frappe's test mode on or off on both v15 and v16.
 
+    v16 reads ``frappe.in_test`` (set through ``toggle_test_mode``) and deprecates
+    ``frappe.flags.in_test``. v15 has no ``toggle_test_mode`` and only reads the flag.
+    """
+    try:
+        from frappe.tests.utils import toggle_test_mode
+    except ImportError:  # Frappe v15
+        frappe.flags.in_test = enabled
+    else:
+        toggle_test_mode(enabled)

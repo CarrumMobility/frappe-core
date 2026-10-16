@@ -10,7 +10,7 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=16.0.0" # Installed and managed by bench.
     "boto3>=1.36",
-    "newrelic>=10.0,<11"   # New Relic Python APM agent
+    "newrelic>=11.1,<12"   # New Relic Python APM agent
 ]
 
 [build-system]

@@ -24,7 +24,9 @@ class CustomLoginManager(LoginManager):
 				or_filters.append({"mobile_no": user})
 			if login_with_username:
 				or_filters.append({"username": user})
-			users = frappe.get_all("User", fields=["name", "enabled"], or_filters=or_filters, limit=1)
+			users = frappe.get_all(
+				"User", fields=["name", "enabled"], or_filters=or_filters, order_by="modified desc", limit=1
+			)
 			if users and (users[0].name == "Administrator" or users[0].enabled):
 				self.user = users[0].name
 				ip_tracker = get_login_attempt_tracker(frappe.local.request_ip)

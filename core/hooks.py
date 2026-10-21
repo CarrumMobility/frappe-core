@@ -286,6 +286,7 @@ require_type_annotated_api_methods = True
 # ignore_translatable_strings_from = []
 
 before_request = [
+	"core.file_storage.ensure_site_files_dirs",
 	"core.services.site_home_redirect.maybe_redirect_site_root_to_external_url",
 	"core.services.site_home_redirect.maybe_redirect_site_login_to_external_url",
 	"core.services.util_service.blockDeskAccess",

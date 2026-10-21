@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 from typing import Any
 
@@ -40,3 +41,17 @@ def get_file_storage_type(conf: Any | None = None) -> FileStorageType:
 			),
 			frappe.ValidationError,
 		)
+
+
+def ensure_site_files_dirs() -> None:
+	"""Create the site's local files folders before an upload is handled.
+
+	Frappe 16 stages every upload (chunked or not) in `<site>/{private,public}/files/.temp-*`
+	before handing it to the storage backend, even with S3 storage. Sites provisioned by hand,
+	rather than by `bench new-site`, do not have these folders and upload_file fails with a 500.
+	"""
+	request = getattr(frappe.local, "request", None)
+	if not request or not request.path.endswith("/upload_file"):
+		return
+	for scope in ("private", "public"):
+		os.makedirs(frappe.get_site_path(scope, "files"), exist_ok=True)

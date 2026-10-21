@@ -1568,6 +1568,7 @@ def get_referral_details_from_portal(
 	payment_status=None,
 	payment_flagged=None,
 	referrer_type=None,
+	driver_manager_name=None,
 	referral_category=None,
 	frappe_username=None,
 	base_url=None,
@@ -1638,6 +1639,7 @@ def get_referral_details_from_portal(
 	_add("approvalStatus", approval_status)
 	_add("paymentStatus", payment_status)
 	_add("referralCategory", referral_category or referrer_type)
+	_add("driverManagerName", driver_manager_name)
 	_add("sortBy", sort_by)
 	_add("sortOrder", sort_order)
 

@@ -1,6 +1,6 @@
 # wkhtmltopdf — Server Setup
 
-**Why:** The Tax Invoice Summary PDF ([`core/services/pdf_service.py`](../../core/services/pdf_service.py), [`core/services/invoice_summary_pdf.py`](../../core/services/invoice_summary_pdf.py)) and Frappe's own print/PDF download feature both render HTML to PDF via the `wkhtmltopdf` binary. It is **not** a Python package — it won't show up in `pyproject.toml` or get installed by `bench setup requirements` — it's a separate system binary that must be installed on the server directly.
+**Why:** The generic PDF service ([`core/services/pdf_service.py`](../../core/services/pdf_service.py), used by the CRM Tax Invoice Summary in `crm.module_maintenance.invoice_sync`) and Frappe's own print/PDF download feature both render HTML to PDF via the `wkhtmltopdf` binary. It is **not** a Python package — it won't show up in `pyproject.toml` or get installed by `bench setup requirements` — it's a separate system binary that must be installed on the server directly.
 
 **Required version:** `0.12.6` **"with patched Qt"**. This matters: the unpatched/distro-packaged build (e.g. plain `apt install wkhtmltopdf`) ignores margins and zoom settings, and the invoice layout will render shrunk/misaligned. Always install the patched build from the official releases below, never from a generic OS package repo.
 
@@ -83,7 +83,7 @@ No bench/app config change is needed — Frappe finds `wkhtmltopdf` on `$PATH` a
 ## 5. Sanity check from the app
 
 ```bash
-bench --site <site-name> execute core.services.invoice_summary_pdf.test_sample_pdf_url
+bench --site <site-name> execute core.services.pdf_service.html_to_pdf_url --kwargs "{'html': '<h1>wkhtmltopdf ok</h1>', 'file_name': 'wkhtmltopdf_check.pdf', 'is_private': 1}"
 ```
 
 Should return an uploaded PDF's URL (S3 URL if S3 storage is enabled on that site, otherwise a `/private/files/...` path) instead of an `OSError: No wkhtmltopdf executable found`.

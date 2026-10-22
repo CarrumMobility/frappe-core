@@ -1,11 +1,12 @@
 import re
 
-from core.constants.enums import EnumValues
-from pydantic import BaseModel
-from core.services import logged_requests as requests
-from core.services.carrum_client import CarrumHttpClient
 import frappe
 from frappe import _
+from pydantic import BaseModel
+
+from core.constants.enums import EnumValues
+from core.services import logged_requests as requests
+from core.services.carrum_client import CarrumHttpClient
 
 REFERRAL_FORM_OTP_SOURCE = "referral_form"
 
@@ -261,6 +262,36 @@ def get_hub_telecallers(hub_id: str):
     data = response.json()
     return data
 
+def _fetch_hub_verification_agents(hub_id: str) -> tuple[dict | list, dict]:
+    carrum_base_url = frappe.conf.get("carrum_base_url")
+    carrum_token = frappe.conf.get("carrum_token")
+    url = f"{carrum_base_url}/api/v1/users"
+    query_params = {
+        "hubId": hub_id,
+        "limit": 1000,
+        "roleName": EnumValues.Roles.VERIFICATION_AGENT.lower(),
+        "status": "active"
+    }
+
+    response = requests.get(
+        url,
+        headers={"Authorization": carrum_token},
+        params=query_params,
+        timeout=20,
+    )
+    data = response.json()
+    debug_info = {
+        "method": "GET",
+        "url": url,
+        "query_params": query_params,
+        "status_code": response.status_code,
+    }
+    return data, debug_info
+
+
+def get_hub_verification_agents(hub_id: str):
+    data, _debug_info = _fetch_hub_verification_agents(hub_id)
+    return data
 
 def _carrum_user_rows(payload):
     if isinstance(payload, dict):
@@ -295,7 +326,11 @@ def get_hub_telecaller_users(hub_id: str) -> list[dict]:
         for row in _carrum_user_rows(get_hub_telecallers(hub_id))
         if isinstance(row, dict)
     ]
-
+def get_hub_verification_agent_users(hub_id: str) -> dict:
+    """Return Carrum verification-agent rows and sanitized downstream request diagnostics."""
+    payload, debug_info = _fetch_hub_verification_agents(hub_id)
+    users = [row for row in _carrum_user_rows(payload) if isinstance(row, dict)]
+    return {"users": users, "debug_info": debug_info}
 
 def _carrum_user_role_name(user_row: dict) -> str:
     if not isinstance(user_row, dict):
@@ -426,6 +461,14 @@ def get_dm_of_all_businessTypes(hubId: str):
     data = response.json()
     return data
 
+def get_va_of_all_businessTypes(hubId: str):
+    old_carrum_base_url = frappe.conf.get("old_carrum_base_url")
+    old_carrum_token = frappe.conf.get("old_carrum_token")
+
+    url = f"{old_carrum_base_url}/api/v1/account/verification_agent_for_frappe?hubId={hubId}"
+    response = requests.get(url, headers={"Authorization": old_carrum_token})
+    data = response.json()
+    return data
 
 def _normalize_phone_10(phone_no) -> str:
     digits = re.sub(r"\D", "", str(phone_no or "").strip())

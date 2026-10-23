@@ -19,7 +19,9 @@ class CustomUser(User):
 				or_filters.append({"mobile_no": user_name})
 			if login_with_username:
 				or_filters.append({"username": user_name})
-			users = frappe.get_all("User", fields=["name", "enabled"], or_filters=or_filters, limit=1)
+			users = frappe.get_all(
+				"User", fields=["name", "enabled"], or_filters=or_filters, order_by="modified desc", limit=1
+			)
 			if users:
 				user = users[0]
 				user["is_authenticated"] = True

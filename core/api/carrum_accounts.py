@@ -50,6 +50,7 @@ def fetch_carrum_user_data_using_frappe_username(username: str) -> dict:
         cached = frappe.cache().get_value(cache_key)
     except Exception:
         cached = None
+    logger.info("Carrum user cache value for %s: %r", username, cached)
     if isinstance(cached, dict):
         logger.info("Carrum user cache hit for: %s", username)
         return cached

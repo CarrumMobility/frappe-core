@@ -9,6 +9,26 @@ from core.services.carrum_client import CarrumHttpClient
 logger = frappe.logger("core::carrum_referral")
 
 
+def _require_frappe_username(frappe_username):
+	"""Normalize and validate the Frappe username query param.
+
+	Returns ``(key, None)`` on success or ``(None, error_dict)`` on failure.
+	Call sites should do::
+
+		frappe_username_key, err = _require_frappe_username(frappe_username)
+		if err:
+			return err
+	"""
+	key = str(frappe_username).strip() if frappe_username is not None else ""
+	if not key:
+		return None, {
+			"success": False,
+			"error": _("Frappe username is required"),
+			"request_url": None,
+		}
+	return key, None
+
+
 def create_lead_referral_on_portal(
 	refereeId,
 	referrerId,
@@ -16,6 +36,7 @@ def create_lead_referral_on_portal(
 	agentReferrerId=None,
 	configId=None,
 	createdBy=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -38,6 +59,10 @@ def create_lead_referral_on_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	payload = {
 		"refereeId": referee_key,
 		"referrerId": referrerId,
@@ -54,6 +79,7 @@ def create_lead_referral_on_portal(
 	return client.request(
 		method="POST",
 		path="/api/v1/referral-rewards",
+		params={"frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="create-lead-referral",
 	)
@@ -70,6 +96,7 @@ def create_referral_on_portal(
 	createdBy=None,
 	empId=None,
 	configId=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -88,6 +115,10 @@ def create_referral_on_portal(
 			"error": _("Referee id is required"),
 			"request_url": None,
 		}
+
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
 
 	payload = {
 		"refereeId": referee_key,
@@ -136,6 +167,7 @@ def create_referral_on_portal(
 	return client.request(
 		method="POST",
 		path="/api/v1/referral-rewards",
+		params={"frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="create-referral",
 	)
@@ -169,6 +201,7 @@ def get_agent_referral_list(
 	page=1,
 	limit=20,
 	reward_type="AGENT_REFERRAL",
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -182,6 +215,10 @@ def get_agent_referral_list(
 			"success": False,
 			"error": _("Agent referrer id is required"),
 		}
+
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
 
 	try:
 		page = int(page)
@@ -199,6 +236,7 @@ def get_agent_referral_list(
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
+		"frappeUsername": frappe_username_key,
 	}
 	if referrerId:
 		params["referrerId"] = referrerId
@@ -214,13 +252,14 @@ def get_wallet_transactions_from_portal(
 	wallet_id,
 	page=1,
 	limit=20,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
 	"""
 	GET ``/api/v1/referral-rewards/wallets/{walletId}/transactions`` from Carrum.
 
-	Query: ``page``, ``limit``.
+	Query: ``page``, ``limit``, ``frappeUsername``.
 
 	Returns the same framed dict as ``CarrumHttpClient.request``.
 	"""
@@ -231,6 +270,10 @@ def get_wallet_transactions_from_portal(
 			"error": _("Wallet id is required"),
 			"request_url": None,
 		}
+
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
 
 	try:
 		page = int(page)
@@ -249,7 +292,7 @@ def get_wallet_transactions_from_portal(
 	return client.request(
 		method="GET",
 		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/transactions",
-		params={"page": page, "limit": limit},
+		params={"page": page, "limit": limit, "frappeUsername": frappe_username_key},
 		log_tag="wallet-transactions",
 	)
 
@@ -478,6 +521,7 @@ def get_cumulative_referral_list_from_portal(
 	logged_in_user_id=None,
 	date_from=None,
 	date_to=None,
+	frappe_username=None,
 ):
 	"""
 	GET cumulative referral list from Carrum.
@@ -508,10 +552,15 @@ def get_cumulative_referral_list_from_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	params = {
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
+		"frappeUsername": frappe_username_key,
 	}
 	logged_in = (
 		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
@@ -564,14 +613,15 @@ def get_carrum_employee_referrals(
 	logged_in_user_id=None,
 	date_from=None,
 	date_to=None,
+	frappe_username=None,
 ):
 	"""
 	GET Carrum employee / hub-summary referral list.
 
 	``GET {carrum_base_url}/api/v1/referral-rewards/hub-summary`` with query
 	params from the portal hub-summary API doc (``loggedInUserId``, ``rewardType``,
-	``page``, ``limit``, optional ``hubId``, ``search``, ``agentRole``, ``sortBy``,
-	``sortOrder``, ``dateFrom``, ``dateTo``).
+	``page``, ``limit``, ``frappeUsername``, optional ``hubId``, ``search``,
+	``agentRole``, ``sortBy``, ``sortOrder``, ``dateFrom``, ``dateTo``).
 	"""
 	try:
 		page = int(page)
@@ -591,6 +641,10 @@ def get_carrum_employee_referrals(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	logged_in = (
 		str(logged_in_user_id).strip() if logged_in_user_id is not None else ""
 	) or agent_key
@@ -600,6 +654,7 @@ def get_carrum_employee_referrals(
 		"page": page,
 		"limit": limit,
 		"loggedInUserId": logged_in,
+		"frappeUsername": frappe_username_key,
 	}
 	hub_key = str(hub_id).strip() if hub_id is not None else ""
 	if hub_key:
@@ -636,13 +691,14 @@ def carrum_referral_breakdown(
 	base_url=None,
 	token=None,
 	referrer_id=None,
+	frappe_username=None,
 ):
 	"""
 	GET referral breakdown list from Carrum (same HTTP behaviour as
 	``get_cumulative_referral_list_from_portal``; default ``rewardType`` is ``REFERRAL``).
 
 	``GET {carrum_base_url}/api/v1/referral-rewards/agent/{agent_id}`` with query
-	``rewardType``, ``page``, ``limit``, and optional ``referrerId``.
+	``rewardType``, ``page``, ``limit``, ``frappeUsername``, and optional ``referrerId``.
 
 	Returns the same framed dict as ``CarrumHttpClient.request``.
 	"""
@@ -664,10 +720,15 @@ def carrum_referral_breakdown(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	params = {
 		"rewardType": reward_type,
 		"page": page,
 		"limit": limit,
+		"frappeUsername": frappe_username_key,
 	}
 	if referrer_id:
 		params["referrerId"] = referrer_id
@@ -686,6 +747,7 @@ def approve_referral_on_carrum_portal(
 	remark=None,
 	wallet_id=None,
 	agent_id=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -729,6 +791,10 @@ def approve_referral_on_carrum_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	payload = {"amount": int(approved_amount)}
 	if remark_str:
 		payload["remarks"] = remark_str
@@ -738,7 +804,7 @@ def approve_referral_on_carrum_portal(
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/reward-ledger/{wallet_segment}/approve",
-		params={"loggedInUserId": agent_key},
+		params={"loggedInUserId": agent_key, "frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="approve-wallet-referral",
 	)
@@ -750,6 +816,7 @@ def approve_reward_ledger_on_carrum_portal(
 	amount=None,
 	remarks=None,
 	adjust_in_hissab=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -797,6 +864,10 @@ def approve_reward_ledger_on_carrum_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	payload = {
 		"amount": int(approval_amount)
 		if approval_amount.is_integer()
@@ -812,7 +883,7 @@ def approve_reward_ledger_on_carrum_portal(
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/approve",
-		params={"loggedInUserId": user_key},
+		params={"loggedInUserId": user_key, "frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="approve-reward-ledger",
 	)
@@ -824,6 +895,7 @@ def reject_reward_ledger_on_carrum_portal(
 	amount=None,
 	reason=None,
 	remarks=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -881,11 +953,15 @@ def reject_reward_ledger_on_carrum_portal(
 	if reason_str:
 		payload["reason"] = reason_str
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/reject",
-		params={"loggedInUserId": user_key},
+		params={"loggedInUserId": user_key, "frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="reject-reward-ledger",
 	)
@@ -897,6 +973,7 @@ def unreject_reward_ledger_on_carrum_portal(
 	amount=None,
 	reason=None,
 	remarks=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -953,6 +1030,10 @@ def unreject_reward_ledger_on_carrum_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	payload = {
 		"amount": int(unrejection_amount)
 		if unrejection_amount.is_integer()
@@ -964,7 +1045,7 @@ def unreject_reward_ledger_on_carrum_portal(
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/reward-ledger/{quote(ledger_key, safe='')}/unreject",
-		params={"loggedInUserId": user_key},
+		params={"loggedInUserId": user_key, "frappeUsername": frappe_username_key},
 		json=payload,
 		log_tag="unreject-reward-ledger",
 	)
@@ -1258,6 +1339,7 @@ def full_reject_referral_on_carrum_portal(
 	logged_in_user_id=None,
 	reward_type=None,
 	reason=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -1303,11 +1385,15 @@ def full_reject_referral_on_carrum_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/{quote(referral_key, safe='')}/full-reject",
-		params={"loggedInUserId": user_key},
+		params={"loggedInUserId": user_key, "frappeUsername": frappe_username_key},
 		json={
 			"rewardType": reward_type_str,
 			"reason": reason_str,
@@ -1321,6 +1407,7 @@ def full_unreject_referral_on_carrum_portal(
 	logged_in_user_id=None,
 	reward_type=None,
 	reason=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -1366,11 +1453,15 @@ def full_unreject_referral_on_carrum_portal(
 			"request_url": None,
 		}
 
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
+
 	client = CarrumHttpClient(base_url=base_url, token=token, timeout=30)
 	return client.request(
 		method="POST",
 		path=f"/api/v1/referral-rewards/{quote(referral_key, safe='')}/full-unreject",
-		params={"loggedInUserId": user_key},
+		params={"loggedInUserId": user_key, "frappeUsername": frappe_username_key},
 		json={
 			"rewardType": reward_type_str,
 			"reason": reason_str,
@@ -1478,6 +1569,7 @@ def get_referral_details_from_portal(
 	referrer_type=None,
 	driver_manager_name=None,
 	referral_category=None,
+	frappe_username=None,
 	base_url=None,
 	token=None,
 ):
@@ -1485,7 +1577,8 @@ def get_referral_details_from_portal(
 	GET referral approval / details list from Carrum.
 
 	``GET {carrum_base_url}/api/v1/referral-rewards/details`` with required
-	``loggedInUserId`` plus optional pagination, filters, and sort params.
+	``loggedInUserId``, required ``frappeUsername`` (Frappe session user),
+	plus optional pagination, filters, and sort params.
 
 	Returns the same framed dict as ``CarrumHttpClient.request``.
 	"""
@@ -1498,6 +1591,10 @@ def get_referral_details_from_portal(
 			"error": _("Logged-in user id is required"),
 			"request_url": None,
 		}
+
+	frappe_username_key, _fu_err = _require_frappe_username(frappe_username)
+	if _fu_err:
+		return _fu_err
 
 	try:
 		page = int(page)
@@ -1513,6 +1610,7 @@ def get_referral_details_from_portal(
 
 	params = {
 		"loggedInUserId": user_key,
+		"frappeUsername": frappe_username_key,
 		"page": page,
 		"limit": limit,
 	}

@@ -196,8 +196,11 @@ class AgentPerformanceService:
             if not user_id or user_id in ("Guest", "Administrator"):
                 continue
             self.update_today_agent_performance_data_for_telecaller(user_id)
+            # Commit per agent so the row lock taken by save() is released
+            # immediately instead of being held until every agent is processed.
+            # login_heartbeat writes the same row and would otherwise block.
+            frappe.db.commit()
         log.info("CRON COMPLETED: update today's Agent Performance data for all telecallers")
-        frappe.db.commit()
 
     def _fetch_today_call_sessions(self, user_id: str) -> list[dict]:
         """Today's call sessions for an agent (date = Coalesce(connected_at, creation))."""

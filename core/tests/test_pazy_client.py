@@ -34,6 +34,16 @@ class TestPazyClient(unittest.TestCase):
 		self.assertEqual(log.call_args.kwargs["created_by"], "a@b.c")
 		self.assertNotIn("test-key", str(log.call_args))
 		self.assertNotIn("headers", log.call_args.kwargs)
+		self.assertEqual(post.call_args.kwargs["params"], {})
+		self.assertNotIn("submitForApproval", log.call_args.args[2])
+
+	@patch.object(pazy_client.requests, "post")
+	def test_submit_for_approval_adds_query_param(self, post, log):
+		post.return_value = _response(200, {"ok": True, "data": {"id": "inv_1"}})
+		self._create(submit_for_approval=True)
+		self.assertEqual(post.call_args.args[0], "https://api.pazy.io/v1.0/invoice")
+		self.assertEqual(post.call_args.kwargs["params"], {"submitForApproval": "true"})
+		self.assertEqual(log.call_args.args[2]["submitForApproval"], "true")
 
 	@patch.object(pazy_client.requests, "post")
 	def test_error_statuses_raise(self, post, _log):

@@ -176,7 +176,6 @@ scheduler_events = {
 # Override standard doctype classes
 
 override_doctype_class = {
-	"User": "core.override.user.CustomUser",
 	"File": "core.override.file.File",
 	"Event": "core.override.event.CustomEvent",
 }
@@ -263,12 +262,6 @@ from core.observability.logging import install_newrelic_log_compat
 
 install_newrelic_log_compat()
 install_error_logging_for_newrelic()
-
-# Patch LoginManager so master password and other auth overrides apply
-import frappe.auth
-from core.override.auth import CustomLoginManager
-
-frappe.auth.LoginManager = CustomLoginManager
 
 # Automatically update python controller files with type annotations for this app.
 export_python_type_annotations = True

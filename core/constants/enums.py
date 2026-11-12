@@ -63,6 +63,7 @@ class _ReferenceDocType:
 	CRM_TAB_PERMISSION = "CRM tab permission"
 	CRM_LEAD_SOURCE="CRM Lead Source"
 	LEAD_SYNC_ENTRY = "Lead Sync Entry"
+	MAINTENANCE_TICKET = "Maintenance Ticket"
 
 class _OLD_SYSTEM_DRIVER_STATUS:
 	CREATED = 'created'

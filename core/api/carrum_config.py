@@ -1,12 +1,12 @@
 import json
 
-from core.services import logged_requests as requests
+import frappe
 from frappe import _
 
-import frappe
 from core.api.carrum_accounts import (
     fetch_carrum_user_data_using_frappe_username,
 )
+from core.services import logged_requests as requests
 
 logger = frappe.logger("core::carrum_config")
 

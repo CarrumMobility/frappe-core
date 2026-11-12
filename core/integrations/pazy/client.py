@@ -1,6 +1,7 @@
 """Pazy Invoice Creation API (https://docs.pazy.io/apis/invoice-creation).
 
 POST {base_url}/invoice, multipart/form-data: file (PDF, max 50 MB), remarks.
+Optional query param submitForApproval=true submits the invoice for approval on creation.
 Auth: Authorization: Api-Key <site_config.pazy_api_key>.
 Success: 200 {"ok": true, "data": {"id", "status", "processingId", "isReady"}}.
 
@@ -81,9 +82,18 @@ class PazyClient:
 		self.timeout_seconds = timeout_seconds or PAZY_DEFAULT_TIMEOUT_SECONDS
 
 	def create_invoice(
-		self, pdf_bytes: bytes, filename: str, remarks: str, *, user: str | None = None
+		self,
+		pdf_bytes: bytes,
+		filename: str,
+		remarks: str,
+		*,
+		submit_for_approval: bool = False,
+		user: str | None = None,
 	) -> dict:
-		"""Upload one invoice PDF. Returns Pazy's `data` dict (has `id`); raises PazyApiError."""
+		"""Upload one invoice PDF. Returns Pazy's `data` dict (has `id`); raises PazyApiError.
+
+		submit_for_approval adds ?submitForApproval=true; otherwise no query param is sent.
+		"""
 		if not self.api_key:
 			raise PazyApiError("pazy_api_key is not set in site config")
 		if len(pdf_bytes) > PAZY_MAX_INVOICE_FILE_BYTES:
@@ -92,13 +102,15 @@ class PazyClient:
 			)
 
 		url = f"{self.base_url}/invoice"
-		log_payload = {"file": filename, "file_size": len(pdf_bytes), "remarks": remarks}
+		params = {"submitForApproval": "true"} if submit_for_approval else {}
+		log_payload = {"file": filename, "file_size": len(pdf_bytes), "remarks": remarks, **params}
 		response = None
 		error_message = None
 		started = time.monotonic()
 		try:
 			response = requests.post(
 				url,
+				params=params,
 				headers={"Authorization": f"Api-Key {self.api_key}"},
 				files={"file": (filename, pdf_bytes, "application/pdf")},
 				data={"remarks": remarks},

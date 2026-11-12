@@ -18,7 +18,6 @@ db_password:str,
 db_type: str,
 developer_mode: bool,
 encryption_key: str
-master_password: str
 chatwoot_account_id: int
 chatwoot_base_url: str
 carrum_base_url: str

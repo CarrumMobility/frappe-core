@@ -3585,16 +3585,27 @@ class CallService:
                 return self.validate_and_dispose_dialer_call_if_required(payload)
 
     def start_callmatic_based_manual_dial(self, user: str, payload: dict):
+        log.info(f"callmatic_manual_dial: start user={user} payload={payload}")
+
         response_data = carrum_accounts.fetch_carrum_user_data_using_frappe_username(user)
         did = (response_data.get("did") or "").strip() or None
         to_number = payload.get("phone_number")
         lead_id = payload.get("lead_id")
         lead_source = payload.get('lead_source')
 
+        log.info(
+            f"callmatic_manual_dial: resolved user data user={user} profile_did={did} "
+            f"to_number={to_number} lead_id={lead_id} lead_source={lead_source} "
+            f"default_hub={(response_data.get('defaultHub') or {}).get('name')} "
+            f"user_contact={response_data.get('userContact')}"
+        )
+
         if not did:
             default_hub = response_data.get("defaultHub") or {}
             default_hub_name = (default_hub.get("name") or "").strip()
+            log.info(f"callmatic_manual_dial: no profile DID, falling back to hub DID user={user} default_hub_name={default_hub_name!r}")
             if not default_hub_name:
+                log.warning(f"callmatic_manual_dial: aborting, default hub not configured user={user} lead_id={lead_id}")
                 return {
                     "is_valid": False,
                     "message": "Default hub not configured on user profile",
@@ -3602,39 +3613,47 @@ class CallService:
 
             c2c_did_config = carrum_config.get_c2c_did()
             did_map = ((c2c_did_config.get("data") or {}).get("value") or {})
+            log.info(f"callmatic_manual_dial: c2c DID map user={user} hubs={list(did_map.keys())} map={did_map}")
             did = did_map.get(default_hub_name)
             if not did:
                 default_hub_name_lower = default_hub_name.lower()
                 for hub_name, hub_did in did_map.items():
                     if str(hub_name).lower() == default_hub_name_lower:
                         did = hub_did
+                        log.info(f"callmatic_manual_dial: matched hub DID case-insensitively user={user} hub_name={hub_name!r} did={did}")
                         break
 
             if not did:
+                log.warning(f"callmatic_manual_dial: aborting, no DID for hub user={user} default_hub_name={default_hub_name!r} available_hubs={list(did_map.keys())}")
                 return {
                     "is_valid": False,
                     "message": "DID isn't configured to you'r account connect with kapil.rohilla@carrum.co.in",
                 }
 
-        
+        log.info(f"callmatic_manual_dial: using DID user={user} did={did}")
+
         callmatic_outbound_campaign_id_config = frappe.db.get_value(
             doctype=EnumValues.ReferenceDocType.GLOBAL_CONFIG,
             filters={"key": EnumValues.GlobalConfigKeys.DEFAULT_CALLMATIC_OUTBOUND_CAMPAIGN},
             fieldname="value",
             as_dict=True,
         )
+        log.info(f"callmatic_manual_dial: raw outbound campaign config user={user} config={callmatic_outbound_campaign_id_config}")
 
         callmatic_outbound_campaign_id_config_value = json.loads(callmatic_outbound_campaign_id_config.get("value"))
         callmatic_outbound_campaign_id = callmatic_outbound_campaign_id_config_value.get("campaign_id") if callmatic_outbound_campaign_id_config_value else None
         callmatic_outbound_campaign_name = callmatic_outbound_campaign_id_config_value.get("campaign_name") if callmatic_outbound_campaign_id_config_value else None
+        log.info(f"callmatic_manual_dial: parsed outbound campaign user={user} campaign_id={callmatic_outbound_campaign_id} campaign_name={callmatic_outbound_campaign_name}")
 
         if not callmatic_outbound_campaign_id:
+            log.warning(f"callmatic_manual_dial: aborting, outbound campaign id not configured user={user} lead_id={lead_id}")
             return {
                 "is_valid": False,
                 "message": "Callmatic outbound campaign id not configured"
             }
 
         agent_phone_number = response_data.get("userContact").get('phoneNo')
+        log.info(f"callmatic_manual_dial: agent phone user={user} agent_phone_number={agent_phone_number}")
 
         call_session_doc = frappe.new_doc(EnumValues.ReferenceDocType.CALL_SESSION)
 
@@ -3649,6 +3668,7 @@ class CallService:
         call_session_doc.set("campaign_name", callmatic_outbound_campaign_name)
         call_session_doc.set("lead_source_during_call", lead_source)
         ref_dt, ref_dn = _extract_call_reference_from_payload(payload)
+        log.info(f"callmatic_manual_dial: call reference user={user} ref_dt={ref_dt} ref_dn={ref_dn} lead_id={lead_id}")
         _set_call_session_reference(
             call_session_doc,
             ref_dt,
@@ -3656,7 +3676,13 @@ class CallService:
             lead_id=lead_id,
         )
         call_session_doc.save(ignore_permissions=True)
+        log.info(f"callmatic_manual_dial: created call session user={user} call_session={call_session_doc.name} lead_id={lead_id} to_number={to_number}")
 
+        log.info(
+            f"callmatic_manual_dial: triggering callmatic call call_session={call_session_doc.name} "
+            f"from_number={agent_phone_number} to_number={to_number} did={did} "
+            f"campaign_id={callmatic_outbound_campaign_id} campaign_name={callmatic_outbound_campaign_name} user={user}"
+        )
         callmatic_response_data = callmatic_client.trigger_call(
             from_number=agent_phone_number,
             to_number = to_number,
@@ -3666,8 +3692,10 @@ class CallService:
             user=user,
             campaign_name = callmatic_outbound_campaign_name,
         )
+        log.info(f"callmatic_manual_dial: callmatic trigger_call response call_session={call_session_doc.name} response={callmatic_response_data}")
 
         if callmatic_response_data.get("is_valid") is False:
+            log.error(f"callmatic_manual_dial: trigger_call client failure call_session={call_session_doc.name} user={user} message={callmatic_response_data.get('message')}")
             call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
             call_session_doc.set("failure_reason", callmatic_response_data.get("message"))
             call_session_doc.save(ignore_permissions=True)
@@ -3680,8 +3708,10 @@ class CallService:
             call_data = callmatic_response_data.get("response_data")
             is_api_success = call_data.get("success")
             failure_reason = call_data.get("reason")
+            log.info(f"callmatic_manual_dial: callmatic api result call_session={call_session_doc.name} success={is_api_success} reason={failure_reason} data={call_data.get('data')}")
 
             if not is_api_success:
+                log.error(f"callmatic_manual_dial: callmatic api rejected call call_session={call_session_doc.name} user={user} reason={failure_reason}")
                 call_session_doc.set("status", EnumValues.CallSessionStatus.FAILED)
                 call_session_doc.set("failure_reason", failure_reason)
                 call_session_doc.save(ignore_permissions=True)
@@ -3696,6 +3726,7 @@ class CallService:
                 call_session_doc.set("agent_call_id", call_id)
                 call_session_doc.save(ignore_permissions=True)
                 frappe.db.commit()
+                log.info(f"callmatic_manual_dial: call initiated call_session={call_session_doc.name} call_id={call_id} user={user} lead_id={lead_id}")
                 return {
                     "is_valid": True,
                     "message": "Call Initiated successfully"

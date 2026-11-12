@@ -338,7 +338,8 @@
         {
             "fieldname": "reference_docname",
             "fieldtype": "Data",
-            "label": "reference_docname"
+            "label": "reference_docname",
+            "search_index": 1
         }
     ],
     "grid_page_length": 50,

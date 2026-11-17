@@ -7,7 +7,6 @@ from core.services.util_service import publish_docs as publish_docs_to_website
 
 # Env config validation schema using pydantic
 class EnvConfig(BaseModel):
-    master_password: str
     chatwoot_account_id: int
     chatwoot_base_url: str
     carrum_base_url: str
@@ -25,7 +24,6 @@ class EnvConfig(BaseModel):
     developer_mode: bool
     encryption_key: str
     env: str
-    master_password: str
     old_carrum_base_url: str
     old_carrum_token: str
     file_storage_type: FileStorageType = FileStorageType.DEFAULT
@@ -55,6 +53,7 @@ def validateConfig():
 
 @frappe.whitelist()
 def get_env_config():
+    frappe.only_for("System Manager")
     try:
         config = validateConfig()
     except Exception as e:

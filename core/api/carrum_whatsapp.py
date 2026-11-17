@@ -1,8 +1,10 @@
 
-from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
-from core.services.carrum_client import CarrumHttpClient
 import frappe
+
+from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.services import logged_requests as re
+from core.services.carrum_client import CarrumHttpClient
+
 
 # used in chatwoot services
 def fetch_whatsapp_templates_against_carrum_user_id(carrum_user_id: str):

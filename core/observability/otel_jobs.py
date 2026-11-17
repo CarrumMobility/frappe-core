@@ -2,8 +2,8 @@
 
 Wired through Frappe's ``before_job`` / ``after_job`` hooks, which
 ``frappe.utils.background_jobs.execute_job`` calls around every job (the same
-hooks Frappe's own monitor uses). On by default; ``OBSERVABILITY=off`` makes both hooks
-return at once.
+hooks Frappe's own monitor uses). Only active with ``OBSERVABILITY=otel``; otherwise
+both hooks return at once.
 
 RQ's default worker forks a fresh process per job and ends it with
 ``os._exit``, which skips the exporters' background flush. So each job
@@ -19,7 +19,6 @@ Deadlock retries call ``execute_job`` again before the outer call's
 from __future__ import annotations
 
 import logging
-import os
 import sys
 
 from opentelemetry import context, trace
@@ -33,7 +32,9 @@ _open_spans: list = []  # (span, context token), innermost last
 
 
 def _enabled() -> bool:
-	return os.environ.get("OBSERVABILITY", "otel").lower() != "off"
+	from core.observability import otel
+
+	return otel.enabled()
 
 
 def before_job(method=None, kwargs=None, transaction_type=None) -> None:
@@ -50,6 +51,7 @@ def before_job(method=None, kwargs=None, transaction_type=None) -> None:
 		install_error_logging()
 		otel.instrument_libraries()
 		otel.init_providers()
+		_apply_log_level(otel.configured_log_level())
 
 		# Scheduled jobs all run through one generic method; name them after
 		# the real job (same rule as frappe.monitor).
@@ -59,15 +61,22 @@ def before_job(method=None, kwargs=None, transaction_type=None) -> None:
 		name = f"scheduled {scheduled_type}" if scheduled_type else f"job {method}"
 
 		span = trace.get_tracer(_TRACER_NAME).start_span(name, kind=SpanKind.CONSUMER)
+		# Attach first: once the span is on the stack after_job always ends
+		# it, whatever happens while the attributes are filled in.
+		token = context.attach(trace.set_span_in_context(span))
+		_open_spans.append((span, token))
+	except Exception:
+		_LOG.warning("Could not start job span", exc_info=True)
+		return
+
+	try:
 		if span.is_recording():
 			_set_job_attributes(span, method)
 			if scheduled_type:
 				span.set_attribute("frappe.job.scheduled", True)
 				span.set_attribute("frappe.job.type", scheduled_type)
-		token = context.attach(trace.set_span_in_context(span))
-		_open_spans.append((span, token))
 	except Exception:
-		_LOG.debug("Could not start job span", exc_info=True)
+		_LOG.warning("Could not set job span attributes", exc_info=True)
 
 
 def after_job(method=None, kwargs=None, result=None) -> None:
@@ -112,9 +121,28 @@ def _set_job_attributes(span, method) -> None:
 	if job.enqueued_at is not None:
 		import datetime
 
-		enqueued = job.enqueued_at.replace(tzinfo=datetime.UTC)
-		wait = datetime.datetime.now(datetime.UTC) - enqueued
+		# rq 1.x gives a naive UTC datetime, rq 2.x an aware one.
+		utc = datetime.UTC
+		enqueued = job.enqueued_at
+		enqueued = enqueued.replace(tzinfo=utc) if enqueued.tzinfo is None else enqueued
+		wait = datetime.datetime.now(utc) - enqueued
 		span.set_attribute("frappe.job.wait_ms", int(wait.total_seconds() * 1000))
+
+
+def _apply_log_level(level: int | None) -> None:
+	"""Let FRAPPE_LOG_LEVEL reach job logs, as core.wsgi_otel does for web.
+
+	Frappe caps its loggers at ERROR outside developer mode, and a logger
+	keeps the level it was created with, so the ones that already exist are
+	lowered too. Without the variable nothing changes.
+	"""
+	if level is None:
+		return
+	import frappe
+
+	frappe.log_level = level
+	for existing in list(getattr(frappe, "loggers", {}).values()):
+		existing.setLevel(level)
 
 
 def _current_rq_job():

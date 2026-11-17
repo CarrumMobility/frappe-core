@@ -161,14 +161,14 @@ Adding an event:
 
 | Variable | Set by | Notes |
 |---|---|---|
-| `OBSERVABILITY` | erpnext-config | `otel` (default) or `off` to disable job spans and events |
+| `OBSERVABILITY` | erpnext-config | `otel` turns on job spans and events. Any other value, or unset, leaves them off |
 | `OTEL_SERVICE_NAME` | erpnext-config | `erpnext` (web), `erpnext-worker` (workers) |
 | `OTEL_RESOURCE_ATTRIBUTES` | erpnext-config | `deployment.environment=<dev\|qa\|prod>` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | erpnext-config | `http://otel.obs.internal:4318` |
-| `OTEL_TRACES_SAMPLER_ARG` | erpnext-config | Ratio of traces kept (default `1.0`) |
+| `OTEL_TRACES_SAMPLER_ARG` | erpnext-config | Fraction of traces kept, from `0` to `1` (default `1.0`). Also applied to requests that arrive with a `traceparent` |
 | `OTEL_EXCLUDED_PATHS` | erpnext-config | Comma-separated paths without a server span |
 | `OTEL_CAPTURE_REQUEST_BODY` | optional | `true` to attach redacted request bodies |
-| `FRAPPE_LOG_LEVEL` | erpnext-config | Log export level |
+| `FRAPPE_LOG_LEVEL` | erpnext-config | Log export level, for web and for background jobs |
 
 | Site config key | Purpose |
 |---|---|
@@ -181,7 +181,9 @@ Adding an event:
 ## Graceful degradation
 
 - No recording span → `enrich_span` does nothing.
-- `OBSERVABILITY=off` → job hooks and `record_event` return at once.
+- `OBSERVABILITY` not `otel` → job hooks and `record_event` return at once.
+- OpenTelemetry setup fails in a gunicorn worker → the error is logged and the worker serves requests without traces.
+- A failed request to an unknown method or page → the span is named `/api/method/{unknown}` or `/{not_found}`, so scanners cannot create new routes.
 - Exporter unreachable → spans and logs are dropped after retries; requests and jobs are not affected.
 - `record_event` failures are logged and never raise.
 

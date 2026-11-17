@@ -42,6 +42,16 @@ _API_VERSION = re.compile(r"^v\d+$")
 _HEX_ID = re.compile(r"^[0-9a-f]{8,}$", re.IGNORECASE)
 
 
+def enabled() -> bool:
+	"""True only when this environment opted in with ``OBSERVABILITY=otel``.
+
+	Job spans and business events stay off everywhere else (local benches, CI,
+	an environment with no collector), so nothing waits on an unreachable
+	OTLP endpoint.
+	"""
+	return os.environ.get("OBSERVABILITY", "").strip().lower() == "otel"
+
+
 def _looks_like_id(segment: str) -> bool:
 	if _API_VERSION.match(segment):
 		return False
@@ -100,13 +110,18 @@ def init_providers() -> None:
 	logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
 	set_logger_provider(logger_provider)
 
-	level_name = os.environ.get("FRAPPE_LOG_LEVEL", "WARNING").upper()
 	_otel_log_handler = LoggingHandler(
-		level=getattr(logging, level_name, logging.WARNING), logger_provider=logger_provider
+		level=configured_log_level() or logging.WARNING, logger_provider=logger_provider
 	)
 	_attach_log_handler()
 
 	_providers_initialized = True
+
+
+def configured_log_level() -> int | None:
+	"""The level named by FRAPPE_LOG_LEVEL, or None when unset or not a level."""
+	level = getattr(logging, os.environ.get("FRAPPE_LOG_LEVEL", "").strip().upper(), None)
+	return level if isinstance(level, int) else None
 
 
 def flush(timeout_millis: int = 5000) -> None:
@@ -139,10 +154,7 @@ def _sampler():
 	)
 	from opentelemetry.trace import SpanKind
 
-	try:
-		ratio = float(os.environ.get("OTEL_TRACES_SAMPLER_ARG", "1.0"))
-	except ValueError:
-		ratio = 1.0
+	ratio = _sampling_ratio()
 
 	class _RootFilter(Sampler):
 		def __init__(self, delegate):
@@ -160,7 +172,27 @@ def _sampler():
 		def get_description(self):
 			return f"RootFilter({self._delegate.get_description()})"
 
-	return ParentBased(root=_RootFilter(TraceIdRatioBased(ratio)))
+	# A sampled flag on an incoming ``traceparent`` is not trusted: anyone on
+	# the internet can send one. Remote parents (Faro in the browser) go
+	# through the same ratio, which is decided from the trace id, so a trace
+	# is still kept or dropped as a whole.
+	return ParentBased(
+		root=_RootFilter(TraceIdRatioBased(ratio)),
+		remote_parent_sampled=TraceIdRatioBased(ratio),
+	)
+
+
+def _sampling_ratio() -> float:
+	"""OTEL_TRACES_SAMPLER_ARG as a fraction in [0, 1]; 1.0 when unset or invalid."""
+	raw = os.environ.get("OTEL_TRACES_SAMPLER_ARG", "1.0")
+	try:
+		ratio = float(raw)
+	except ValueError:
+		ratio = -1.0
+	if not 0.0 <= ratio <= 1.0:  # also false for NaN
+		_LOG.warning("Ignoring OTEL_TRACES_SAMPLER_ARG=%r: expected a number from 0 to 1", raw)
+		return 1.0
+	return ratio
 
 
 def shutdown() -> None:
@@ -296,6 +328,60 @@ def route_template(path: str) -> str:
 	return "/" + "/".join("{id}" if _looks_like_id(p) else p for p in parts)
 
 
+_METHOD_ROUTES = ("/api/method/", "/api/v2/method/")
+_NOT_FOUND_PREFIXES = ("api", "app", "files", "private")
+
+
+def bounded_route(route: str, status_code: int | None) -> str:
+	"""Collapse routes that only an unknown URL can produce.
+
+	The route is built from the URL, so a scanner asking for
+	``/api/method/<random>`` or ``/<random>`` would otherwise create one span
+	name (and one span-metrics series) per request. A request that did not
+	fail is a real route and is kept. A failed one is kept only when it names
+	a method this process has loaded.
+	"""
+	if status_code is None or status_code < 400:
+		return route
+
+	for prefix in _METHOD_ROUTES:
+		if route.startswith(prefix):
+			method = route[len(prefix) :]
+			known = _known_methods()
+			# Bare names (login, logout, upload_file) live in frappe.handler.
+			if method in known or f"frappe.handler.{method}" in known:
+				return route
+			return prefix + "{unknown}"
+
+	if status_code == 404:
+		first = route.strip("/").split("/", 1)[0]
+		return f"/{first}/{{not_found}}" if first in _NOT_FOUND_PREFIXES else "/{not_found}"
+	return route
+
+
+_known_methods_cache: tuple[int, frozenset] = (-1, frozenset())
+
+
+def _known_methods() -> frozenset:
+	"""Dotted paths of the whitelisted functions imported so far.
+
+	``frappe.whitelisted`` only grows (one entry per decorated function), so
+	its length tells when the cached set is stale.
+	"""
+	global _known_methods_cache
+	import frappe
+
+	whitelisted = getattr(frappe, "whitelisted", None) or ()
+	if len(whitelisted) != _known_methods_cache[0]:
+		names = frozenset(
+			f"{fn.__module__}.{fn.__name__}"
+			for fn in whitelisted
+			if getattr(fn, "__module__", None) and getattr(fn, "__name__", None)
+		)
+		_known_methods_cache = (len(whitelisted), names)
+	return _known_methods_cache[1]
+
+
 # ---------------------------------------------------------------- Frappe hook
 
 
@@ -320,13 +406,19 @@ def enrich_span(response, request) -> None:
 
 		form_dict = getattr(frappe.local, "form_dict", None) or {}
 		cmd = form_dict.get("cmd") if hasattr(form_dict, "get") else None
-		if cmd:
+		if cmd and isinstance(cmd, str):
 			# Old-style RPC posts to "/" with cmd in the body; name it like
 			# /api/method so both styles group together.
 			span.set_attribute("frappe.cmd", cmd)
 			route = f"/api/method/{cmd}"
-			span.set_attribute("http.route", route)
-			span.update_name(f"{getattr(request, 'method', 'POST')} {route}")
+		else:
+			route = route_template(getattr(request, "path", None) or "/")
+
+		# The route was first set from the URL alone (_request_hook). Now that
+		# the outcome is known, drop names that only a bad URL can produce.
+		route = bounded_route(route, getattr(response, "status_code", None))
+		span.set_attribute("http.route", route)
+		span.update_name(f"{getattr(request, 'method', 'GET')} {route}")
 
 		if os.environ.get("OTEL_CAPTURE_REQUEST_BODY", "").lower() in ("1", "true", "yes"):
 			from core.observability.request_logging import format_request_body

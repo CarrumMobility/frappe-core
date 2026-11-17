@@ -10,8 +10,7 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=16.0.0" # Installed and managed by bench.
     "boto3>=1.36",
-    "newrelic>=10.0,<11",  # New Relic Python APM agent
-    # OpenTelemetry (web process when OBSERVABILITY=otel; see core.wsgi_otel).
+    # OpenTelemetry: web (core.wsgi_otel), jobs (core.observability.otel_jobs).
     # Instrumentation packages are 0.x betas released in lockstep with the SDK:
     # SDK 1.45.1 pairs with contrib 0.66b1. Bump them together.
     "opentelemetry-sdk~=1.45.1",

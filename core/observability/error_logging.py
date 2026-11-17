@@ -17,8 +17,26 @@ import frappe
 _installed = False
 _original_log_error = None
 
-_EXCLUDE_EXCEPTIONS = None
+# Frappe v15 lists the exception types that never reach Error Log in
+# ``frappe.utils.error.EXCLUDE_EXCEPTIONS``. Frappe v16.53 removed that tuple
+# (frappe/frappe#40610) and marks those classes with ``skip_error_log = True``
+# instead. Both shapes are honoured so this shim loads on either version.
+_EXCLUDE_EXCEPTIONS: tuple[type[BaseException], ...] = ()
 _is_ldap_exception = None
+
+
+def _exclude_exceptions_from(error_module) -> tuple[type[BaseException], ...]:
+	"""Return Frappe's excluded exception types, or ``()`` on versions without the tuple."""
+	return tuple(getattr(error_module, "EXCLUDE_EXCEPTIONS", None) or ())
+
+
+def _should_skip_snapshot(exception: BaseException) -> bool:
+	"""Mirror the exclusion check in ``frappe.utils.error.log_error_snapshot`` on v15 and v16."""
+	if getattr(exception, "skip_error_log", False):
+		return True
+	if _EXCLUDE_EXCEPTIONS and isinstance(exception, _EXCLUDE_EXCEPTIONS):
+		return True
+	return bool(_is_ldap_exception is not None and _is_ldap_exception(exception))
 
 
 def _error_logger() -> logging.Logger:
@@ -113,7 +131,7 @@ def _patched_log_error(
 
 
 def _patched_log_error_snapshot(exception: Exception) -> None:
-	if isinstance(exception, _EXCLUDE_EXCEPTIONS) or _is_ldap_exception(exception):
+	if _should_skip_snapshot(exception):
 		return
 
 	logger = _error_logger()
@@ -142,7 +160,7 @@ def install_error_logging_for_newrelic() -> None:
 	from frappe.utils import error as error_module
 
 	_original_log_error = error_module.log_error
-	_EXCLUDE_EXCEPTIONS = error_module.EXCLUDE_EXCEPTIONS
+	_EXCLUDE_EXCEPTIONS = _exclude_exceptions_from(error_module)
 	_is_ldap_exception = error_module._is_ldap_exception
 
 	error_module.log_error = _patched_log_error

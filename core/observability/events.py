@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
 import frappe
 
@@ -21,10 +20,12 @@ _LOG = logging.getLogger(__name__)
 
 
 def record_event(event_type: str, attributes: dict | None = None) -> None:
-	if os.environ.get("OBSERVABILITY", "otel").lower() == "off":
-		return
-
 	try:
+		from core.observability import otel
+
+		if not otel.enabled():
+			return
+
 		from opentelemetry._logs import LogRecord, SeverityNumber, get_logger
 
 		params: dict = {"event.name": event_type}

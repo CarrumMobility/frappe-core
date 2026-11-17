@@ -226,7 +226,7 @@ override_whitelisted_methods = {
 
 # Job Events
 # ----------
-# OpenTelemetry span per background job (off with OBSERVABILITY=off).
+# OpenTelemetry span per background job (only with OBSERVABILITY=otel).
 before_job = ["core.observability.otel_jobs.before_job"]
 after_job = ["core.observability.otel_jobs.after_job"]
 

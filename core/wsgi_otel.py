@@ -20,7 +20,7 @@ from core.observability.logging import install_log_compat
 install_log_compat()
 install_error_logging()
 
-# Patch PyMySQL, Redis, requests, botocore and logging before Frappe imports
+# Patch MySQL drivers, Redis, requests, botocore and logging before Frappe imports
 # them, so every worker inherits the patches through the fork.
 otel.instrument_libraries()
 

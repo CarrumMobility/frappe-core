@@ -1,7 +1,7 @@
 import frappe
 
 from core.constants.enums import EnumValues
-from core.observability.newrelic import record_custom_event
+from core.observability.events import record_event
 
 _MAX_LEADS_PER_REQUEST = 100
 
@@ -25,7 +25,7 @@ def track_lead_views(lead_ids, view_type="list", route_name=None):
         if not lead_id:
             continue
 
-        record_custom_event(
+        record_event(
             EnumValues.CrmEventTypes.CrmLeadViewed,
             {
                 "frappe.user": user,

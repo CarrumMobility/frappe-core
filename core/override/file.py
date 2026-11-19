@@ -7,6 +7,7 @@ from frappe import _
 from frappe.core.doctype.file.file import File as FrappeFile
 from frappe.utils import cint
 
+from core.file_storage import FileStorageType, get_file_storage_type
 from core.s3_file_storage import (
 	file_uses_s3,
 	s3_enabled,
@@ -20,6 +21,12 @@ if TYPE_CHECKING:
 
 
 class File(FrappeFile):
+	def _selected_cloud_backend(self):
+		storage_type = get_file_storage_type()
+		if storage_type == FileStorageType.S3 and s3_enabled() and file_uses_s3(self):
+			return "S3"
+		return None
+
 	def set_is_private(self):
 		# Frappe derives privacy from a /private file_url; S3 prefix URLs never start with that,
 		# so read it from the object key ({site}/private/files/... vs {site}/files/...).
@@ -29,19 +36,19 @@ class File(FrappeFile):
 		super().set_is_private()
 
 	def validate_file_path(self):
-		if s3_enabled() and file_uses_s3(self):
+		if self._selected_cloud_backend():
 			return
 		super().validate_file_path()
 
 	def validate_file_on_disk(self):
-		if s3_enabled() and file_uses_s3(self):
+		if self._selected_cloud_backend():
 			if not s3_head_exists(self):
 				frappe.throw(_("File {0} does not exist").format(self.file_url), IOError)
 			return
 		super().validate_file_on_disk()
 
 	def exists_on_disk(self):
-		if s3_enabled() and file_uses_s3(self):
+		if self._selected_cloud_backend() == "S3":
 			return s3_head_exists(self)
 		return super().exists_on_disk()
 
@@ -52,7 +59,7 @@ class File(FrappeFile):
 		if self.get("content"):
 			return super().get_content()
 
-		if s3_enabled() and file_uses_s3(self):
+		if self._selected_cloud_backend() == "S3":
 			if self.file_url:
 				self.validate_file_url()
 			raw = s3_get_bytes(self)

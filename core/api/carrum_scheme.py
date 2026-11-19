@@ -1,6 +1,7 @@
 import frappe
 
 # from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
+from core.api.carrum_accounts import fetch_carrum_user_data_using_frappe_username
 from core.services import logged_requests as re
 from core.services.util_service import UtilService
 

@@ -8,7 +8,7 @@ Gunicorn runs with ``--preload``: the app is imported once in the master and
 then forked. Export threads do not survive a fork, so setup is split in two:
 
 - ``instrument_libraries()`` runs in the master at import time. It only
-  patches libraries (PyMySQL, Redis, requests, botocore, logging); the patches
+  patches libraries (mysqlclient, PyMySQL, Redis, requests, botocore, logging); the patches
   look up the tracer provider lazily on every call.
 - ``init_providers()`` runs in each worker after the fork
   (``core.observability.otel_gunicorn.post_fork``) and installs the tracer and
@@ -67,13 +67,24 @@ def instrument_libraries() -> None:
 	if _libraries_instrumented:
 		return
 
+	from importlib.util import find_spec
+
 	from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 	from opentelemetry.instrumentation.logging import LoggingInstrumentor
-	from opentelemetry.instrumentation.pymysql import PyMySQLInstrumentor
 	from opentelemetry.instrumentation.redis import RedisInstrumentor
 	from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-	PyMySQLInstrumentor().instrument()
+	# Frappe v16 connects with mysqlclient by default (use_mysqlclient=1);
+	# v15 and use_mysqlclient=0 use PyMySQL. Patch whichever is installed:
+	# the mysqlclient instrumentation fails to import without MySQLdb.
+	if find_spec("MySQLdb"):
+		from opentelemetry.instrumentation.mysqlclient import MySQLClientInstrumentor
+
+		MySQLClientInstrumentor().instrument()
+	if find_spec("pymysql"):
+		from opentelemetry.instrumentation.pymysql import PyMySQLInstrumentor
+
+		PyMySQLInstrumentor().instrument()
 	RedisInstrumentor().instrument()
 	RequestsInstrumentor().instrument()
 	BotocoreInstrumentor().instrument()
@@ -289,7 +300,11 @@ def wrap_wsgi(app):
 def _request_hook(span, environ) -> None:
 	if not span.is_recording():
 		return
-	route = route_template(environ.get("PATH_INFO") or "/")
+	path = environ.get("PATH_INFO") or "/"
+	# The middleware records the query string in http.target; filters and
+	# search terms can carry personal data, so keep the path only.
+	span.set_attribute("http.target", path)
+	route = route_template(path)
 	span.set_attribute("http.route", route)
 	span.update_name(f"{environ.get('REQUEST_METHOD', 'GET')} {route}")
 

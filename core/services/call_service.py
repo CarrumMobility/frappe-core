@@ -2821,11 +2821,11 @@ class CallService:
                     ),
                 )
 
-                if crm_lead_status_record.get("is_callback") and schedule_timestamp is not None:
+                if crm_lead_status_record.get("is_callback") and callback_dt:
                     util_service.create_event_for_callback(
                         lead_id=row.get("lead"),
                         call_session_id=row.name,
-                        callback_datetime=schedule_timestamp,
+                        callback_datetime=callback_dt,
                         callback_comments=disposition_remarks,
                         remind_before_minutes=10,
                         expected_call_duration_minutes=10,
@@ -2835,7 +2835,7 @@ class CallService:
                         owner=row.get("agent"),
                     )
 
-                if crm_lead_status_record.get("is_visit_date_required") and schedule_timestamp is not None:
+                if crm_lead_status_record.get("is_visit_date_required") and callback_dt:
                     util_service.create_event_for_visit_date(
                         lead_id=row.get("lead"),
                         scheduled_visit_date=schedule_timestamp,

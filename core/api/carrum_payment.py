@@ -299,7 +299,15 @@ def _resolve_account_creator_id(portal_user_id=None, body=None):
         return str(portal_user_id).strip()
 
     carrum_user = fetch_carrum_user_data_using_frappe_username(frappe.session.user)
-    return carrum_user.get("id") if carrum_user is not None else None
+    
+    if not isinstance(carrum_user, dict):
+        return None
+    # Prefer the legacy account id when Carrum provides one; else the user id as-is.
+    context = carrum_user.get("context")
+    legacy_id = context.get("legacyAccountId") if isinstance(context, dict) else None
+    if legacy_id is not None and str(legacy_id).strip():
+        return str(legacy_id).strip()
+    return carrum_user.get("id")
 
 
 @frappe.whitelist()
